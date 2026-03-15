@@ -27,7 +27,7 @@ def _x_ppc(o):        return {"ppc_playbook": o}
 AGENTS: list[AgentConfig] = [
 
     AgentConfig("prospector", "Prospector", "Lead Intelligence", "◎",
-        tool_categories=["prospecting", "web"], tier=Tier.STANDARD, max_iterations=20,
+        tool_categories=["prospecting", "web", "crm"], tier=Tier.STANDARD, max_iterations=20,
         system_prompt_builder=lambda m: f"""You are a senior B2B lead researcher with real tools.
 {m.to_context_string()}
 
@@ -46,7 +46,7 @@ FORMAT per prospect:
         memory_extractor=_x_prospects),
 
     AgentConfig("outreach", "Outreach", "Sales Automation", "◈",
-        tool_categories=["web"], tier=Tier.STANDARD, max_iterations=10,
+        tool_categories=["web", "email", "voice", "crm"], tier=Tier.STANDARD, max_iterations=10,
         system_prompt_builder=lambda m: f"""You are a world-class B2B cold email strategist.
 {m.to_context_string()}
 PROSPECT INTEL: {m.prospects[:3000] if m.prospects else "No prospects yet — write templates."}
@@ -56,7 +56,7 @@ FORMAT: ## EMAIL 1-3 (Day 1/4/10) with Subject + body. ## LINKEDIN NOTE under 28
         memory_extractor=_x_outreach),
 
     AgentConfig("content", "Content", "SEO & Authority", "◇",
-        tool_categories=["web"], tier=Tier.STANDARD, max_iterations=10,
+        tool_categories=["web", "seo", "content"], tier=Tier.STANDARD, max_iterations=10,
         system_prompt_builder=lambda m: f"""You are a senior SEO content strategist.
 {m.to_context_string()}
 Use web_search for keyword research and web_scrape to analyze top-ranking competitors.
@@ -65,7 +65,7 @@ FORMAT: ## PILLAR: [Title] with keyword/intent/outline/3 opening paragraphs. ## 
         memory_extractor=_x_content),
 
     AgentConfig("social", "Social", "Audience Growth", "⬡",
-        tool_categories=["web"], tier=Tier.FAST, max_iterations=5,
+        tool_categories=["web", "social", "content"], tier=Tier.FAST, max_iterations=5,
         system_prompt_builder=lambda m: f"""You are a B2B social strategist for agency founders.
 {m.to_context_string()}
 RULES: Sound like a real founder. Vary: insight/hot take/story/question/list. LinkedIn multi-paragraph + question. X under 280 chars.
@@ -74,7 +74,7 @@ FORMAT: ## DAY [1-7] with **LinkedIn:** and **X:** posts.""",
         memory_extractor=_x_social),
 
     AgentConfig("ads", "Ads", "Paid Acquisition", "◆",
-        tool_categories=["web"], tier=Tier.STANDARD, max_iterations=8,
+        tool_categories=["web", "ads", "content"], tier=Tier.STANDARD, max_iterations=8,
         system_prompt_builder=lambda m: f"""You are a B2B performance marketing expert.
 {m.to_context_string()}
 Use web_search to research competitor ads. Headlines = outcome. Primary text = pain. Google headlines ≤30 chars.
@@ -83,7 +83,7 @@ FORMAT: ## META ADS (3 variants) ## GOOGLE SEARCH ADS (2 ads) ## LANDING PAGE (h
         memory_extractor=_x_ads),
 
     AgentConfig("cs", "Client Success", "Retention & Ops", "◉",
-        tool_categories=[], tier=Tier.STANDARD, max_iterations=5,
+        tool_categories=["messaging", "reporting", "crm", "calendar"], tier=Tier.STANDARD, max_iterations=5,
         system_prompt_builder=lambda m: f"""You are a premium client success manager.
 {m.to_context_string()}
 FORMAT: ## ONBOARDING SEQUENCE (Day 1/3/7/14/30) ## CHURN PREVENTION ## MONTHLY REPORT TEMPLATE ## CAMPAIGN EXECUTIVE SUMMARY.""",
@@ -91,7 +91,7 @@ FORMAT: ## ONBOARDING SEQUENCE (Day 1/3/7/14/30) ## CHURN PREVENTION ## MONTHLY 
         memory_extractor=_x_cs),
 
     AgentConfig("sitelaunch", "Site Launch", "Domain · Build · Deploy", "◈",
-        tool_categories=["web"], tier=Tier.STANDARD, max_iterations=12,
+        tool_categories=["web", "deployment", "content", "design"], tier=Tier.STANDARD, max_iterations=12,
         system_prompt_builder=lambda m: f"""You are a senior web strategist and conversion architect.
 {m.to_context_string()}
 Use web_search for domain availability and competitor analysis. Use web_scrape on competitor sites.
@@ -100,7 +100,7 @@ DELIVERABLES: 1) Domain recs (3) 2) Site architecture 3) Hero copy 4) SEO meta 5
         memory_extractor=_x_site),
 
     AgentConfig("legal", "Legal", "Compliance & Contracts", "⬗",
-        tool_categories=["web"], tier=Tier.STANDARD, max_iterations=8,
+        tool_categories=["web", "legal"], tier=Tier.STANDARD, max_iterations=8,
         system_prompt_builder=lambda m: f"""You are a business attorney specializing in agency/SaaS ops.
 {m.to_context_string()}
 Use web_search for regulatory requirements. Guidance only — not legal advice. Flag items needing real attorney.
@@ -109,7 +109,7 @@ FORMAT: ## ENTITY STRUCTURE ## REQUIRED DOCUMENTS ## TOS KEY CLAUSES ## PRIVACY 
         memory_extractor=_x_legal),
 
     AgentConfig("marketing_expert", "Marketing Expert", "Strategy & Positioning", "◐",
-        tool_categories=["web"], tier=Tier.STANDARD, max_iterations=12,
+        tool_categories=["web", "research"], tier=Tier.STANDARD, max_iterations=12,
         system_prompt_builder=lambda m: f"""You are a senior GTM strategist.
 {m.to_context_string()}
 Use web_search for competitors and trends. Use web_scrape on competitor sites.
@@ -118,7 +118,7 @@ FORMAT: ## POSITIONING STATEMENT ## COMPETITIVE LANDSCAPE (3 competitors) ## DIF
         memory_extractor=_x_gtm),
 
     AgentConfig("procurement", "Procurement", "Tool & Spend Tracking", "◑",
-        tool_categories=["web"], tier=Tier.FAST, max_iterations=8,
+        tool_categories=["web", "procurement"], tier=Tier.FAST, max_iterations=8,
         system_prompt_builder=lambda m: f"""You are an ops expert who optimizes agency tool stacks.
 {m.to_context_string()}
 Use web_search for current pricing. Only recommend tools enabling {m.business.service}.
@@ -127,7 +127,7 @@ FORMAT: ## TOOL STACK (by category) ## MONTHLY BUDGET ## FREE ALTERNATIVES ## TO
         memory_extractor=_x_procurement),
 
     AgentConfig("newsletter", "Newsletter", "Email Campaigns", "◌",
-        tool_categories=["web"], tier=Tier.STANDARD, max_iterations=8,
+        tool_categories=["web", "newsletter", "email"], tier=Tier.STANDARD, max_iterations=8,
         system_prompt_builder=lambda m: f"""You are an email marketing strategist for B2B agencies.
 {m.to_context_string()}
 Every email has ONE job. Welcome sequence builds trust before asking.
@@ -136,7 +136,7 @@ FORMAT: ## EMAIL STRATEGY ## LEAD MAGNET CONCEPT ## WELCOME SEQUENCE (5 emails) 
         memory_extractor=_x_newsletter),
 
     AgentConfig("ppc", "PPC Manager", "Ongoing Ad Optimization", "◍",
-        tool_categories=["web"], tier=Tier.STANDARD, max_iterations=8,
+        tool_categories=["web", "ads", "analytics", "seo"], tier=Tier.STANDARD, max_iterations=8,
         system_prompt_builder=lambda m: f"""You are a PPC specialist for B2B agencies.
 {m.to_context_string()}
 AD PACKAGE: {"available" if m.ad_package else "pending"}
@@ -182,7 +182,7 @@ OUTPUT FORMAT (when concluding):
         memory_extractor=lambda o: {"brand_context": o}),
 
     AgentConfig("design", "Design Director", "Brand System & Visual QA", "◈",
-        tool_categories=["web"], tier=Tier.STANDARD, max_iterations=10,
+        tool_categories=["web", "design", "content"], tier=Tier.STANDARD, max_iterations=10,
         system_prompt_builder=lambda m: f"""You are a senior creative director with 15 years at top agencies.
 {m.to_context_string()}
 
@@ -234,7 +234,7 @@ Output as structured sections so other agents can consume it programmatically.""
         memory_extractor=lambda o: {"brand_context": o}),
 
     AgentConfig("supervisor", "Supervisor", "Chief Operating Officer", "◎",
-        tool_categories=["web", "memory", "prospecting"], tier=Tier.STRONG, max_iterations=25,
+        tool_categories=["web", "memory", "prospecting", "supervisor", "messaging", "analytics"], tier=Tier.STRONG, max_iterations=25,
         system_prompt_builder=lambda m: f"""You are the COO of an autonomous marketing agency. You oversee 12+ specialist agents.
 {m.to_context_string()}
 
