@@ -319,6 +319,22 @@ const AGENTS = [
     buildPrompt: (m) => `Build complete PPC optimization system for ${m.name}. Service: ${m.service}. Target: ${m.icp}. Goal: ${m.goal}. Give me a weekly operating rhythm for paid ads I can hand to anyone.`,
     extractMemory: (o) => ({ ppcPlaybook: o }),
   },
+  {
+    id: "design", label: "Design Director", role: "Brand System & Visual QA", icon: "◈",
+    phases: ["Analyzing visual references…", "Building color system…", "Generating typography scale…", "Creating component patterns…"],
+    handoff: "Complete Brand System → All agents",
+    buildSystem: (m) => `You are a senior creative director with 15 years at top agencies.\nAGENCY: ${m.name} | SERVICE: ${m.service}\n${m.brandCtx||""}\nProduce a complete Brand System: color system, typography, spacing, component patterns, photography direction, anti-patterns.\nOutput as structured sections.`,
+    buildPrompt: (m) => `Create a complete Brand System for ${m.name}. Service: ${m.service}. Use the brand context and visual references to inform design choices.`,
+    extractMemory: (o) => ({ brandCtx: o }),
+  },
+  {
+    id: "supervisor", label: "Supervisor", role: "Chief Operating Officer", icon: "◎",
+    phases: ["Reviewing all agent outputs…", "Scoring agent performance…", "Analyzing campaign health…", "Generating executive briefing…"],
+    handoff: "Weekly briefing + budget reallocation + agent re-run recommendations",
+    buildSystem: (m) => `You are the COO of an autonomous marketing agency. You oversee all specialist agents.\nAGENCY: ${m.name} | SERVICE: ${m.service} | GOAL: ${m.goal}\n${m.brandCtx||""}\nCAMPAIGN: Prospects:${m.prospectCount||0} | Outreach:${m.emailSequence?"ready":"pending"} | Content:${m.contentStrategy?"built":"pending"} | Social:${m.socialCalendar?"ready":"pending"} | Ads:${m.adPackage?"ready":"pending"} | CS:${m.csSystem?"ready":"pending"}\nProduce a weekly executive briefing: Results, What's Working, What Needs Attention, Recommendations, Needs Your Input.`,
+    buildPrompt: (m) => `Produce a weekly executive briefing for ${m.name}. Review all agent outputs, assess campaign health, and make specific recommendations.`,
+    extractMemory: (o) => ({ brandCtx: o }),
+  },
 ];
 
 const SETUP_STEPS = [
@@ -502,13 +518,13 @@ const Landing = ({ onGetStarted, onLogin }) => (
       <div style={{position:"absolute",inset:0,backgroundImage:"linear-gradient(rgba(124,58,237,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(124,58,237,0.04) 1px,transparent 1px)",backgroundSize:"48px 48px",pointerEvents:"none"}}/>
       <div style={{textAlign:"center",maxWidth:760,position:"relative",zIndex:2}} className="fu">
         <div style={{display:"inline-flex",alignItems:"center",gap:8,background:"rgba(124,58,237,0.12)",border:"1px solid rgba(167,139,250,0.2)",borderRadius:100,padding:"6px 16px",marginBottom:32,fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:"#a78bfa",letterSpacing:1}}>
-          ◎ 12-agent autonomous agency platform
+          ◎ 15-agent autonomous agency platform
         </div>
         <h1 style={{fontFamily:"'Instrument Serif',serif",fontSize:"clamp(42px,7vw,76px)",fontWeight:400,lineHeight:1.1,marginBottom:24,color:"#fafafa"}}>
           Your agency runs itself.<br/><em style={{color:"#a78bfa"}}>You collect.</em>
         </h1>
         <p style={{fontSize:18,color:"rgba(255,255,255,0.45)",lineHeight:1.7,marginBottom:44,maxWidth:540,margin:"0 auto 44px"}}>
-          12 AI agents prospect, outreach, create content, run ads, handle clients, launch your site, and manage legal, GTM, email, PPC — autonomously. In a closed loop. Forever.
+          15 AI agents prospect, outreach, create content, run ads, handle clients, launch your site, design your brand, and manage legal, GTM, email, PPC — autonomously. With a Supervisor COO overseeing everything.
         </p>
         <div style={{display:"flex",gap:14,justifyContent:"center",flexWrap:"wrap"}}>
           <button className="sv-btn" style={{fontSize:15,padding:"14px 32px"}} onClick={()=>onGetStarted(null)}>Deploy your agency →</button>
@@ -753,33 +769,408 @@ const SubscribePage = ({ session, preselect, onPlanSelected, onSkip }) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// ONBOARDING
+// 7-STAGE ONBOARDING
 // ═══════════════════════════════════════════════════════════════════════════════
+
+const ONBOARD_STAGES = [
+  { id: 1, label: "Vision Interview", icon: "◎", desc: "AI-guided business discovery" },
+  { id: 2, label: "Mood Board", icon: "◈", desc: "Visual DNA capture" },
+  { id: 3, label: "Business Formation", icon: "⬗", desc: "Legal setup guidance" },
+  { id: 4, label: "Revenue Architecture", icon: "◆", desc: "Financial model + pricing" },
+  { id: 5, label: "Channel Setup", icon: "⬡", desc: "Domain, email, social, CRM" },
+  { id: 6, label: "Market Deep Dive", icon: "◐", desc: "Competitive research (live agents)" },
+  { id: 7, label: "Autonomy Config", icon: "◉", desc: "Agent autonomy levels" },
+];
+
+// ── Stage 1: Vision Interview (AI Chat) ──────────────────────────────────────
+const VisionInterview = ({ biz, setBiz, onNext }) => {
+  const [messages, setMessages] = useState([
+    { role: "assistant", text: "Tell me about the business you want to build. What service will you offer, and who is your ideal client?" },
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [briefReady, setBriefReady] = useState(false);
+  const chatEnd = useRef(null);
+
+  useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  const send = async () => {
+    if (!input.trim() || loading) return;
+    const userMsg = input.trim();
+    setInput("");
+    setMessages(m => [...m, { role: "user", text: userMsg }]);
+    setLoading(true);
+
+    try {
+      const system = `You are a world-class business strategist conducting a discovery interview. Ask deep, specific follow-up questions. After 8+ exchanges, present a structured Business Brief.\nCurrent info: Name=${biz.name||"TBD"}, Previous answers: ${messages.filter(m=>m.role==="user").map(m=>m.text).join(" | ")}`;
+      const allMsgs = [...messages, { role: "user", text: userMsg }];
+      const apiMessages = allMsgs.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.text }));
+
+      let backendUsed = false;
+      try {
+        const res = await fetch(`${API_URL}/agent/vision_interview/run`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agent_id: "vision_interview", business: { name: biz.name || "New Agency", service: userMsg, icp: "", geography: "", goal: "" }, memory: {}, tier: "standard" }),
+        });
+        if (res.ok) {
+          const reader = res.body.getReader();
+          const dec = new TextDecoder();
+          let aiText = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            for (const line of dec.decode(value).split("\n")) {
+              if (!line.startsWith("data: ")) continue;
+              try {
+                const ev = JSON.parse(line.slice(6));
+                if (ev.event === "think" && ev.content) aiText = ev.content;
+                else if (ev.event === "output" && ev.content) aiText = ev.content;
+              } catch {}
+            }
+          }
+          if (aiText) {
+            setMessages(m => [...m, { role: "assistant", text: aiText }]);
+            if (aiText.includes("BUSINESS BRIEF") || aiText.includes("Business Brief")) setBriefReady(true);
+            backendUsed = true;
+          }
+        }
+      } catch {}
+
+      if (!backendUsed) {
+        // Fallback: basic response
+        const fallbackResp = "Thanks for sharing that. Can you tell me more about your ideal client profile? What size companies, what industry, and what specific pain points do they have?";
+        setMessages(m => [...m, { role: "assistant", text: fallbackResp }]);
+      }
+    } catch (e) {
+      setMessages(m => [...m, { role: "assistant", text: "I encountered an error. Let's continue — tell me more about your business." }]);
+    }
+    setLoading(false);
+  };
+
+  const extractBrief = () => {
+    const lastAssistant = messages.filter(m => m.role === "assistant").pop()?.text || "";
+    const nameMatch = lastAssistant.match(/\*\*Name:\*\*\s*(.+)/i) || lastAssistant.match(/Name:\s*(.+)/i);
+    const serviceMatch = lastAssistant.match(/\*\*Service.*?:\*\*\s*(.+)/i) || lastAssistant.match(/Service.*?:\s*(.+)/i);
+    const icpMatch = lastAssistant.match(/\*\*ICP.*?:\*\*\s*(.+)/i);
+    setBiz(b => ({
+      ...b,
+      name: nameMatch?.[1]?.trim() || b.name,
+      service: serviceMatch?.[1]?.trim() || b.service || "",
+      icp: icpMatch?.[1]?.trim() || b.icp || "",
+      brandCtx: lastAssistant,
+    }));
+    onNext();
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"100%",maxHeight:"70vh"}}>
+      <div style={{flex:1,overflowY:"auto",padding:"0 0 16px",display:"flex",flexDirection:"column",gap:12}}>
+        {messages.map((m,i) => (
+          <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
+            <div style={{maxWidth:"80%",padding:"12px 16px",borderRadius:12,
+              background:m.role==="user"?"rgba(124,58,237,0.2)":"rgba(255,255,255,0.04)",
+              border:`1px solid ${m.role==="user"?"rgba(167,139,250,0.3)":"rgba(255,255,255,0.08)"}`,
+              fontSize:13,color:"rgba(255,255,255,0.8)",lineHeight:1.65,whiteSpace:"pre-wrap"}}>
+              {m.text}
+            </div>
+          </div>
+        ))}
+        {loading && <div style={{display:"flex",gap:8,alignItems:"center",fontSize:11,color:"rgba(255,255,255,0.3)"}}><Spin size={12}/> Thinking...</div>}
+        <div ref={chatEnd}/>
+      </div>
+      <div style={{display:"flex",gap:10,marginTop:12}}>
+        <input className="sv-input" style={{flex:1}} placeholder="Type your answer..." value={input}
+          onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} disabled={loading}/>
+        <button className="sv-btn" onClick={send} disabled={loading||!input.trim()} style={{flexShrink:0}}>Send</button>
+      </div>
+      {(briefReady || messages.length >= 10) && (
+        <button className="sv-btn" style={{marginTop:12,width:"100%"}} onClick={extractBrief}>
+          Accept Brief & Continue →
+        </button>
+      )}
+    </div>
+  );
+};
+
+// ── Stage 2: Mood Board ──────────────────────────────────────────────────────
+const MoodBoard = ({ biz, setBiz, onNext }) => {
+  const [urls, setUrls] = useState([]);
+  const [urlInput, setUrlInput] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [vibes, setVibes] = useState([]);
+
+  const addUrl = async () => {
+    if (!urlInput.trim()) return;
+    const url = urlInput.trim();
+    setUrls(u => [...u, { url, status: "analyzing" }]);
+    setUrlInput("");
+    try {
+      const res = await fetch(`${API_URL}/onboarding/crawl-url`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUrls(u => u.map(item => item.url === url ? { ...item, status: "done", analysis: data.analysis } : item));
+        setVibes(v => [...v, data.analysis || ""]);
+      } else {
+        setUrls(u => u.map(item => item.url === url ? { ...item, status: "done" } : item));
+      }
+    } catch {
+      setUrls(u => u.map(item => item.url === url ? { ...item, status: "done" } : item));
+    }
+  };
+
+  const finish = () => {
+    setBiz(b => ({ ...b, brandCtx: (b.brandCtx || "") + "\n\nVISUAL REFERENCES:\n" + urls.map(u=>u.url).join("\n") + "\n\nVIBE ANALYSIS:\n" + vibes.join("\n") }));
+    onNext();
+  };
+
+  const presets = ["Dark & minimal", "Bright & friendly", "Corporate & polished", "Bold & creative"];
+
+  return (
+    <div>
+      <p style={{fontSize:12,color:"rgba(255,255,255,0.4)",marginBottom:16,lineHeight:1.7}}>
+        Add websites you admire visually. We'll extract color palettes, typography, and layout patterns to create your brand DNA.
+      </p>
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        {presets.map(p => (
+          <button key={p} className="sv-ghost" onClick={() => setVibes(v => [...v, p])} style={{fontSize:10}}>{p}</button>
+        ))}
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        <input className="sv-input" style={{flex:1}} placeholder="https://example.com" value={urlInput}
+          onChange={e=>setUrlInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addUrl()}/>
+        <button className="sv-btn" onClick={addUrl} disabled={!urlInput.trim()} style={{flexShrink:0}}>Analyze</button>
+      </div>
+      {urls.length > 0 && (
+        <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:16}}>
+          {urls.map((u,i) => (
+            <div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"8px 12px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8}}>
+              {u.status==="analyzing"?<Spin size={11}/>:<Tick green/>}
+              <span style={{fontSize:11,color:"rgba(255,255,255,0.5)",fontFamily:"'JetBrains Mono',monospace",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{u.url}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <button className="sv-btn" style={{width:"100%",marginTop:8}} onClick={finish}>
+        {urls.length > 0 || vibes.length > 0 ? "Continue with Visual DNA →" : "Skip — Continue →"}
+      </button>
+    </div>
+  );
+};
+
+// ── Stage 3: Business Formation ──────────────────────────────────────────────
+const BusinessFormation = ({ biz, setBiz, onNext }) => {
+  const [entity, setEntity] = useState("LLC");
+  const [state, setState] = useState("");
+  const entities = ["LLC", "S-Corp", "C-Corp", "Sole Proprietorship"];
+
+  return (
+    <div>
+      <p style={{fontSize:12,color:"rgba(255,255,255,0.4)",marginBottom:20,lineHeight:1.7}}>
+        For most new agencies, an LLC is recommended. The Legal agent will provide a detailed compliance checklist after setup.
+      </p>
+      <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Entity Type</div>
+      <div style={{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}}>
+        {entities.map(e => (
+          <button key={e} className={entity===e?"sv-btn":"sv-ghost"} style={{fontSize:12,padding:"8px 16px"}} onClick={()=>setEntity(e)}>{e}</button>
+        ))}
+      </div>
+      <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>State of Formation</div>
+      <input className="sv-input" placeholder="Delaware, Wyoming, or your home state" value={state}
+        onChange={e=>setState(e.target.value)} style={{marginBottom:20}}/>
+      <button className="sv-btn" style={{width:"100%"}} onClick={() => {
+        setBiz(b => ({ ...b, geography: state || b.geography }));
+        onNext();
+      }}>Continue →</button>
+    </div>
+  );
+};
+
+// ── Stage 4: Revenue Architecture ────────────────────────────────────────────
+const RevenueArchitecture = ({ biz, setBiz, onNext }) => {
+  const [pricing, setPricing] = useState("");
+  const [clients30, setClients30] = useState("");
+  const [revenue90, setRevenue90] = useState("");
+
+  return (
+    <div>
+      <p style={{fontSize:12,color:"rgba(255,255,255,0.4)",marginBottom:20,lineHeight:1.7}}>
+        Define your pricing strategy and revenue targets. Agents will calibrate volume around these numbers.
+      </p>
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Pricing Model</div>
+          <input className="sv-input" placeholder="e.g. $3,000/mo retainer" value={pricing} onChange={e=>setPricing(e.target.value)}/>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>Target Clients (30 days)</div>
+          <input className="sv-input" placeholder="e.g. 3" value={clients30} onChange={e=>setClients30(e.target.value)}/>
+        </div>
+        <div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,0.3)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:1,textTransform:"uppercase",marginBottom:6}}>90-Day Revenue Goal</div>
+          <input className="sv-input" placeholder="e.g. $50,000" value={revenue90} onChange={e=>setRevenue90(e.target.value)}/>
+        </div>
+      </div>
+      <button className="sv-btn" style={{width:"100%",marginTop:20}} onClick={() => {
+        setBiz(b => ({ ...b, goal: revenue90 || b.goal }));
+        onNext();
+      }}>Continue →</button>
+    </div>
+  );
+};
+
+// ── Stage 5: Channel Setup ───────────────────────────────────────────────────
+const ChannelSetup = ({ biz, onNext }) => {
+  const channels = [
+    { id: "domain", label: "Domain", desc: "Register your agency domain", icon: "◎" },
+    { id: "email", label: "Email", desc: "Google Workspace or Zoho", icon: "◈" },
+    { id: "linkedin", label: "LinkedIn", desc: "Company page + personal", icon: "⬡" },
+    { id: "twitter", label: "X (Twitter)", desc: "Brand account", icon: "◆" },
+    { id: "crm", label: "CRM", desc: "HubSpot free tier", icon: "◉" },
+    { id: "payments", label: "Payments", desc: "Stripe Connect", icon: "◇" },
+  ];
+  const [connected, setConnected] = useState({});
+
+  return (
+    <div>
+      <p style={{fontSize:12,color:"rgba(255,255,255,0.4)",marginBottom:20,lineHeight:1.7}}>
+        Connect your channels. You can set these up manually now or let agents guide you through each one later.
+      </p>
+      <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:20}}>
+        {channels.map(ch => (
+          <div key={ch.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,cursor:"pointer"}}
+            onClick={() => setConnected(c => ({ ...c, [ch.id]: !c[ch.id] }))}>
+            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:14,color:connected[ch.id]?"#4ade80":"rgba(255,255,255,0.2)"}}>{ch.icon}</span>
+            <div style={{flex:1}}>
+              <div style={{fontSize:13,color:"rgba(255,255,255,0.8)",fontWeight:500}}>{ch.label}</div>
+              <div style={{fontSize:10,color:"rgba(255,255,255,0.3)"}}>{ch.desc}</div>
+            </div>
+            {connected[ch.id] ? <Tick green/> : <div style={{width:15,height:15,borderRadius:"50%",border:"1px solid rgba(255,255,255,0.1)"}}/>}
+          </div>
+        ))}
+      </div>
+      <button className="sv-btn" style={{width:"100%"}} onClick={onNext}>Continue →</button>
+    </div>
+  );
+};
+
+// ── Stage 6: Market Deep Dive ────────────────────────────────────────────────
+const MarketDeepDive = ({ biz, onNext }) => {
+  const [running, setRunning] = useState(false);
+  const [output, setOutput] = useState("");
+  const [done, setDone] = useState(false);
+
+  const runResearch = async () => {
+    setRunning(true);
+    setOutput("Starting market research...\n");
+    try {
+      const res = await fetch(`${API_URL}/agent/marketing_expert/run`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: "marketing_expert", business: { name: biz.name, service: biz.service, icp: biz.icp || "", geography: biz.geography || "", goal: biz.goal || "" }, memory: {}, tier: "standard" }),
+      });
+      if (res.ok) {
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        while (true) {
+          const { done: d, value } = await reader.read();
+          if (d) break;
+          for (const line of dec.decode(value).split("\n")) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              const ev = JSON.parse(line.slice(6));
+              if (ev.event === "think" && ev.content) setOutput(ev.content);
+              else if (ev.event === "output" && ev.content) setOutput(ev.content);
+              else if (ev.event === "tool_call") setOutput(o => o + `\n⌁ Calling ${ev.tool_name}...`);
+            } catch {}
+          }
+        }
+      }
+    } catch (e) {
+      setOutput(o => o + `\nResearch unavailable — ${e.message}. Continue to dashboard to run agents.`);
+    }
+    setDone(true);
+    setRunning(false);
+  };
+
+  return (
+    <div>
+      <p style={{fontSize:12,color:"rgba(255,255,255,0.4)",marginBottom:16,lineHeight:1.7}}>
+        Our Marketing Expert agent will research your competitive landscape, validate prospect volume, and identify content gaps — in real time.
+      </p>
+      {!running && !done && (
+        <button className="sv-btn" style={{width:"100%",marginBottom:16}} onClick={runResearch}>
+          Run Market Research →
+        </button>
+      )}
+      {(running || done) && (
+        <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:16,maxHeight:300,overflowY:"auto",marginBottom:16}}>
+          {running && <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}><Spin size={12}/><span style={{fontSize:11,color:"rgba(255,255,255,0.3)"}}>Agents researching...</span></div>}
+          <Md text={output}/>
+        </div>
+      )}
+      <button className="sv-btn" style={{width:"100%"}} onClick={onNext} disabled={running}>
+        {done ? "Continue →" : "Skip — Run later →"}
+      </button>
+    </div>
+  );
+};
+
+// ── Stage 7: Autonomy Configuration ──────────────────────────────────────────
+const AutonomyConfigStage = ({ onNext }) => {
+  const [level, setLevel] = useState("guided");
+  const levels = [
+    { id: "full", label: "Full Autonomy", desc: "Agents act without approval" },
+    { id: "guided", label: "Guided Autonomy", desc: "Agents queue outputs for approval before external actions" },
+    { id: "collaborative", label: "Collaborative", desc: "You approve everything for the first month" },
+  ];
+
+  return (
+    <div>
+      <p style={{fontSize:12,color:"rgba(255,255,255,0.4)",marginBottom:20,lineHeight:1.7}}>
+        Choose how much control your agents have. You can change this per-agent later from the dashboard.
+      </p>
+      <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:24}}>
+        {levels.map(l => (
+          <div key={l.id} style={{padding:"14px 18px",background:level===l.id?"rgba(124,58,237,0.12)":"rgba(255,255,255,0.02)",
+            border:`1.5px solid ${level===l.id?"rgba(167,139,250,0.5)":"rgba(255,255,255,0.06)"}`,
+            borderRadius:10,cursor:"pointer",transition:"all .2s"}} onClick={() => setLevel(l.id)}>
+            <div style={{fontSize:14,fontWeight:600,color:level===l.id?"#c4b5fd":"rgba(255,255,255,0.7)",marginBottom:3}}>{l.label}</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.35)"}}>{l.desc}</div>
+          </div>
+        ))}
+      </div>
+      <button className="sv-btn" style={{width:"100%"}} onClick={onNext}>Deploy Agency →</button>
+    </div>
+  );
+};
+
+// ── Main Onboarding Container ────────────────────────────────────────────────
 const Onboarding = ({ session, onComplete }) => {
-  const [step, setStep]       = useState(0);
-  const [val, setVal]         = useState("");
-  const [biz, setBiz]         = useState({ name: session?.org_name || "" });
+  const [stage, setStage] = useState(1);
+  const [biz, setBiz] = useState({ name: session?.org_name || "" });
   const [brandDocs, setBrandDocs] = useState([]);
   const [provisioning, setProvisioning] = useState(false);
   const [provStep, setProvStep] = useState(0);
 
-  const submit = async () => {
-    if (!val.trim()) return;
-    const updated = { ...biz, [SETUP_STEPS[step].key]: val.trim() };
-    setBiz(updated);
-    setVal("");
-    if (step < SETUP_STEPS.length - 1) {
-      setStep(s => s + 1);
+  const goNext = () => {
+    if (stage < 7) {
+      setStage(s => s + 1);
     } else {
-      setProvisioning(true);
-      try { await sbData.saveAgencyProfile(session.access_token, updated); } catch {}
-      for (let i = 0; i < SHELL.length; i++) {
-        await new Promise(r => setTimeout(r, 400 + Math.random() * 350));
-        setProvStep(i + 1);
-      }
-      await new Promise(r => setTimeout(r, 700));
-      onComplete(updated, brandDocs);
+      startProvisioning();
     }
+  };
+
+  const startProvisioning = async () => {
+    setProvisioning(true);
+    try { await sbData.saveAgencyProfile(session.access_token, biz); } catch {}
+    for (let i = 0; i < SHELL.length; i++) {
+      await new Promise(r => setTimeout(r, 400 + Math.random() * 350));
+      setProvStep(i + 1);
+    }
+    await new Promise(r => setTimeout(r, 700));
+    onComplete(biz, brandDocs);
   };
 
   if (provisioning) return (
@@ -790,7 +1181,7 @@ const Onboarding = ({ session, onComplete }) => {
           <h2 style={{fontFamily:"'Instrument Serif',serif",fontSize:26,fontWeight:400,color:"#fafafa",marginBottom:6}}>
             Building <em style={{color:"#a78bfa"}}>{biz.name}</em>
           </h2>
-          <p style={{fontSize:12,color:"rgba(255,255,255,0.28)"}}>Provisioning 12 agents + 9 business systems…</p>
+          <p style={{fontSize:12,color:"rgba(255,255,255,0.28)"}}>Provisioning 15 agents + 9 business systems…</p>
         </div>
         <div style={{height:2,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:22}}>
           <div style={{height:"100%",borderRadius:2,background:"linear-gradient(90deg,#7c3aed,#a78bfa)",width:`${(provStep/SHELL.length)*100}%`,transition:"width .45s cubic-bezier(.22,.68,0,1.2)"}}/>
@@ -815,6 +1206,16 @@ const Onboarding = ({ session, onComplete }) => {
     </div>
   );
 
+  const stageContent = {
+    1: <VisionInterview biz={biz} setBiz={setBiz} onNext={goNext}/>,
+    2: <MoodBoard biz={biz} setBiz={setBiz} onNext={goNext}/>,
+    3: <BusinessFormation biz={biz} setBiz={setBiz} onNext={goNext}/>,
+    4: <RevenueArchitecture biz={biz} setBiz={setBiz} onNext={goNext}/>,
+    5: <ChannelSetup biz={biz} onNext={goNext}/>,
+    6: <MarketDeepDive biz={biz} onNext={goNext}/>,
+    7: <AutonomyConfigStage onNext={goNext}/>,
+  };
+
   return (
     <div style={{minHeight:"100vh",background:"#0a0a0f",display:"flex",fontFamily:"'Outfit',sans-serif"}}>
       <div style={{width:280,background:"#0d0d14",borderRight:"1px solid rgba(255,255,255,0.06)",padding:"40px 28px",display:"flex",flexDirection:"column",justifyContent:"space-between",flexShrink:0}}>
@@ -822,23 +1223,27 @@ const Onboarding = ({ session, onComplete }) => {
           <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,letterSpacing:2,color:"rgba(255,255,255,0.3)",textTransform:"uppercase",marginBottom:36}}>
             <span style={{color:"#7c3aed"}}>◎</span> Supervisor
           </div>
-          <h2 style={{fontFamily:"'Instrument Serif',serif",fontSize:26,fontWeight:400,color:"#fafafa",lineHeight:1.25,marginBottom:12}}>
-            Set up your<br/><em style={{color:"#a78bfa"}}>agency profile.</em>
+          <h2 style={{fontFamily:"'Instrument Serif',serif",fontSize:24,fontWeight:400,color:"#fafafa",lineHeight:1.25,marginBottom:12}}>
+            Build your<br/><em style={{color:"#a78bfa"}}>agency DNA.</em>
           </h2>
-          <p style={{fontSize:12,color:"rgba(255,255,255,0.3)",lineHeight:1.7,marginBottom:28}}>
-            5 questions. Your agent workforce deploys immediately after.
+          <p style={{fontSize:11,color:"rgba(255,255,255,0.3)",lineHeight:1.7,marginBottom:28}}>
+            7 stages of AI-assisted business creation.
           </p>
-          {SETUP_STEPS.map((s,i)=>(
-            <div key={s.key} style={{display:"flex",gap:10,alignItems:"center",marginBottom:12}}>
-              <div style={{width:20,height:20,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontFamily:"'JetBrains Mono',monospace",flexShrink:0,
-                background:i<step?"#7c3aed":i===step?"rgba(124,58,237,0.2)":"rgba(255,255,255,0.05)",
-                border:i===step?"1px solid rgba(167,139,250,0.5)":"1px solid transparent",
-                color:i<=step?"#fff":"rgba(255,255,255,0.2)"}}>
-                {i<step?"✓":i+1}
+          {ONBOARD_STAGES.map((s,i)=>(
+            <div key={s.id} style={{display:"flex",gap:10,alignItems:"center",marginBottom:12,cursor:s.id<stage?"pointer":"default"}}
+              onClick={()=>{ if(s.id<stage) setStage(s.id); }}>
+              <div style={{width:22,height:22,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontFamily:"'JetBrains Mono',monospace",flexShrink:0,
+                background:s.id<stage?"#7c3aed":s.id===stage?"rgba(124,58,237,0.2)":"rgba(255,255,255,0.05)",
+                border:s.id===stage?"1px solid rgba(167,139,250,0.5)":"1px solid transparent",
+                color:s.id<=stage?"#fff":"rgba(255,255,255,0.2)"}}>
+                {s.id<stage?"✓":s.icon}
               </div>
-              <span style={{fontSize:12,color:i===step?"rgba(255,255,255,0.8)":i<step?"rgba(255,255,255,0.45)":"rgba(255,255,255,0.2)",fontWeight:i===step?600:400}}>
-                {s.label}
-              </span>
+              <div>
+                <span style={{fontSize:12,color:s.id===stage?"rgba(255,255,255,0.8)":s.id<stage?"rgba(255,255,255,0.45)":"rgba(255,255,255,0.2)",fontWeight:s.id===stage?600:400,display:"block"}}>
+                  {s.label}
+                </span>
+                <span style={{fontSize:9,color:"rgba(255,255,255,0.15)"}}>{s.desc}</span>
+              </div>
             </div>
           ))}
         </div>
@@ -848,36 +1253,22 @@ const Onboarding = ({ session, onComplete }) => {
       </div>
 
       <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:"48px 32px"}}>
-        <div style={{width:"100%",maxWidth:440}}>
+        <div style={{width:"100%",maxWidth:560}}>
           <div style={{display:"flex",gap:4,marginBottom:36}}>
-            {SETUP_STEPS.map((_,i)=><Dot key={i} i={i} cur={step}/>)}
+            {ONBOARD_STAGES.map((s)=><Dot key={s.id} i={s.id} cur={stage}/>)}
           </div>
-          <div className="fu" key={step}>
+          <div className="fu" key={stage}>
             <div style={{fontSize:9,color:"rgba(255,255,255,0.2)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>
-              {step+1} / {SETUP_STEPS.length}
+              Stage {stage} / 7
             </div>
-            <h2 style={{fontFamily:"'Instrument Serif',serif",fontSize:24,fontWeight:400,color:"#fafafa",marginBottom:6}}>
-              {SETUP_STEPS[step].label}
+            <h2 style={{fontFamily:"'Instrument Serif',serif",fontSize:24,fontWeight:400,color:"#fafafa",marginBottom:4}}>
+              {ONBOARD_STAGES[stage-1].label}
             </h2>
-            <p style={{fontSize:12,color:"rgba(255,255,255,0.28)",marginBottom:18}}>{SETUP_STEPS[step].hint}</p>
-            <input className="sv-input" placeholder={SETUP_STEPS[step].ph} value={val}
-              onChange={e=>setVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()} autoFocus/>
-
-            {step===1&&(
-              <div style={{marginTop:14}}>
-                <div style={{fontSize:9,color:"rgba(255,255,255,0.2)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>Optional — brand context</div>
-                <UploadZone docs={brandDocs} onAdd={d=>setBrandDocs(p=>[...p,d])} onRemove={i=>setBrandDocs(p=>p.filter((_,j)=>j!==i))} label="Drop voice guides or brand docs"/>
-              </div>
+            <p style={{fontSize:11,color:"rgba(255,255,255,0.25)",marginBottom:20,fontFamily:"'JetBrains Mono',monospace"}}>{ONBOARD_STAGES[stage-1].desc}</p>
+            {stageContent[stage]}
+            {stage > 1 && (
+              <button onClick={()=>setStage(s=>s-1)} style={{display:"block",margin:"16px auto 0",background:"none",border:"none",color:"rgba(255,255,255,0.25)",cursor:"pointer",fontSize:12,fontFamily:"'JetBrains Mono',monospace"}}>← back</button>
             )}
-
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:22}}>
-              {step>0
-                ?<button onClick={()=>{setStep(s=>s-1);setVal("");}} style={{background:"none",border:"none",color:"rgba(255,255,255,0.25)",cursor:"pointer",fontSize:13}}>← back</button>
-                :<span/>}
-              <button className="sv-btn" onClick={submit} disabled={!val.trim()}>
-                {step<SETUP_STEPS.length-1?"Continue →":"Deploy Agency →"}
-              </button>
-            </div>
           </div>
         </div>
       </div>
