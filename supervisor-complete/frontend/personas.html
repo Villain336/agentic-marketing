@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SUPE — First 100 Users</title>
+<style>
+/* ── Change model here ────────────────────────────────────────── */
+/* MODEL constant is at the top of the <script> block below       */
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'IBM Plex Mono',monospace,monospace;background:#080810;color:#e2e2f0;font-size:13px;line-height:1.5}
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&display=swap');
+
+/* Layout */
+#app{min-height:100vh}
+.hdr{background:#0c0c18;border-bottom:1px solid rgba(255,255,255,.06);padding:0 20px;height:48px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-mark{color:#a78bfa;font-size:16px}
+.logo-supe{font-size:11px;letter-spacing:3px;color:rgba(255,255,255,.3);text-transform:uppercase}
+.logo-sep{color:rgba(255,255,255,.15)}
+.logo-name{font-size:12px;color:rgba(255,255,255,.7);letter-spacing:1px}
+nav{display:flex;gap:2px}
+.nav-btn{background:none;border:none;cursor:pointer;font-family:inherit;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,.3);padding:4px 10px;border-bottom:1.5px solid transparent;transition:all .15s}
+.nav-btn.active{color:#a78bfa;border-bottom-color:#a78bfa}
+.nav-btn:hover{color:rgba(255,255,255,.6)}
+.body{max-width:1080px;margin:0 auto;padding:24px 20px}
+.h1{font-size:22px;font-weight:400;color:#fafafa;margin-bottom:6px;letter-spacing:-.5px}
+.sub{font-size:11px;color:rgba(255,255,255,.3);letter-spacing:1.2px;text-transform:uppercase}
+.hidden{display:none}
+
+/* Cards & Pills */
+.pill{border:1px solid rgba(255,255,255,.1);border-radius:100px;padding:4px 12px;font-size:11px;cursor:pointer;background:transparent;color:rgba(255,255,255,.4);transition:all .15s;font-family:inherit;letter-spacing:.5px}
+.pill.active{border-color:rgba(167,139,250,.5);background:rgba(167,139,250,.15);color:#a78bfa}
+.card{border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px 16px;background:rgba(255,255,255,.02);cursor:pointer;transition:all .18s}
+.card:hover{border-color:rgba(255,255,255,.14);background:rgba(255,255,255,.04)}
+.card.active{border-color:rgba(167,139,250,.4);background:rgba(167,139,250,.06)}
+
+/* Inputs */
+input,textarea{width:100%;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:10px 14px;font-size:13px;font-family:inherit;color:#e2e2f0;outline:none;resize:vertical;transition:border-color .2s}
+input:focus,textarea:focus{border-color:rgba(167,139,250,.5)}
+input::placeholder,textarea::placeholder{color:rgba(255,255,255,.2)}
+
+/* Buttons */
+.btn{background:#7c3aed;color:#fff;border:1px solid #7c3aed;border-radius:7px;padding:9px 18px;font-size:11px;font-family:inherit;font-weight:500;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all .15s;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:#6d28d9}
+.btn:disabled{opacity:.3;cursor:not-allowed}
+.btn-ghost{background:transparent;color:rgba(255,255,255,.5);border:1px solid rgba(255,255,255,.1);border-radius:7px;padding:9px 18px;font-size:11px;font-family:inherit;font-weight:500;cursor:pointer;letter-spacing:1px;text-transform:uppercase;transition:all .15s}
+.btn-ghost:hover{border-color:rgba(255,255,255,.25);color:rgba(255,255,255,.8)}
+
+/* Tags */
+.tag{display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;font-size:10px;letter-spacing:.5px;font-weight:500}
+
+/* Spinner */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{width:12px;height:12px;border:1.5px solid rgba(167,139,250,.3);border-top-color:#a78bfa;border-radius:50%;animation:spin .7s linear infinite;display:inline-block;flex-shrink:0}
+@keyframes pulse{0%,100%{opacity:.6}50%{opacity:1}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+/* Progress */
+.progress-track{height:2px;background:rgba(255,255,255,.06);border-radius:1px;overflow:hidden;margin-bottom:12px}
+.progress-fill{height:100%;background:linear-gradient(90deg,#7c3aed,#a78bfa);border-radius:1px;transition:width .4s ease}
+
+/* Grid */
+.grid-3{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid-test{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:7px}
+.grid-stat{display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:12px;align-items:center}
+.grid-funnel{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+
+/* Persona card */
+.persona-card{border:1px solid rgba(255,255,255,.07);border-radius:10px;padding:14px 16px;background:rgba(255,255,255,.02);cursor:pointer;transition:all .18s}
+.persona-card:hover{background:rgba(255,255,255,.04)}
+.persona-card.selected{background:rgba(124,58,237,.06)}
+.avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;flex-shrink:0}
+.persona-name{font-size:13px;font-weight:500;color:#fafafa;margin-bottom:1px}
+.persona-arch{font-size:10px;color:rgba(255,255,255,.35);letter-spacing:.5px}
+.persona-role{font-size:11px;color:rgba(255,255,255,.4);margin-bottom:8px}
+.persona-fear{font-size:11px;font-style:italic;line-height:1.5;margin-bottom:10px}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0}
+
+/* Results */
+.score-ring{width:80px;height:80px;border-radius:50%;border:3px solid;display:flex;align-items:center;justify-content:center;flex-direction:column;flex-shrink:0}
+.stat-card{background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:14px 16px}
+.stat-val{font-size:26px;font-weight:400;margin-bottom:4px}
+.stat-lbl{font-size:10px;color:rgba(255,255,255,.35);letter-spacing:.8px;text-transform:uppercase}
+
+/* Insights panel */
+.insights-panel{background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.08);border-radius:10px;overflow:hidden;margin-bottom:24px}
+.insights-hdr{padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;justify-content:space-between}
+.insights-body{padding:14px 16px;font-size:13px;color:rgba(255,255,255,.75);line-height:1.85;white-space:pre-wrap}
+.insights-placeholder{color:rgba(255,255,255,.25);font-style:italic}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px}
+
+/* Bottom bar */
+.bottom-bar{background:rgba(124,58,237,.06);border:1px solid rgba(124,58,237,.2);border-radius:10px;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;gap:16px}
+
+/* Response card */
+.response-card{background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:14px 16px}
+.response-text{font-size:12px;color:rgba(255,255,255,.55);line-height:1.7}
+
+/* Objection row */
+.obj-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.obj-bar-track{width:48px;height:3px;background:rgba(255,255,255,.06);border-radius:1px}
+.obj-bar-fill{height:100%;border-radius:1px;background:#f59e0b}
+
+/* History */
+.history-bar{display:flex;align-items:flex-end;gap:4px;height:60px;margin-bottom:20px;padding:0 4px}
+.history-bar-item{flex:1;border-radius:2px 2px 0 0;opacity:.7;min-width:6px}
+.history-entry{display:flex;align-items:center;gap:12px;padding:12px 14px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:8px;margin-bottom:8px}
+.history-score{width:40px;height:40px;border-radius:50%;border:2px solid;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:500;flex-shrink:0}
+.empty-state{text-align:center;padding:60px 0;color:rgba(255,255,255,.2);font-size:12px;border:1px dashed rgba(255,255,255,.08);border-radius:10px}
+
+/* Subject line results */
+.subj-grade{width:64px;height:64px;border-radius:50%;border:3px solid;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:500;flex-shrink:0}
+.subj-reaction{display:flex;gap:10px;align-items:flex-start;padding:8px 10px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:6px;margin-bottom:6px}
+.open-tag{padding:2px 7px;border-radius:4px;font-size:10px;font-weight:500;white-space:nowrap}
+
+/* Chat */
+.chat-msg{margin-bottom:12px;padding:10px 12px;border-radius:8px;border-left:2px solid}
+.chat-msg-label{font-size:9px;color:rgba(255,255,255,.3);margin-bottom:5px;letter-spacing:1px;text-transform:uppercase}
+.chat-msg-text{font-size:13px;color:rgba(255,255,255,.75);line-height:1.7}
+
+/* Funnel */
+.funnel-card{text-align:center;padding:12px 8px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:8px}
+.funnel-val{font-size:22px;font-weight:500;color:#a78bfa;margin-bottom:4px}
+.funnel-lbl{font-size:10px;color:rgba(255,255,255,.35);line-height:1.5}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// CHANGE MODEL HERE
+// ═══════════════════════════════════════════════════════════
+var MODEL = 'claude-sonnet-4-6';
+// Other options (swap in when ready):
+//   'claude-opus-4-6'       — most capable, slower
+//   'claude-haiku-4-5-20251001' — fastest, cheapest
+// ═══════════════════════════════════════════════════════════
+
+var BATCH_TIMEOUT = 35000;
+var CHAT_TIMEOUT  = 50000;
+
+// ── Data ───────────────────────────────────────────────────
+var MARKETS = [
+  {id:'b2b_saas',    label:'B2B SaaS'},
+  {id:'b2b_smb',     label:'B2B SMB'},
+  {id:'enterprise',  label:'Enterprise'},
+  {id:'consumer',    label:'Consumer'},
+  {id:'prosumer',    label:'Prosumer'},
+  {id:'defense_gov', label:'Defense/Gov'},
+  {id:'healthcare',  label:'Healthcare'},
+  {id:'agency',      label:'Agency'},
+];
+
+var TEST_TYPES = [
+  {id:'first_impression',   label:'First impression',   hint:'Landing page copy or pitch'},
+  {id:'pricing_reaction',   label:'Pricing reaction',   hint:'Your pricing tiers'},
+  {id:'cold_email',         label:'Cold email',         hint:'The exact email you would send'},
+  {id:'subject_line',       label:'Subject line',       hint:'Email subject — get open/reply est'},
+  {id:'objection_handling', label:'Objection handling', hint:'Specific objection to counter'},
+  {id:'feature_feedback',   label:'Feature feedback',   hint:'Feature you are building'},
+  {id:'demo_reaction',      label:'Demo reaction',      hint:'What they would see in demo'},
+  {id:'vs_competitor',      label:'vs Competitor',      hint:'Competitor name or category'},
+];
+
+var PERSONAS = [
+  {
+    id:'skeptical_veteran', name:'Marcus Chen', initials:'MC', color:'#6366f1',
+    title:'VP of Engineering', company:'Series B SaaS', archetype:'Skeptical Veteran',
+    personality:'analytical', authority:'decision-maker',
+    fear:'Being the person who approved something that failed publicly',
+    desire:'To be the smartest person in the room who saw things others missed',
+    wound:'Got burned by a vendor 3 years ago. Product was 60% of what was promised. Still gets ribbed about it.',
+    blind:'Thinks he is objective but pattern-matches on surface signals — logo quality, LinkedIn presence',
+    state:'Mildly stressed — Q3 targets are behind',
+    mind:'Reducing cloud spend 18% without slowing the team',
+    money:'Every purchase must justify itself. Will ask for ROI math.',
+    decides:'Checks with two trusted peers, reads one case study, makes gut call framed as data-driven',
+    bias1:'Anchoring — heavily influenced by the first number mentioned',
+    bias2:'Availability heuristic — overweights the bad vendor story from 3 years ago',
+    bias3:'Authority bias — trusts specific credentials even if unrelated',
+    says:'data and metrics', wants:'social proof and peer validation',
+    self_image:'a pragmatic technical leader', others_see:'someone who slows things down unnecessarily',
+    trust:'Case studies from companies his size, reference calls, specific numbers',
+    kills:'Vague pricing, startup-y vibes without enterprise track record, pushy salespeople',
+    on_price:'Asks for ROI calculator, requests pilot before commitment, negotiates hard on contract length',
+    pattern:'Ghosts if not interested. Short precise emails. Asks detailed questions when curious.',
+    v1:'Interesting. How does this compare to what [competitor] does?',
+    v2:'We tried something like this 2 years ago. What is actually different?',
+    length:'short (2-4 sentences)',
+  },
+  {
+    id:'optimistic_builder', name:'Priya Sharma', initials:'PS', color:'#10b981',
+    title:'Founder & CEO', company:'Pre-seed startup', archetype:'Optimistic Builder',
+    personality:'expressive', authority:'decision-maker',
+    fear:'Running out of runway before finding product-market fit',
+    desire:'To prove the idea was right to herself and everyone who doubted it',
+    wound:'Left a comfortable corporate job to start this. Partner was skeptical. Has something to prove.',
+    blind:'Optimism bias — consistently underestimates how long things take and how much they cost',
+    state:'Energized but anxious — good investor call this week, worried about burn',
+    mind:'First 10 paying customers. Everything else is noise.',
+    money:'Every dollar precious but will spend on things that directly accelerate customer acquisition.',
+    decides:'Decides in one call if excited. Checks with co-founder as formality. Trusts gut.',
+    bias1:'Optimism bias — genuinely believes things will work better than statistics suggest',
+    bias2:'Sunk cost fallacy with tools she has already invested time learning',
+    bias3:'In-group favoritism — trusts other founders more than corporate businesspeople',
+    says:'efficiency and ROI', wants:'speed and momentum',
+    self_image:'a scrappy resourceful builder', others_see:'someone who moves too fast and has to backtrack',
+    trust:'Other founders using it, quick time-to-value, founder-to-founder outreach',
+    kills:'Enterprise-only pricing, long sales cycles, requires IT involvement',
+    on_price:'Direct — that is more than we can do right now. Open to creative deals.',
+    pattern:'Responds fast when interested. Goes quiet when overwhelmed.',
+    v1:'Oh this is really interesting — how quickly can we actually get started?',
+    v2:'Love the concept but we are really tight on budget right now.',
+    length:'medium (warm, slightly scattered)',
+  },
+  {
+    id:'corporate_processor', name:'David Harrington', initials:'DH', color:'#f59e0b',
+    title:'Director of Operations', company:'Fortune 500', archetype:'Corporate Processor',
+    personality:'analytical', authority:'influencer',
+    fear:'Making a decision that embarrasses him in front of leadership',
+    desire:'Career advancement — specifically the VP role opening next year',
+    wound:'Watched a colleague get passed over for promotion after a vendor failure. Learned: cover yourself.',
+    blind:'Confuses process with progress. Believes thorough evaluation equals good outcome.',
+    state:'Calm and measured — mid-quarter, in control',
+    mind:'Annual planning cycle. Building the case for next year budget.',
+    money:'Not his money. Budget pre-allocated. Will spend if it maps to approved initiatives.',
+    decides:'Committees, scorecards, multi-stakeholder reviews. Protects himself with consensus.',
+    bias1:'Status quo bias — default is always to stick with current vendor',
+    bias2:'Social proof at scale — does Salesforce use this matters more than actual fit',
+    bias3:'Complexity bias — perceives more complex solutions as inherently more valuable',
+    says:'total cost of ownership and risk management', wants:'political safety and defensibility',
+    self_image:'a thorough methodical leader', others_see:'someone who is very hard to get a decision from',
+    trust:'Gartner mentions, enterprise logos, SOC2 certs, legal-approved contracts',
+    kills:'No enterprise SLA, no dedicated CSM, no references from similar companies',
+    on_price:'Requests formal proposal with line-item breakdown. Procurement negotiates. Needs 3 vendors.',
+    pattern:'Steady and predictable. Communicates via formal email. Never commits in a meeting.',
+    v1:'This looks promising. I would want to loop in our IT security team first.',
+    v2:'We would need to run this through procurement — what does your standard contract look like?',
+    length:'medium-long (formal, structured)',
+  },
+  {
+    id:'price_warrior', name:'Tanya Brooks', initials:'TB', color:'#ef4444',
+    title:'Small Business Owner', company:'Owner-operated', archetype:'Price Warrior',
+    personality:'amiable', authority:'decision-maker',
+    fear:'Cash flow crisis — been through one before. Nearly destroyed everything.',
+    desire:'Sustainable growth that does not require risking everything again',
+    wound:'Business nearly collapsed 2 years ago when biggest client left.',
+    blind:'Penny-wise pound-foolish — chooses cheap options that cost more in the long run',
+    state:'Cautious but optimistic — things are stable right now',
+    mind:'Diversifying client base. Too dependent on 2 clients.',
+    money:'Every purchase weighed against alternatives. ROI must be crystal clear.',
+    decides:'Researches extensively. Asks in Facebook groups. Waits for discount or trial.',
+    bias1:'Loss aversion — fear of losing money weighs 2x more than equivalent gain',
+    bias2:'Framing effect — $99 per month feels completely different from $1188 per year',
+    bias3:'Familiarity bias — prefers tools she has heard of even without comparison',
+    says:'quality and reliability', wants:'price and risk-free entry',
+    self_image:'a savvy business owner who does not get taken advantage of',
+    others_see:'someone who underinvests in tools and pays for it in time',
+    trust:'Free trial, money-back guarantee, reviews from business owners like her',
+    kills:'Annual-only pricing, no trial, complex setup, long-term contracts',
+    on_price:'That is more than I expected — do you have a starter plan?',
+    pattern:'Ghosts when overwhelmed. Very responsive during research phase.',
+    v1:'Do you have a free trial? I would really want to test it out before committing.',
+    v2:'That price point is pretty tough for us. Is there any flexibility at all?',
+    length:'medium (friendly but guarded)',
+  },
+  {
+    id:'growth_obsessed', name:'Alex Rivera', initials:'AR', color:'#8b5cf6',
+    title:'Head of Growth', company:'Series A startup', archetype:'Growth Obsessed',
+    personality:'driver', authority:'decision-maker',
+    fear:'Becoming irrelevant — being the person who could not scale the company',
+    desire:'Cracking the growth code and getting the company to Series B',
+    wound:'Was employee 4 at a company that 10xd. Addicted to that feeling.',
+    blind:'Confuses activity with progress. Runs too many experiments. Pure FOMO.',
+    state:'High energy, slightly scattered — has 6 experiments running',
+    mind:'CAC is climbing. Need a channel that scales without CAC scaling.',
+    money:'Spends freely on experiments that might work. Kills things that do not in 30 days.',
+    decides:'Fast. Tests first, evaluates with data, kills or scales.',
+    bias1:'Recency bias — most excited about whatever he read about this week',
+    bias2:'Overconfidence — consistently underestimates implementation complexity',
+    bias3:'Narrative fallacy — loves a compelling story about why something worked',
+    says:'data-driven decision making', wants:'speed and experimentation',
+    self_image:'a creative problem-solver who moves fast',
+    others_see:'someone who leaves a trail of half-finished projects',
+    trust:'Case study with specific growth metrics, quick setup, API access',
+    kills:'Slow onboarding, no API, cannot see results in first week',
+    on_price:'Does not haggle. If ROI math works he pays. If not, no discounting helps.',
+    pattern:'Intense for 2 weeks then either fully committed or completely gone.',
+    v1:'Show me the data. What are average results in the first 30 days?',
+    v2:'We tried something like this — what is the actual lift people are seeing?',
+    length:'short-medium (punchy, direct)',
+  },
+  {
+    id:'consensus_seeker', name:'Rachel Kim', initials:'RK', color:'#06b6d4',
+    title:'Marketing Manager', company:'Mid-market B2B', archetype:'Consensus Seeker',
+    personality:'amiable', authority:'influencer',
+    fear:'Being wrong in a way that is visible to others',
+    desire:'To be respected and included — to matter in decisions',
+    wound:'Made a solo vendor decision 18 months ago that backfired.',
+    blind:'Confuses consensus with correctness. Wastes time on decisions that do not need group input.',
+    state:'A bit stretched — manages too many channels with not enough people',
+    mind:'Proving marketing attribution to the CFO. Everything needs to show ROI.',
+    money:'Budget tight. Has to justify everything. CFO skeptical of marketing spend.',
+    decides:'Builds a committee, gets 3 opinions, presents to manager, chooses safe option.',
+    bias1:'Bandwagon effect — is everyone else using this matters a lot',
+    bias2:'Confirmation bias — seeks info supporting the option she is leaning toward',
+    bias3:'Herd mentality — peer company choices validate her own thinking',
+    says:'collaboration and team alignment', wants:'covering herself politically',
+    self_image:'a collaborative thoughtful leader',
+    others_see:'someone who cannot make a decision without checking with everyone',
+    trust:'What competitors use, G2 reviews, logos she recognizes',
+    kills:'If her boss or a peer had a bad experience, it is over',
+    on_price:'Needs to build a business case. Asks for help justifying internally.',
+    pattern:'Responsive but non-committal. Says I need to check with my team constantly.',
+    v1:'I love this — let me share it with my team and get their thoughts.',
+    v2:'Could you put together something I could share with my manager?',
+    length:'medium-long (warm, relationship-oriented)',
+  },
+  {
+    id:'technical_purist', name:'Yusuf Al-Rashid', initials:'YA', color:'#f97316',
+    title:'Senior Software Engineer', company:'Tech company', archetype:'Technical Purist',
+    personality:'analytical', authority:'user/influencer',
+    fear:'Accumulating technical debt that future-him has to clean up',
+    desire:'To build systems that are elegant, maintainable, and something to be proud of',
+    wound:'Spent 6 months cleaning up a mess left by a previous engineer who took shortcuts.',
+    blind:'Over-engineers solutions. Cannot always distinguish between good enough and perfect.',
+    state:'Calm and focused — in a good sprint currently',
+    mind:'Evaluating whether their current monitoring stack is the right long-term choice',
+    money:'Not his money but cares about value. Hates waste.',
+    decides:'Deep research, reads documentation, builds PoC, makes recommendation to manager.',
+    bias1:'Not-invented-here syndrome — slight bias toward building over buying',
+    bias2:'Tech preference — rates solutions higher if built on his preferred stack',
+    bias3:'Complexity aversion — distrusts things that seem too simple or too easy',
+    says:'technical quality and maintainability', wants:'intellectual elegance and developer experience',
+    self_image:'a craftsman who takes pride in the work',
+    others_see:'sometimes too in the weeds, misses the forest for the trees',
+    trust:'Open source components, clear API docs, GitHub activity, technical blog posts',
+    kills:'Black box, no API, vendor lock-in, poor or missing documentation',
+    on_price:'Does not handle pricing — flags if something seems unreasonably expensive.',
+    pattern:'Deep engagement or none at all. Asks very specific technical questions.',
+    v1:'How does the data pipeline actually work under the hood?',
+    v2:'Is there a proper REST API or are we locked into the UI for everything?',
+    length:'variable (short for simple, long for technical depth)',
+  },
+  {
+    id:'empire_builder', name:'Dominique St. Claire', initials:'DS', color:'#ec4899',
+    title:'Chief Revenue Officer', company:'Growth-stage startup', archetype:'Empire Builder',
+    personality:'driver', authority:'decision-maker',
+    fear:'Not having enough control — being dependent on others to hit her number',
+    desire:'To be the person who built the revenue engine that took the company to exit',
+    wound:'Built a sales team from 0 to 40 reps at her last company. It was her baby. She misses that control.',
+    blind:'Can be territorial. Sometimes rejects good ideas because they came from outside her team.',
+    state:'Ambitious, slightly frustrated — board wants faster growth than the market allows',
+    mind:'Q4 number is looking shaky. Needs a lever that moves pipeline this quarter.',
+    money:'Thinks in revenue ROI. Will spend money to make money. Needs to see the math.',
+    decides:'Decides fast when revenue-affecting. Involves team in implementation not strategy.',
+    bias1:'Overconfidence in her own judgment — has been right enough to be genuinely overconfident',
+    bias2:'Attribution error — credits successes to strategy, failures to external factors',
+    bias3:'Focusing illusion — whatever she is working on right now feels most important',
+    says:'team alignment and sustainable processes', wants:'control and credit',
+    self_image:'a revenue-focused leader who builds machines not dependencies',
+    others_see:'powerful but sometimes very hard to collaborate with',
+    trust:'Revenue impact case studies with real numbers, reference from a CRO peer she respects',
+    kills:'Vendor dependency, shared credit, solutions requiring significant process change',
+    on_price:'Will not negotiate on principle — either the ROI works or it does not.',
+    pattern:'Quick to engage when revenue narrative is clear. Goes cold at commodity pitches.',
+    v1:'What is the average lift in pipeline I should actually expect in 90 days?',
+    v2:'I have heard versions of this pitch before. Tell me what is actually different.',
+    length:'short (decisive, confident)',
+  },
+];
+
+// ── Market context ─────────────────────────────────────────
+function marketCtx(p, mid) {
+  var m = {
+    b2b_saas:    'You evaluate SaaS tools constantly. You have been burned by vendors who overpromised. You check G2 and your network before buying anything.',
+    b2b_smb:     'You wear 12 hats. You need something that works immediately. Every dollar matters. You trust word of mouth from other owners more than marketing.',
+    enterprise:  'You have political considerations at every step. Procurement, legal, and security are involved in everything. You move slowly because the organization moves slowly.',
+    consumer:    'This decision is entirely personal. Emotion drives it more than logic. Social proof matters. Price sensitivity is high unless you are emotionally committed.',
+    prosumer:    'You are a power user who has tried the competitors. You have specific opinions. Willing to pay more for quality but you define quality very precisely.',
+    defense_gov: 'Procurement is a formal process not a personal decision. Compliance matters more than features. Risk aversion is structural not personal.',
+    healthcare:  'Regulatory compliance is non-negotiable. Patient data protection is the first question not the last. Your timeline is dictated by hospital systems not market timing.',
+    agency:      'You are buying on behalf of clients. ROI needs to be demonstrable. You care about white-labeling and protecting your margins.',
+  };
+  return m[mid] || m['b2b_saas'];
+}
+
+// ── System prompt ──────────────────────────────────────────
+function systemPrompt(p, mid) {
+  var ml = (MARKETS.find(function(m){return m.id===mid;})||{}).label || mid;
+  return 'You are ' + p.name + '. BE this person fully — not describing them, not performing them.\n\n' +
+    'SOUL: Fear: ' + p.fear + ' | Desire: ' + p.desire + ' | Wound: ' + p.wound + ' | Blind spot: ' + p.blind + '\n\n' +
+    'SITUATION: ' + p.title + ', ' + p.company + '. Emotional state: ' + p.state + '. On your mind: ' + p.mind + '. Money relationship: ' + p.money + '. How you really decide: ' + p.decides + '\n\n' +
+    'BIASES (you do not know you have these): ' + p.bias1 + ' / ' + p.bias2 + ' / ' + p.bias3 + '\n\n' +
+    'CONTRADICTION: You claim to care about ' + p.says + ' but actually prioritize ' + p.wants + '. You think you are ' + p.self_image + '; others see ' + p.others_see + '.\n\n' +
+    'BUYING: Trust = ' + p.trust + '. Kills deal = ' + p.kills + '. On price: ' + p.on_price + '. Pattern: ' + p.pattern + '\n\n' +
+    'MARKET (' + ml + '): ' + marketCtx(p, mid) + '\n\n' +
+    'VOICE: "' + p.v1 + '" / skeptical: "' + p.v2 + '" / length: ' + p.length + '\n\n' +
+    'RULES: React emotionally first. Redirect to what is on your mind. Your wound colors what you hear. Ask questions instead of answering. Never describe yourself from outside. Under 120 words unless deeply engaged. Stay in character completely.';
+}
+
+// ── Test prompt ────────────────────────────────────────────
+function testPrompt(type, stim) {
+  var map = {
+    first_impression:   'I want your honest unfiltered reaction to this:\n\n"' + stim + '"\n\nFirst thought?',
+    pricing_reaction:   'Here is our pricing:\n\n' + stim + '\n\nWhat do you think? Be real with me.',
+    cold_email:         'You just received this email:\n\n"' + stim + '"\n\nWhat do you do with it?',
+    subject_line:       'You just received an email with this subject line: "' + stim + '". Would you open it? Would you reply? One sentence why.',
+    objection_handling: 'You told me: "' + stim + '"\n\nHow do you respond to this reply from us?',
+    feature_feedback:   'We are building this: "' + stim + '"\n\nWould this actually matter to you? Honestly.',
+    demo_reaction:      'You just saw our product demo:\n\n' + stim + '\n\nReaction?',
+    vs_competitor:      'We are different from ' + stim + '. Why does that matter to you, if at all?',
+  };
+  return map[type] || stim;
+}
+
+// ── API call (non-streaming) ───────────────────────────────
+function callAPI(sys, msgs, onDone, onError) {
+  var ctrl = new AbortController();
+  var timer = setTimeout(function(){ctrl.abort();}, BATCH_TIMEOUT);
+  fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    signal: ctrl.signal,
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({model:MODEL, max_tokens:400, stream:false, system:sys, messages:msgs}),
+  }).then(function(res) {
+    clearTimeout(timer);
+    if (!res.ok) {
+      res.text().then(function(b){
+        onError(res.status === 429 ? 'Rate limited — wait 30s and retry' : 'API ' + res.status + ': ' + b.slice(0,80));
+      });
+      return;
+    }
+    res.json().then(function(d){
+      var txt = d && d.content && d.content[0] && d.content[0].text;
+      if (!txt) { onError('Empty response'); return; }
+      onDone(txt);
+    }).catch(function(e){onError(e.message);});
+  }).catch(function(e){
+    clearTimeout(timer);
+    onError(e.name === 'AbortError' ? 'Timed out' : e.message);
+  });
+}
+
+// ── API call (streaming) ───────────────────────────────────
+function callStream(sys, msgs, onChunk, onDone, onError) {
+  var ctrl = new AbortController();
+  var timer = setTimeout(function(){ctrl.abort();}, CHAT_TIMEOUT);
+  fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    signal: ctrl.signal,
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({model:MODEL, max_tokens:600, stream:true, system:sys, messages:msgs}),
+  }).then(function(res) {
+    clearTimeout(timer);
+    if (!res.ok) {
+      res.text().then(function(b){
+        onError(res.status === 429 ? 'Rate limited — wait 30s and retry' : 'API ' + res.status + ': ' + b.slice(0,80));
+      });
+      return;
+    }
+    var reader = res.body.getReader();
+    var dec = new TextDecoder();
+    var buf = '';
+    var txt = '';
+    function pump() {
+      reader.read().then(function(chunk) {
+        if (chunk.done) {
+          reader.cancel();
+          if (!txt) { onError('Empty response'); return; }
+          onDone(txt);
+          return;
+        }
+        buf += dec.decode(chunk.value, {stream:true});
+        var lines = buf.split('\n');
+        buf = lines.pop() || '';
+        for (var i=0; i<lines.length; i++) {
+          if (!lines[i].startsWith('data: ')) continue;
+          var raw = lines[i].slice(6).trim();
+          if (!raw || raw === '[DONE]') continue;
+          try {
+            var d = JSON.parse(raw);
+            if (d.type === 'content_block_delta' && d.delta && d.delta.type === 'text_delta' && d.delta.text) {
+              txt += d.delta.text;
+              onChunk(txt);
+            }
+          } catch(e2){}
+        }
+        pump();
+      }).catch(function(e){
+        reader.cancel();
+        onError(e.name === 'AbortError' ? 'Timed out' : e.message);
+      });
+    }
+    pump();
+  }).catch(function(e){
+    clearTimeout(timer);
+    onError(e.name === 'AbortError' ? 'Timed out' : e.message);
+  });
+}
+
+// ── Analysis ───────────────────────────────────────────────
+function analyze(text) {
+  var t = text.toLowerCase();
+  var sentiment = 'neutral';
+  var pos = ['love','great','yes','definitely','interested','impressive','exactly','forward','start','book'];
+  var neg = ['not interested','pass','expensive','doubt',"won't","can't","don't think"];
+  var skep = ['but','however','concern','not sure','depends','question','though'];
+  var ps = pos.filter(function(w){return t.indexOf(w)>-1;}).length;
+  var ns = neg.filter(function(w){return t.indexOf(w)>-1;}).length;
+  var ss = skep.filter(function(w){return t.indexOf(w)>-1;}).length;
+  if (ps > ns && ps > ss) sentiment = 'positive';
+  else if (ns > ps) sentiment = 'negative';
+  else if (ss > 0) sentiment = 'skeptical';
+
+  var intent = 'unknown';
+  if (/let'?s move|next steps|how do we start|sign up|try it|book a call/.test(t)) intent = 'buy';
+  else if (/not for us|not right now|won'?t work|can'?t justify|pass/.test(t)) intent = 'pass';
+  else if (/think about|look into|check with|send me|learn more|tell me more/.test(t)) intent = 'researching';
+  else if (sentiment === 'positive') intent = 'interested';
+  else if (sentiment === 'negative') intent = 'not_interested';
+
+  var objs = [];
+  if (/price|cost|expensive|budget|afford/.test(t)) objs.push('Price / budget');
+  if (/time|busy|bandwidth|capacity/.test(t)) objs.push('Time / bandwidth');
+  if (/proof|evidence|case study|reference|trust/.test(t)) objs.push('Needs social proof');
+  if (/team|stakeholder|check with|approval|legal/.test(t)) objs.push('Internal buy-in required');
+  if (/already use|current solution|switching|competitor/.test(t)) objs.push('Has existing solution');
+  if (/technical|api|integration|security|compliance/.test(t)) objs.push('Technical / compliance');
+
+  var qs = (text.match(/[^.!]*\?/g)||[]).map(function(q){return q.trim();}).filter(function(q){return q.length>10;});
+  return {sentiment:sentiment, intent:intent, objections:objs, questions:qs.slice(0,3)};
+}
+
+function sentColor(s) {
+  return s==='positive'?'#10b981':s==='negative'?'#ef4444':s==='skeptical'?'#f59e0b':'#6b7280';
+}
+function intentLabel(i) {
+  return i==='buy'?'Buy signal':i==='pass'?'Hard pass':i==='researching'?'Still evaluating':i==='interested'?'Interested':i==='not_interested'?'Not interested':'Neutral';
+}
+function intentColor(i) {
+  return i==='buy'?'#10b981':i==='pass'?'#ef4444':'#94a3b8';
+}
+function scoreColor(s) {
+  return s>=65?'#10b981':s>=40?'#f59e0b':'#ef4444';
+}
+
+// ── State ──────────────────────────────────────────────────
+var state = {
+  view: 'panel',
+  market: 'b2b_saas',
+  testType: 'first_impression',
+  stimulus: '',
+  selected: [],
+  mode: 'batch',
+  activeChat: null,
+  results: {},      // id -> {text, analysis, loading}
+  histories: {},    // id -> [{role,content}]
+  chatInput: '',
+  running: null,
+  batching: false,
+  batchPct: 0,
+  insights: null,
+  insLoading: false,
+  testHistory: [],
+  subjectLine: '',
+  subjectResults: null,
+  subjectRunning: false,
+};
+
+// ── Render helpers ─────────────────────────────────────────
+function h(tag, attrs, children) {
+  var el = document.createElement(tag);
+  if (attrs) {
+    Object.keys(attrs).forEach(function(k) {
+      if (k === 'onClick') el.addEventListener('click', attrs[k]);
+      else if (k === 'onInput') el.addEventListener('input', attrs[k]);
+      else if (k === 'onKeydown') el.addEventListener('keydown', attrs[k]);
+      else if (k === 'onChange') el.addEventListener('change', attrs[k]);
+      else if (k === 'style') Object.assign(el.style, attrs[k]);
+      else if (k === 'class') el.className = attrs[k];
+      else el.setAttribute(k, attrs[k]);
+    });
+  }
+  if (children) {
+    if (Array.isArray(children)) {
+      children.forEach(function(c) {
+        if (c === null || c === undefined) return;
+        if (typeof c === 'string' || typeof c === 'number') el.appendChild(document.createTextNode(c));
+        else el.appendChild(c);
+      });
+    } else if (typeof children === 'string' || typeof children === 'number') {
+      el.appendChild(document.createTextNode(children));
+    } else {
+      el.appendChild(children);
+    }
+  }
+  return el;
+}
+
+function tag(txt, color) {
+  return h('span', {class:'tag', style:{background:color+'18',color:color,border:'1px solid '+color+'33'}}, txt);
+}
+
+function pill(label, active, onClick) {
+  return h('button', {class:'pill'+(active?' active':''), onClick:onClick}, label);
+}
+
+function spinner() {
+  return h('span', {class:'spinner'});
+}
+
+function dot(color) {
+  return h('span', {class:'dot', style:{background:color}});
+}
+
+function btn(label, onClick, ghost, disabled) {
+  var el = h('button', {class:ghost?'btn-ghost':'btn', onClick:onClick}, label);
+  if (disabled) el.disabled = true;
+  return el;
+}
+
+// ── Batch logic ────────────────────────────────────────────
+var localBatchResults = {};
+var cancelBatch = false;
+
+function runOne(persona, onComplete) {
+  var sys = systemPrompt(persona, state.market);
+  var prompt = testPrompt(state.testType, state.stimulus);
+  var prev = state.histories[persona.id] || [];
+  var msgs = prev.concat([{role:'user', content:prompt}]);
+  state.running = persona.id;
+  state.results[persona.id] = {text:'', analysis:null, loading:true};
+  render();
+  callAPI(sys, msgs, function(text) {
+    var a = analyze(text);
+    state.results[persona.id] = {text:text, analysis:a, loading:false};
+    state.histories[persona.id] = msgs.concat([{role:'assistant',content:text}]);
+    state.running = null;
+    render();
+    onComplete({text:text, analysis:a, ok:true});
+  }, function(err) {
+    state.results[persona.id] = {text:'Error: '+err, analysis:{sentiment:'neutral',intent:'unknown',objections:[],questions:[]}, loading:false};
+    state.running = null;
+    render();
+    onComplete({text:'Error: '+err, ok:false});
+  });
+}
+
+function runBatch() {
+  if (!state.stimulus.trim() || state.selected.length === 0) return;
+  cancelBatch = false;
+  state.batching = true;
+  state.batchPct = 0;
+  state.results = {};
+  state.insights = null;
+  state.insLoading = false;
+  localBatchResults = {};
+  var personas = PERSONAS.filter(function(p){return state.selected.indexOf(p.id) > -1;});
+  render();
+
+  function next(i) {
+    if (i >= personas.length || cancelBatch) {
+      state.batching = false;
+      state.view = 'results';
+      render();
+      generateInsights(localBatchResults);
+      return;
+    }
+    var p = personas[i];
+    runOne(p, function(result) {
+      localBatchResults[p.id] = result;
+      state.batchPct = Math.round(((i+1)/personas.length)*100);
+      if (cancelBatch) {
+        state.batching = false;
+        state.view = 'results';
+        render();
+        return;
+      }
+      setTimeout(function(){next(i+1);}, 2000);
+    });
+  }
+  next(0);
+}
+
+function generateInsights(batchResults) {
+  var done = Object.keys(batchResults).filter(function(id){
+    return batchResults[id].analysis && batchResults[id].text.indexOf('Error:') !== 0;
+  });
+  if (done.length === 0) return;
+  state.insLoading = true;
+  render();
+  var tl = (TEST_TYPES.find(function(t){return t.id===state.testType;})||{}).label || state.testType;
+  var responses = done.map(function(id){
+    var p = PERSONAS.find(function(a){return a.id===id;});
+    return (p ? p.name + ' (' + p.archetype + ')' : id) + ': ' + batchResults[id].text;
+  }).join('\n\n');
+  var prompt = 'You are a brutal honest product advisor. A founder ran a "' + tl + '" test.\n\nWHAT WAS TESTED:\n"' + state.stimulus.slice(0,600) + '"\n\nPERSONA RESPONSES:\n' + responses + '\n\nGive the founder exactly what to fix. Structure as:\n\n**The core problem in one sentence.**\n\n**What is working** (2-3 bullets only if something genuinely resonated)\n\n**What to fix — by priority**\nFor each fix: specific problem, which personas surfaced it, concrete rewrite or change. Not improve your value prop — show the better version.\n\n**The objection to neutralize first**\nSingle most damaging objection and specific script to handle it.\n\n**One thing to test next**\nSpecific small experiment to validate the fix.\n\nUnder 400 words. No fluff. No great start energy.';
+  callAPI(
+    'You are a direct experienced product advisor. Never generic. Always actionable.',
+    [{role:'user',content:prompt}],
+    function(text){state.insights = text; state.insLoading = false; render();},
+    function(e){state.insights = 'Could not generate insights: '+e; state.insLoading = false; render();}
+  );
+}
+
+function runChat(persona, message) {
+  var sys = systemPrompt(persona, state.market);
+  var prev = state.histories[persona.id] || [];
+  var msgs = prev.concat([{role:'user',content:message}]);
+  state.running = persona.id;
+  state.results[persona.id] = {text:'', analysis:null, loading:true};
+  state.histories[persona.id] = msgs;
+  render();
+  callStream(sys, msgs,
+    function(chunk){state.results[persona.id] = {text:chunk, analysis:null, loading:true}; render();},
+    function(text){
+      var a = analyze(text);
+      state.results[persona.id] = {text:text, analysis:a, loading:false};
+      state.histories[persona.id] = msgs.concat([{role:'assistant',content:text}]);
+      state.running = null;
+      render();
+    },
+    function(err){
+      state.results[persona.id] = {text:'Error: '+err, analysis:null, loading:false};
+      state.running = null;
+      render();
+    }
+  );
+}
+
+function runSubjectLine() {
+  if (!state.subjectLine.trim() || state.selected.length === 0) return;
+  state.subjectRunning = true;
+  state.subjectResults = null;
+  render();
+  var personas = PERSONAS.filter(function(p){return state.selected.indexOf(p.id)>-1;});
+  var prompt = 'You just received an email with this subject line:\n\n"' + state.subjectLine + '"\n\nAnswer only:\n1. Would you open this email? (yes / no / maybe)\n2. If you opened it, would you reply? (yes / no / maybe)\n3. In one sentence, why?';
+  var pending = personas.length;
+  var reactions = [];
+  var opens = 0; var maybeOpens = 0; var replies = 0;
+
+  personas.forEach(function(p) {
+    callAPI(systemPrompt(p, state.market), [{role:'user',content:prompt}], function(text) {
+      var t = text.toLowerCase();
+      var wo = (t.indexOf('yes')>-1 && t.indexOf('open')>-1) ? 'yes' : (t.indexOf('maybe')>-1 && t.indexOf('open')>-1) ? 'maybe' : 'no';
+      var wr = (t.indexOf('yes')>-1 && (t.indexOf('reply')>-1||t.indexOf('respond')>-1)) ? 'yes' : 'no';
+      if (wo==='yes') opens++;
+      if (wo==='maybe') maybeOpens++;
+      if (wr==='yes') replies++;
+      reactions.push({persona:p, text:text, open:wo, reply:wr});
+      pending--;
+      if (pending === 0) finishSubject();
+    }, function(){
+      pending--;
+      if (pending === 0) finishSubject();
+    });
+  });
+
+  function finishSubject() {
+    var total = reactions.length;
+    var openRate = total > 0 ? Math.round(((opens + maybeOpens*0.4)/total)*100) : 0;
+    var replyRate = total > 0 ? Math.round((replies/total)*100) : 0;
+    var grade = openRate>=60?'A':openRate>=40?'B':openRate>=25?'C':'D';
+    state.subjectResults = {openRate:openRate, replyRate:replyRate, grade:grade, reactions:reactions, total:total};
+    state.subjectRunning = false;
+    render();
+  }
+}
+
+function saveHistory(summary) {
+  state.testHistory.unshift({
+    id: Date.now(),
+    date: new Date().toISOString(),
+    testType: state.testType,
+    market: state.market,
+    stimulus: state.stimulus.slice(0,120),
+    fitScore: summary.fitScore,
+    posRate: summary.posRate,
+    buyRate: summary.buyRate,
+    total: summary.total,
+    topObjs: summary.topObjs.slice(0,3).map(function(o){return o[0];}),
+  });
+  if (state.testHistory.length > 30) state.testHistory = state.testHistory.slice(0,30);
+}
+
+// ── Summary calculation ────────────────────────────────────
+function calcSummary() {
+  var done = Object.keys(state.results).filter(function(id){return state.results[id].analysis;});
+  if (!done.length) return null;
+  var sentCount = {positive:0, negative:0, skeptical:0, neutral:0};
+  var intCount = {};
+  var objMap = {};
+  var allQ = [];
+  done.forEach(function(id) {
+    var a = state.results[id].analysis;
+    sentCount[a.sentiment] = (sentCount[a.sentiment]||0) + 1;
+    intCount[a.intent] = (intCount[a.intent]||0) + 1;
+    a.objections.forEach(function(o){objMap[o]=(objMap[o]||0)+1;});
+    allQ = allQ.concat(a.questions);
+  });
+  var total = done.length;
+  var posRate = Math.round((sentCount.positive/total)*100);
+  var buyRate = Math.round(((intCount.buy||0)/total)*100);
+  var fitScore = Math.round(posRate*0.4 + buyRate*0.6);
+  var topObjs = Object.keys(objMap).map(function(k){return [k,objMap[k]];}).sort(function(a,b){return b[1]-a[1];}).slice(0,5);
+  var uq = [];
+  allQ.forEach(function(q){if(uq.indexOf(q)<0)uq.push(q);});
+  return {sentCount:sentCount, intCount:intCount, topObjs:topObjs, allQ:uq.slice(0,8), posRate:posRate, buyRate:buyRate, fitScore:fitScore, total:total};
+}
+
+function calcConfidence(summary) {
+  if (!summary) return null;
+  return {
+    reachRate: Math.min(Math.round(65 + summary.posRate*0.15), 95),
+    openRate:  Math.min(Math.round(summary.posRate*0.55 + summary.buyRate*0.3), 70),
+    replyRate: Math.min(Math.round(summary.buyRate*0.6 + ((summary.intCount.researching||0)/summary.total)*20), 35),
+    meetRate:  Math.min(Math.round(summary.buyRate*0.4), 20),
+  };
+}
+
+// ── Render ─────────────────────────────────────────────────
+function render() {
+  var app = document.getElementById('app');
+  app.innerHTML = '';
+
+  // Header
+  var logoEl = h('div', {class:'logo'}, [
+    h('span', {class:'logo-mark'}, '◈'),
+    h('span', {class:'logo-supe'}, 'SUPE'),
+    h('span', {class:'logo-sep'}, '/'),
+    h('span', {class:'logo-name'}, 'First 100 Users'),
+  ]);
+  var backBtn = h('a', {
+    href: 'index.html',
+    style: {
+      fontSize:'11px',letterSpacing:'1px',textTransform:'uppercase',color:'rgba(255,255,255,.3)',
+      textDecoration:'none',fontFamily:'inherit',padding:'4px 10px',border:'1px solid rgba(255,255,255,.1)',
+      borderRadius:'6px',transition:'all .15s',
+    }
+  }, '← Supervisor');
+  backBtn.addEventListener('mouseenter', function(){this.style.color='rgba(255,255,255,.7)';});
+  backBtn.addEventListener('mouseleave', function(){this.style.color='rgba(255,255,255,.3)';});
+  var navEl = h('nav', null, [
+    ['panel','Panel'],['test','Test'],['results','Results'],['history','History'],
+  ].map(function(item) {
+    return h('button', {class:'nav-btn'+(state.view===item[0]?' active':''), onClick:function(){state.view=item[0];render();}}, item[1]);
+  }));
+  var hdrRight = h('div', {style:{display:'flex',alignItems:'center',gap:'12px'}}, [navEl, backBtn]);
+  app.appendChild(h('div', {class:'hdr'}, [logoEl, hdrRight]));
+
+  // Views
+  if (state.view === 'panel') renderPanel(app);
+  else if (state.view === 'test') renderTest(app);
+  else if (state.view === 'results') renderResults(app);
+  else if (state.view === 'history') renderHistory(app);
+}
+
+// ── Panel view ─────────────────────────────────────────────
+function renderPanel(app) {
+  var body = h('div', {class:'body'});
+  app.appendChild(body);
+
+  body.appendChild(h('div', {style:{marginBottom:'28px',animation:'fadeUp .3s ease'}}, [
+    h('div', {class:'h1'}, 'Your synthetic market panel.'),
+    h('div', {class:'sub', style:{marginBottom:'16px'}}, '8 psychologically distinct archetypes'),
+    h('p', {style:{fontSize:'12px',color:'rgba(255,255,255,.35)',lineHeight:'1.8',maxWidth:'620px'}},
+      'These personas have fears, desires, and wounds — not demographics. Each one is psychologically distinct with real cognitive biases and contradictions.'),
+  ]));
+
+  // Market selector
+  body.appendChild(h('div', {style:{marginBottom:'22px'}}, [
+    h('div', {class:'sub', style:{marginBottom:'10px'}}, 'Market context — restructures all personas'),
+    h('div', {style:{display:'flex',gap:'6px',flexWrap:'wrap'}},
+      MARKETS.map(function(m) {
+        return pill(m.label, state.market===m.id, function(){state.market=m.id;render();});
+      })
+    ),
+  ]));
+
+  // Persona grid
+  var grid = h('div', {class:'grid-3', style:{marginBottom:'24px'}});
+  PERSONAS.forEach(function(p) {
+    var isSel = state.selected.indexOf(p.id) > -1;
+    var r = state.results[p.id];
+    var card = h('div', {
+      class:'persona-card'+(isSel?' selected':''),
+      style:{borderColor: isSel ? p.color+'55' : ''},
+      onClick:function(){
+        var idx = state.selected.indexOf(p.id);
+        if (idx > -1) state.selected.splice(idx,1);
+        else state.selected.push(p.id);
+        render();
+      }
+    });
+
+    // Header row
+    var hdrRow = h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'10px'}});
+    var leftSide = h('div', {style:{display:'flex',gap:'10px',alignItems:'center'}});
+    leftSide.appendChild(h('div', {class:'avatar', style:{background:p.color+'22',border:'1px solid '+p.color+'44',color:p.color}}, p.initials));
+    leftSide.appendChild(h('div', null, [
+      h('div', {class:'persona-name'}, p.name),
+      h('div', {class:'persona-arch'}, p.archetype),
+    ]));
+    hdrRow.appendChild(leftSide);
+    var rightSide = h('div', {style:{display:'flex',alignItems:'center',gap:'5px'}});
+    if (state.running === p.id) rightSide.appendChild(spinner());
+    if (isSel && state.running !== p.id) rightSide.appendChild(dot(p.color));
+    if (r && r.analysis) rightSide.appendChild(tag(r.analysis.sentiment, sentColor(r.analysis.sentiment)));
+    hdrRow.appendChild(rightSide);
+    card.appendChild(hdrRow);
+
+    card.appendChild(h('div', {class:'persona-role'}, p.title + ' · ' + p.company));
+    card.appendChild(h('div', {class:'persona-fear', style:{color:p.color+'99'}}, 'Fear: "' + p.fear.slice(0,55) + '..."'));
+    var tagsRow = h('div', {style:{display:'flex',gap:'4px'}});
+    tagsRow.appendChild(tag(p.personality, 'rgba(255,255,255,.4)'));
+    tagsRow.appendChild(tag(p.authority, 'rgba(255,255,255,.4)'));
+    card.appendChild(tagsRow);
+
+    if (r && r.analysis) {
+      var resultRow = h('div', {style:{marginTop:'10px',paddingTop:'10px',borderTop:'1px solid rgba(255,255,255,.05)',display:'flex',gap:'6px',alignItems:'center'}});
+      resultRow.appendChild(tag(intentLabel(r.analysis.intent), intentColor(r.analysis.intent)));
+      if (r.analysis.objections[0]) resultRow.appendChild(h('span', {style:{fontSize:'10px',color:'rgba(255,255,255,.3)'}}, '· ' + r.analysis.objections[0]));
+      card.appendChild(resultRow);
+    }
+    grid.appendChild(card);
+  });
+  body.appendChild(grid);
+
+  // Bottom bar
+  var bar = h('div', {class:'bottom-bar'});
+  bar.appendChild(h('div', null, [
+    h('div', {style:{fontSize:'12px',color:'rgba(255,255,255,.6)',marginBottom:'3px'}},
+      state.selected.length === 0 ? 'Select personas above to begin' : state.selected.length + ' persona' + (state.selected.length!==1?'s':'') + ' selected'),
+    h('div', {class:'sub'}, (MARKETS.find(function(m){return m.id===state.market;})||{}).label + ' context active'),
+  ]));
+  var btns = h('div', {style:{display:'flex',gap:'8px'}});
+  btns.appendChild(btn('Select all', function(){state.selected=PERSONAS.map(function(p){return p.id;});render();}, true));
+  var cfgBtn = btn('Configure test →', function(){if(state.selected.length>0){state.view='test';render();}}, false, state.selected.length===0);
+  btns.appendChild(cfgBtn);
+  bar.appendChild(btns);
+  body.appendChild(bar);
+}
+
+// ── Test view ──────────────────────────────────────────────
+function renderTest(app) {
+  var body = h('div', {class:'body'});
+  app.appendChild(body);
+
+  body.appendChild(h('div', {style:{marginBottom:'24px',animation:'fadeUp .3s ease'}}, [
+    h('div', {class:'h1'}, 'Configure your test.'),
+    h('div', {class:'sub'}, state.selected.length + ' persona' + (state.selected.length!==1?'s':'') + ' · ' + (MARKETS.find(function(m){return m.id===state.market;})||{}).label),
+  ]));
+
+  // Test type grid
+  body.appendChild(h('div', {style:{marginBottom:'20px'}}, [
+    h('div', {class:'sub', style:{marginBottom:'10px'}}, 'What are you testing?'),
+    h('div', {class:'grid-test'}, TEST_TYPES.map(function(t) {
+      return h('div', {class:'card'+(state.testType===t.id?' active':''), onClick:function(){state.testType=t.id;render();}}, [
+        h('div', {style:{fontSize:'12px',fontWeight:'500',color:'rgba(255,255,255,.85)',marginBottom:'2px'}}, t.label),
+        h('div', {style:{fontSize:'10px',color:'rgba(255,255,255,.3)'}}, t.hint),
+      ]);
+    })),
+  ]));
+
+  // Stimulus
+  var stimDiv = h('div', {style:{marginBottom:'20px'}});
+  stimDiv.appendChild(h('div', {class:'sub', style:{marginBottom:'10px'}}, state.testType==='subject_line' ? 'Your subject line' : 'Your stimulus'));
+  if (state.testType === 'subject_line') {
+    var inp = h('input', {placeholder:'e.g. quick question about your Q4 pipeline'});
+    inp.value = state.subjectLine;
+    inp.addEventListener('input', function(){state.subjectLine = inp.value;});
+    stimDiv.appendChild(inp);
+    stimDiv.appendChild(h('div', {style:{fontSize:'11px',color:'rgba(255,255,255,.3)',marginTop:'8px',lineHeight:'1.6'}},
+      'Tests whether each persona would open and reply. Returns open rate, reply rate, and grade.'));
+  } else {
+    var ta = h('textarea', {placeholder:(TEST_TYPES.find(function(t){return t.id===state.testType;})||{}).hint||'Enter your stimulus', style:{minHeight:'140px'}});
+    ta.value = state.stimulus;
+    ta.addEventListener('input', function(){state.stimulus = ta.value;});
+    stimDiv.appendChild(ta);
+  }
+  body.appendChild(stimDiv);
+
+  // Mode selector
+  body.appendChild(h('div', {style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'24px'}},
+    [['batch','Batch — run all selected'],['chat','Chat — conversation with one']].map(function(item) {
+      return h('div', {class:'card'+(state.mode===item[0]?' active':''), onClick:function(){state.mode=item[0];render();}},
+        h('div', {style:{fontSize:'11px',fontWeight:'500',color:state.mode===item[0]?'#a78bfa':'rgba(255,255,255,.6)',letterSpacing:'.5px'}}, item[1]));
+    })
+  ));
+
+  // Chat mode
+  if (state.mode === 'chat') {
+    var chatDiv = h('div', {style:{marginBottom:'20px'}});
+    chatDiv.appendChild(h('div', {class:'sub', style:{marginBottom:'10px'}}, 'Select a persona to chat with'));
+    var chatBtns = h('div', {style:{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'16px'}});
+    PERSONAS.filter(function(p){return state.selected.indexOf(p.id)>-1;}).forEach(function(p) {
+      var b = h('button', {
+        class: 'btn-ghost',
+        style: {borderColor:p.color+'55'},
+        onClick: function(){state.activeChat=p;render();}
+      });
+      b.appendChild(h('span', {style:{color:p.color}}, p.initials));
+      b.appendChild(document.createTextNode(' ' + p.name));
+      chatBtns.appendChild(b);
+    });
+    chatDiv.appendChild(chatBtns);
+
+    if (state.activeChat) {
+      var p = state.activeChat;
+      var chatBox = h('div', {style:{background:'rgba(255,255,255,.02)',border:'1px solid rgba(255,255,255,.07)',borderRadius:'10px',padding:'16px'}});
+
+      // Chat header
+      var chatHdr = h('div', {style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'14px',paddingBottom:'12px',borderBottom:'1px solid rgba(255,255,255,.05)'}});
+      chatHdr.appendChild(h('div', {class:'avatar', style:{width:'32px',height:'32px',background:p.color+'22',border:'1px solid '+p.color+'44',color:p.color}}, p.initials));
+      chatHdr.appendChild(h('div', null, [
+        h('div', {style:{fontSize:'13px',fontWeight:'500',color:'#fafafa'}}, p.name),
+        h('div', {style:{fontSize:'10px',color:'rgba(255,255,255,.3)'}}, p.archetype + ' · ' + (MARKETS.find(function(m){return m.id===state.market;})||{}).label),
+      ]));
+      if (state.running === p.id) chatHdr.appendChild(spinner());
+      chatBox.appendChild(chatHdr);
+
+      // Messages
+      var hist = state.histories[p.id] || [];
+      hist.forEach(function(msg) {
+        var msgEl = h('div', {class:'chat-msg', style:{background:msg.role==='user'?'rgba(124,58,237,.08)':'rgba(255,255,255,.02)',borderLeftColor:msg.role==='user'?'#7c3aed':p.color,marginBottom:'12px'}});
+        msgEl.appendChild(h('div', {class:'chat-msg-label'}, msg.role==='user'?'You':p.name));
+        msgEl.appendChild(h('div', {class:'chat-msg-text'}, msg.content));
+        chatBox.appendChild(msgEl);
+      });
+
+      // Streaming response
+      var r = state.results[p.id];
+      if (r && r.loading) {
+        var streamEl = h('div', {class:'chat-msg', style:{background:'rgba(255,255,255,.02)',borderLeftColor:p.color,animation:'pulse 2s ease infinite',marginBottom:'12px'}});
+        streamEl.appendChild(h('div', {class:'chat-msg-label'}, p.name.toUpperCase()));
+        streamEl.appendChild(h('div', {class:'chat-msg-text'}, r.text || 'Thinking...'));
+        chatBox.appendChild(streamEl);
+      }
+
+      // Chat input
+      var inputRow = h('div', {style:{display:'flex',gap:'8px',marginTop:'12px'}});
+      var ci = h('input', {placeholder:'Talk to ' + p.name + '...'});
+      ci.value = state.chatInput;
+      ci.addEventListener('input', function(){state.chatInput=ci.value;});
+      ci.addEventListener('keydown', function(e){
+        if (e.key==='Enter' && state.chatInput.trim() && !state.running) {
+          var msg = state.chatInput.trim();
+          state.chatInput = '';
+          runChat(p, msg);
+        }
+      });
+      inputRow.appendChild(ci);
+      inputRow.appendChild(btn('Send', function(){
+        if (state.chatInput.trim() && !state.running) {
+          var msg = state.chatInput.trim();
+          state.chatInput = '';
+          runChat(p, msg);
+        }
+      }, false, !!state.running));
+      chatBox.appendChild(inputRow);
+
+      if (state.stimulus.trim() && !hist.length) {
+        chatBox.appendChild(btn('Send configured stimulus as first message', function(){
+          runChat(p, testPrompt(state.testType, state.stimulus));
+        }, true));
+      }
+      chatDiv.appendChild(chatBox);
+    }
+    body.appendChild(chatDiv);
+  }
+
+  // Batch run / subject line button
+  if (state.mode === 'batch') {
+    if (state.testType === 'subject_line') {
+      var sjBtn = btn(
+        state.subjectRunning ? 'Testing...' : 'Test subject line — ' + state.selected.length + ' personas',
+        function(){if(!state.subjectRunning){runSubjectLine();state.view='history';render();}},
+        false,
+        !state.subjectLine.trim() || state.selected.length===0 || state.subjectRunning
+      );
+      sjBtn.style.width = '100%';
+      sjBtn.style.justifyContent = 'center';
+      sjBtn.style.padding = '13px';
+      body.appendChild(sjBtn);
+    } else if (!state.batching) {
+      var runBtn = btn('Run batch — ' + state.selected.length + ' personas', runBatch, false, !state.stimulus.trim() || state.selected.length===0);
+      runBtn.style.width = '100%';
+      runBtn.style.justifyContent = 'center';
+      runBtn.style.padding = '13px';
+      body.appendChild(runBtn);
+    } else {
+      var progDiv = h('div', {style:{background:'rgba(255,255,255,.02)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'10px',padding:'20px'}});
+      var track = h('div', {class:'progress-track'});
+      track.appendChild(h('div', {class:'progress-fill', style:{width:state.batchPct+'%'}}));
+      progDiv.appendChild(track);
+      var progRow = h('div', {style:{display:'flex',justifyContent:'space-between',alignItems:'center'}});
+      var progLeft = h('div', {style:{display:'flex',gap:'8px',alignItems:'center',fontSize:'11px',color:'rgba(167,139,250,.7)'}});
+      progLeft.appendChild(spinner());
+      progLeft.appendChild(document.createTextNode('Running ' + state.batchPct + '% complete...'));
+      progRow.appendChild(progLeft);
+      progRow.appendChild(btn('Stop', function(){cancelBatch=true;}, true));
+      progDiv.appendChild(progRow);
+      body.appendChild(progDiv);
+    }
+  }
+}
+
+// ── Results view ───────────────────────────────────────────
+function renderResults(app) {
+  var body = h('div', {class:'body'});
+  app.appendChild(body);
+  var summary = calcSummary();
+  var conf = calcConfidence(summary);
+
+  if (!summary) {
+    var empty = h('div', {class:'empty-state'});
+    empty.appendChild(h('div', {style:{fontSize:'32px',marginBottom:'12px'}}, '◈'));
+    empty.appendChild(h('div', {class:'sub'}, 'No results yet — run a batch test first'));
+    empty.appendChild(h('br'));
+    empty.appendChild(btn('Go to test →', function(){state.view='test';render();}));
+    body.appendChild(empty);
+    return;
+  }
+
+  body.appendChild(h('div', {style:{marginBottom:'24px',animation:'fadeUp .3s ease'}}, [
+    h('div', {class:'h1'}, 'Market fit analysis.'),
+    h('div', {class:'sub'}, summary.total + ' personas · ' + (MARKETS.find(function(m){return m.id===state.market;})||{}).label),
+  ]));
+
+  // Score row
+  var sc = scoreColor(summary.fitScore);
+  var scoreRow = h('div', {class:'grid-stat', style:{marginBottom:'24px'}});
+  var ring = h('div', {class:'score-ring', style:{borderColor:sc+'44'}});
+  ring.appendChild(h('span', {style:{fontSize:'28px',color:sc,fontWeight:'400',lineHeight:'1'}}, summary.fitScore+''));
+  ring.appendChild(h('span', {style:{fontSize:'9px',color:'rgba(255,255,255,.3)',letterSpacing:'1px',textTransform:'uppercase',marginTop:'3px'}}, 'fit score'));
+  scoreRow.appendChild(ring);
+  [{label:'Positive reaction',val:summary.posRate+'%',color:'#10b981'},
+   {label:'Buy signal',val:summary.buyRate+'%',color:'#a78bfa'},
+   {label:'Researching more',val:Math.round(((summary.intCount.researching||0)/summary.total)*100)+'%',color:'#94a3b8'},
+  ].forEach(function(s) {
+    var sc2 = h('div', {class:'stat-card'});
+    sc2.appendChild(h('div', {class:'stat-val', style:{color:s.color}}, s.val));
+    sc2.appendChild(h('div', {class:'stat-lbl'}, s.label));
+    scoreRow.appendChild(sc2);
+  });
+  body.appendChild(scoreRow);
+
+  // Insights
+  var ins = h('div', {class:'insights-panel'});
+  var insHdr = h('div', {class:'insights-hdr'});
+  insHdr.appendChild(h('div', {class:'sub'}, 'What to fix — AI synthesis'));
+  var insRight = h('div', {style:{display:'flex',alignItems:'center',gap:'8px'}});
+  if (state.insLoading) {
+    insRight.appendChild(spinner());
+    insRight.appendChild(h('span', {style:{fontSize:'11px',color:'rgba(167,139,250,.6)'}}, 'Analyzing...'));
+  } else if (state.insights) {
+    insRight.appendChild(btn('Regenerate', function(){generateInsights(state.results);}, true));
+  }
+  insHdr.appendChild(insRight);
+  ins.appendChild(insHdr);
+  var insBody = h('div', {class:'insights-body'});
+  if (!state.insights && !state.insLoading) {
+    insBody.appendChild(h('span', {class:'insights-placeholder'}, 'Insights generate automatically after batch run.'));
+  } else if (state.insights) {
+    insBody.appendChild(document.createTextNode(state.insights));
+  }
+  ins.appendChild(insBody);
+  body.appendChild(ins);
+
+  // Objections + Questions
+  var twoCol = h('div', {class:'grid-2', style:{marginBottom:'24px'}});
+
+  var objPanel = h('div', {style:{background:'rgba(255,255,255,.02)',border:'1px solid rgba(255,255,255,.06)',borderRadius:'10px',padding:'16px'}});
+  objPanel.appendChild(h('div', {class:'sub', style:{marginBottom:'12px'}}, 'Top objections raised'));
+  if (!summary.topObjs.length) {
+    objPanel.appendChild(h('div', {style:{fontSize:'11px',color:'rgba(255,255,255,.25)',fontStyle:'italic'}}, 'No major objections raised'));
+  } else {
+    summary.topObjs.forEach(function(item) {
+      var row = h('div', {class:'obj-row'});
+      row.appendChild(h('div', {style:{flex:'1',fontSize:'12px',color:'rgba(255,255,255,.6)'}}, item[0]));
+      var barWrap = h('div', {style:{display:'flex',alignItems:'center',gap:'6px'}});
+      var track2 = h('div', {class:'obj-bar-track'});
+      var fill = h('div', {class:'obj-bar-fill', style:{width:((item[1]/summary.total)*100)+'%'}});
+      track2.appendChild(fill);
+      barWrap.appendChild(track2);
+      barWrap.appendChild(h('span', {style:{fontSize:'10px',color:'#f59e0b',minWidth:'24px'}}, item[1]+'/'+summary.total));
+      row.appendChild(barWrap);
+      objPanel.appendChild(row);
+    });
+  }
+  twoCol.appendChild(objPanel);
+
+  var qPanel = h('div', {style:{background:'rgba(255,255,255,.02)',border:'1px solid rgba(255,255,255,.06)',borderRadius:'10px',padding:'16px'}});
+  qPanel.appendChild(h('div', {class:'sub', style:{marginBottom:'12px'}}, 'Questions they asked'));
+  if (!summary.allQ.length) {
+    qPanel.appendChild(h('div', {style:{fontSize:'11px',color:'rgba(255,255,255,.25)',fontStyle:'italic'}}, 'No questions captured'));
+  } else {
+    summary.allQ.forEach(function(q) {
+      qPanel.appendChild(h('div', {style:{fontSize:'11px',color:'rgba(255,255,255,.55)',padding:'6px 0',borderBottom:'1px solid rgba(255,255,255,.04)',lineHeight:'1.5'}}, '"' + q + '"'));
+    });
+  }
+  twoCol.appendChild(qPanel);
+  body.appendChild(twoCol);
+
+  // Confidence funnel
+  if (conf) {
+    var funnelSection = h('div', {style:{background:'rgba(167,139,250,.05)',border:'1px solid rgba(167,139,250,.15)',borderRadius:'10px',padding:'16px',marginBottom:'24px'}});
+    funnelSection.appendChild(h('div', {class:'sub', style:{marginBottom:'12px'}}, 'Estimated real-world funnel'));
+    var funnelGrid = h('div', {class:'grid-funnel'});
+    [{label:'Would see outreach',val:conf.reachRate+'%'},
+     {label:'Would open cold email',val:conf.openRate+'%'},
+     {label:'Would reply',val:conf.replyRate+'%'},
+     {label:'Would take a meeting',val:conf.meetRate+'%'},
+    ].forEach(function(f) {
+      var fc = h('div', {class:'funnel-card'});
+      fc.appendChild(h('div', {class:'funnel-val'}, f.val));
+      fc.appendChild(h('div', {class:'funnel-lbl'}, f.label));
+      funnelGrid.appendChild(fc);
+    });
+    funnelSection.appendChild(funnelGrid);
+    funnelSection.appendChild(h('div', {style:{fontSize:'11px',color:'rgba(255,255,255,.25)',marginTop:'10px',lineHeight:'1.6'}},
+      'Directional estimates derived from persona sentiment and intent — not guarantees. Use as relative benchmark.'));
+    body.appendChild(funnelSection);
+  }
+
+  // Individual responses
+  body.appendChild(h('div', {class:'sub', style:{marginBottom:'12px'}}, 'Individual responses'));
+  var resList = h('div', {style:{display:'flex',flexDirection:'column',gap:'8px',marginBottom:'24px'}});
+  PERSONAS.filter(function(p){return state.results[p.id] && state.results[p.id].analysis;}).forEach(function(p) {
+    var r = state.results[p.id];
+    var a = r.analysis;
+    var card = h('div', {class:'response-card'});
+    var row = h('div', {style:{display:'flex',gap:'12px',alignItems:'flex-start'}});
+    row.appendChild(h('div', {class:'avatar', style:{width:'32px',height:'32px',background:p.color+'22',border:'1px solid '+p.color+'44',color:p.color,flexShrink:'0'}}, p.initials));
+    var info = h('div', {style:{flex:'1'}});
+    var nameRow = h('div', {style:{display:'flex',alignItems:'center',gap:'8px',marginBottom:'6px'}});
+    nameRow.appendChild(h('span', {style:{fontSize:'13px',fontWeight:'500',color:'#fafafa'}}, p.name));
+    nameRow.appendChild(tag(a.sentiment, sentColor(a.sentiment)));
+    nameRow.appendChild(tag(intentLabel(a.intent), intentColor(a.intent)));
+    info.appendChild(nameRow);
+    info.appendChild(h('div', {class:'response-text'}, r.text.slice(0,220) + (r.text.length>220?'...':'')));
+    if (a.objections.length) {
+      var objRow2 = h('div', {style:{marginTop:'6px',display:'flex',gap:'4px',flexWrap:'wrap'}});
+      a.objections.forEach(function(o){objRow2.appendChild(tag('⚠ '+o,'#f59e0b'));});
+      info.appendChild(objRow2);
+    }
+    row.appendChild(info);
+    row.appendChild(btn('Chat →', function(){state.activeChat=p;state.mode='chat';state.view='test';render();}, true));
+    card.appendChild(row);
+    resList.appendChild(card);
+  });
+  body.appendChild(resList);
+
+  var btmRow = h('div', {style:{display:'flex',gap:'10px'}});
+  btmRow.appendChild(btn('Run another test', function(){state.view='test';state.results={};state.histories={};render();}, true));
+  btmRow.appendChild(btn('Save & back to panel', function(){var s=calcSummary();if(s)saveHistory(s);state.view='panel';render();}));
+  body.appendChild(btmRow);
+}
+
+// ── History view ───────────────────────────────────────────
+function renderHistory(app) {
+  var body = h('div', {class:'body'});
+  app.appendChild(body);
+
+  body.appendChild(h('div', {style:{marginBottom:'24px',animation:'fadeUp .3s ease'}}, [
+    h('div', {class:'h1'}, 'Test history.'),
+    h('div', {class:'sub', style:{marginBottom:'10px'}}, 'Track how your market fit score evolves over iterations'),
+  ]));
+
+  // Subject line tester
+  var sjSection = h('div', {style:{marginBottom:'28px',background:'rgba(255,255,255,.02)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'10px',padding:'20px'}});
+  sjSection.appendChild(h('div', {class:'sub', style:{marginBottom:'10px'}}, 'Subject line open rate estimator'));
+  var sjRow = h('div', {style:{display:'flex',gap:'8px',marginBottom:'12px'}});
+  var sjInp = h('input', {placeholder:'e.g. quick question about your Q4 pipeline', style:{flex:'1'}});
+  sjInp.value = state.subjectLine;
+  sjInp.addEventListener('input', function(){state.subjectLine=sjInp.value;});
+  sjInp.addEventListener('keydown', function(e){if(e.key==='Enter'&&!state.subjectRunning)runSubjectLine();});
+  sjRow.appendChild(sjInp);
+  sjRow.appendChild(btn(state.subjectRunning?'Testing...':'Test →', function(){if(!state.subjectRunning)runSubjectLine();}, false, !state.subjectLine.trim()||state.subjectRunning||state.selected.length===0));
+  sjSection.appendChild(sjRow);
+  if (state.selected.length===0) sjSection.appendChild(h('div', {style:{fontSize:'11px',color:'#f59e0b'}}, 'Select personas in Panel first'));
+
+  if (state.subjectResults) {
+    var sr = state.subjectResults;
+    var gradeColor = sr.grade==='A'?'#10b981':sr.grade==='B'?'#a78bfa':sr.grade==='C'?'#f59e0b':'#ef4444';
+    var sjScoreRow = h('div', {style:{display:'grid',gridTemplateColumns:'auto 1fr 1fr',gap:'12px',marginBottom:'14px',alignItems:'center'}});
+    var gradeEl = h('div', {class:'subj-grade', style:{borderColor:gradeColor+'44',color:gradeColor}}, sr.grade);
+    sjScoreRow.appendChild(gradeEl);
+    [{label:'Estimated open rate',val:sr.openRate+'%'},{label:'Estimated reply rate',val:sr.replyRate+'%'}].forEach(function(s) {
+      var sc3 = h('div', {class:'stat-card'});
+      sc3.appendChild(h('div', {class:'stat-val', style:{color:'#a78bfa',fontSize:'22px'}}, s.val));
+      sc3.appendChild(h('div', {class:'stat-lbl'}, s.label));
+      sjScoreRow.appendChild(sc3);
+    });
+    sjSection.appendChild(sjScoreRow);
+    sr.reactions.forEach(function(rx) {
+      var rxEl = h('div', {class:'subj-reaction'});
+      rxEl.appendChild(h('div', {class:'avatar', style:{width:'22px',height:'22px',background:rx.persona.color+'22',color:rx.persona.color,fontSize:'8px',flexShrink:'0'}}, rx.persona.initials));
+      rxEl.appendChild(h('div', {style:{flex:'1',fontSize:'11px',color:'rgba(255,255,255,.55)',lineHeight:'1.6'}}, rx.text.slice(0,160)));
+      var oc = rx.open==='yes'?'#10b981':rx.open==='maybe'?'#f59e0b':'#ef4444';
+      rxEl.appendChild(h('span', {class:'open-tag', style:{background:oc+'18',color:oc,border:'1px solid '+oc+'33'}}, rx.open==='yes'?'Opens':rx.open==='maybe'?'Maybe':'Ignores'));
+      sjSection.appendChild(rxEl);
+    });
+  }
+  body.appendChild(sjSection);
+
+  // Score trend
+  if (state.testHistory.length > 0) {
+    body.appendChild(h('div', {class:'sub', style:{marginBottom:'12px'}}, 'Fit score over time — ' + state.testHistory.length + ' test' + (state.testHistory.length!==1?'s':'')));
+
+    // Bar chart
+    var barEl = h('div', {class:'history-bar'});
+    state.testHistory.slice(0,20).slice().reverse().forEach(function(entry) {
+      var c = scoreColor(entry.fitScore);
+      var bar = h('div', {class:'history-bar-item', style:{height:((entry.fitScore/100)*100)+'%',background:c}});
+      barEl.appendChild(bar);
+    });
+    body.appendChild(barEl);
+
+    // Entries
+    state.testHistory.forEach(function(entry) {
+      var c = scoreColor(entry.fitScore);
+      var el = h('div', {class:'history-entry'});
+      el.appendChild(h('div', {class:'history-score', style:{borderColor:c+'44',color:c}}, entry.fitScore+''));
+      var info = h('div', {style:{flex:'1'}});
+      var typeRow = h('div', {style:{display:'flex',alignItems:'center',gap:'8px',marginBottom:'3px'}});
+      typeRow.appendChild(h('span', {style:{fontSize:'12px',fontWeight:'500',color:'#fafafa'}}, (TEST_TYPES.find(function(t){return t.id===entry.testType;})||{}).label||entry.testType));
+      typeRow.appendChild(h('span', {style:{fontSize:'10px',color:'rgba(255,255,255,.3)',background:'rgba(255,255,255,.05)',padding:'1px 6px',borderRadius:'4px'}}, (MARKETS.find(function(m){return m.id===entry.market;})||{}).label||entry.market));
+      info.appendChild(typeRow);
+      info.appendChild(h('div', {style:{fontSize:'11px',color:'rgba(255,255,255,.4)',lineHeight:'1.5'}}, '"'+entry.stimulus+'"'));
+      if (entry.topObjs && entry.topObjs.length) {
+        var objsRow = h('div', {style:{marginTop:'4px',display:'flex',gap:'4px',flexWrap:'wrap'}});
+        entry.topObjs.forEach(function(o){objsRow.appendChild(tag('⚠ '+o,'#f59e0b'));});
+        info.appendChild(objsRow);
+      }
+      el.appendChild(info);
+      var metaCol = h('div', {style:{textAlign:'right',flexShrink:'0'}});
+      metaCol.appendChild(h('div', {style:{fontSize:'10px',color:'rgba(255,255,255,.3)'}}, new Date(entry.date).toLocaleDateString()));
+      metaCol.appendChild(h('div', {style:{fontSize:'10px',color:'#10b981',marginTop:'2px'}}, entry.posRate+'% positive'));
+      metaCol.appendChild(h('div', {style:{fontSize:'10px',color:'#a78bfa'}}, entry.buyRate+'% buy signal'));
+      el.appendChild(metaCol);
+      body.appendChild(el);
+    });
+
+    body.appendChild(h('br'));
+    body.appendChild(btn('Clear history', function(){state.testHistory=[];render();}, true));
+  } else {
+    body.appendChild(h('div', {class:'empty-state'}, 'No test history yet. Run a batch test and click "Save & back to panel" to start tracking.'));
+  }
+}
+
+// ── Boot ───────────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>

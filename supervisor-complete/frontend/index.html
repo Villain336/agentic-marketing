@@ -1,0 +1,1325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Supervisor — Autonomous Agency Platform</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body style="margin:0;background:#0a0a0f">
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useCallback, useEffect } = React;
+
+// ─── Config ───────────────────────────────────────────────────────────────────
+const SB_URL  = "https://tmybcgtgodhcdusplmtx.supabase.co";
+const SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRteWJjZ3Rnb2RoY2R1c3BsbXR4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1MTg3NTUsImV4cCI6MjA4OTA5NDc1NX0.Sa4CRuvSU0fbJUugg1Z4qMI2eDHiCnnQIo5QbiSML8Y";
+const API_URL = window.location.hostname === "localhost" ? "http://localhost:8000" : "/api";
+
+const PLANS = [
+  {
+    id: "starter", name: "Starter", price: "$2,500", period: "/month",
+    priceId: "price_1TAyxLR69hwQuKhCtKQHCH0V",
+    link: "https://buy.stripe.com/fZucN7afKf5Y8oaeWb0Ny05",
+    desc: "For founders testing autonomous outreach",
+    features: ["Prospector + Outreach agents", "500 prospects/month", "Cold email sequences", "Supervisor grading", "Email support"],
+    highlight: false,
+  },
+  {
+    id: "growth", name: "Growth", price: "$7,000", period: "/month",
+    priceId: "price_1TAyxOR69hwQuKhCkinrEtDw",
+    link: "https://buy.stripe.com/6oUeVf4Vqga2awiaFV0Ny04",
+    desc: "Full 7-agent autonomous campaign loop",
+    features: ["All 7 campaign agents", "2,000 prospects/month", "Content + social + ads", "Client success system", "Persistent campaign memory", "Priority support"],
+    highlight: true,
+  },
+  {
+    id: "scale", name: "Scale", price: "$15,000", period: "/month",
+    priceId: "price_1TAyxTR69hwQuKhCJ36R8Z95",
+    link: "https://buy.stripe.com/28E8wR73y2jcgUG15l0Ny06",
+    desc: "All 12 agents + site launch + ops layer",
+    features: ["All 12 agents incl. Legal, GTM, PPC", "Unlimited prospects", "Domain purchase + deployment", "Custom agent tuning", "Dedicated Supervisor instance", "White-glove onboarding"],
+    highlight: false,
+  },
+];
+
+// ─── Supabase REST helpers ─────────────────────────────────────────────────────
+const sbFetch = async (path, opts = {}, token = null) => {
+  const headers = {
+    "Content-Type":  "application/json",
+    "apikey":        SB_ANON,
+    "Authorization": token ? `Bearer ${token}` : `Bearer ${SB_ANON}`,
+    ...opts.headers,
+  };
+  const res = await fetch(`${SB_URL}${path}`, { ...opts, headers });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `HTTP ${res.status}`);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : {};
+};
+
+// ─── Auth — direct Supabase endpoints, no edge function required ──────────────
+const sbAuth = {
+  signup: async (email, password, agencyName) => {
+    // Sign up — Supabase returns user + session if email confirmation is OFF,
+    // or just user (no access_token) if confirmation is ON.
+    const data = await sbFetch("/auth/v1/signup", {
+      method: "POST",
+      body: JSON.stringify({ email, password, data: { agency_name: agencyName } }),
+    });
+    // Handle "User already registered"
+    if (data.code === 422 || (data.msg && data.msg.toLowerCase().includes("already"))) {
+      throw new Error("An account with this email already exists. Try logging in.");
+    }
+    if (data.error || data.error_description) {
+      throw new Error(data.error_description || data.error || "Signup failed");
+    }
+    // If we got a session back (email confirm disabled), return it directly
+    if (data.access_token) return data;
+    // If we only got a user (email confirm ON), try to login anyway — 
+    // we auto-confirmed via SQL so it should work
+    if (data.user || data.id) {
+      try {
+        const session = await sbAuth.login(email, password);
+        return session;
+      } catch(e) {
+        // Email confirmation still pending — tell the user clearly
+        throw new Error("Account created! Check your email to confirm, then sign in.");
+      }
+    }
+    throw new Error("Signup failed — please try again.");
+  },
+  login: async (email, password) => {
+    const data = await sbFetch("/auth/v1/token?grant_type=password", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+    if (data.error || data.error_description) {
+      const msg = data.error_description || data.error || "Login failed";
+      if (msg.toLowerCase().includes("confirm")) {
+        throw new Error("Please check your email and confirm your account first.");
+      }
+      if (msg.toLowerCase().includes("invalid")) {
+        throw new Error("Invalid email or password.");
+      }
+      throw new Error(msg);
+    }
+    return data;
+  },
+  logout: async (token) => {
+    try { await sbFetch("/auth/v1/logout", { method: "POST" }, token); } catch {}
+  },
+};
+
+const sbData = {
+  saveAgencyProfile: async (token, profile) => {
+    try {
+      return sbFetch("/rest/v1/agency_profiles", {
+        method: "POST",
+        headers: { "Prefer": "return=minimal" },
+        body: JSON.stringify(profile),
+      }, token);
+    } catch(e) {} // non-blocking
+  },
+  logAgentRun: async (token, campaignId, agentId, agentLabel, output, startedAt) => {
+    try {
+      await sbFetch("/rest/v1/agent_runs", {
+        method: "POST",
+        headers: { "Prefer": "return=minimal" },
+        body: JSON.stringify({ campaign_id: campaignId, agent_id: agentId, agent_label: agentLabel, output: output.slice(0, 5000), started_at: startedAt, model: "claude-opus-4-6" }),
+      }, token);
+    } catch {}
+  },
+};
+
+// ─── Backend SSE stream ──────────────────────────────────────────────────────
+const streamBackendAgent = async (agentId, biz, memory, { onText, onToolCall, onToolResult, onDone, onError }) => {
+  const res = await fetch(`${API_URL}/agent/${agentId}/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      agent_id: agentId,
+      business: { name: biz.name, service: biz.service, icp: biz.icp, geography: biz.geography, goal: biz.goal, brand_context: biz.brandCtx || "" },
+      memory,
+      tier: "standard",
+    }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let finalOutput = "";
+  let memoryUpdate = null;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    for (const line of dec.decode(value).split("\n")) {
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const ev = JSON.parse(line.slice(6));
+        if (ev.event === "think" && ev.content) { finalOutput = ev.content; onText?.(ev.content, ev.provider, ev.model); }
+        else if (ev.event === "tool_call") { onToolCall?.(ev.tool_name, ev.tool_input); }
+        else if (ev.event === "tool_result") { onToolResult?.(ev.tool_name, ev.tool_output); }
+        else if (ev.event === "output") { finalOutput = ev.content; memoryUpdate = ev.memory_update; onDone?.(ev.content, ev.memory_update, ev.provider); }
+        else if (ev.event === "error") { onError?.(ev.content); }
+        else if (ev.event === "status") { onText?.(`⌁ ${ev.content}\n`, ev.provider, ev.model); }
+      } catch {}
+    }
+  }
+  return { output: finalOutput, memoryUpdate };
+};
+
+// ─── Legacy direct stream (fallback if backend unavailable) ──────────────────
+const streamClaude = async (system, userContent, onChunk) => {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514", max_tokens: 4096, stream: true, system,
+      messages: [{ role: "user", content: userContent }],
+    }),
+  });
+  if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+  const reader = res.body.getReader();
+  const dec    = new TextDecoder();
+  let full = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    for (const line of dec.decode(value).split("\n")) {
+      if (!line.startsWith("data: ")) continue;
+      try { const d = JSON.parse(line.slice(6)); if (d.delta?.text) { full += d.delta.text; onChunk(full); } } catch {}
+    }
+  }
+  return full;
+};
+
+// ─── Session persistence ──────────────────────────────────────────────────────
+const SESSION_KEY = "sv_session_v2";
+const BIZ_KEY     = "sv_biz_v2";
+const CAMP_KEY    = "sv_campaign_v2";
+
+const saveSession = (s) => { try { localStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch {} };
+const loadSession = () => { try { const s = localStorage.getItem(SESSION_KEY); return s ? JSON.parse(s) : null; } catch { return null; } };
+const clearSession = () => { try { localStorage.removeItem(SESSION_KEY); localStorage.removeItem(BIZ_KEY); localStorage.removeItem(CAMP_KEY); } catch {} };
+const saveBiz = (b) => { try { localStorage.setItem(BIZ_KEY, JSON.stringify(b)); } catch {} };
+const loadBiz = () => { try { const s = localStorage.getItem(BIZ_KEY); return s ? JSON.parse(s) : null; } catch { return null; } };
+const saveCamp = (d) => { try { localStorage.setItem(CAMP_KEY, JSON.stringify(d)); } catch {} };
+const loadCamp = () => { try { const s = localStorage.getItem(CAMP_KEY); return s ? JSON.parse(s) : null; } catch { return null; } };
+const wipeCamp = () => { try { localStorage.removeItem(CAMP_KEY); } catch {} };
+
+// ─── Grading ──────────────────────────────────────────────────────────────────
+const grade = (text) => {
+  if (!text || text.length < 50) return { grade: "—", score: 0, words: 0, sections: 0 };
+  const words    = text.trim().split(/\s+/).length;
+  const sections = (text.match(/^##\s/gm) || []).length;
+  const score    = Math.min(100, Math.round((words / 5) + (sections * 7)));
+  const g = score >= 90 ? "A+" : score >= 80 ? "A" : score >= 70 ? "B+" : score >= 60 ? "B" : score >= 50 ? "C+" : "C";
+  return { grade: g, score, words, sections };
+};
+
+// ─── Agents ───────────────────────────────────────────────────────────────────
+const AGENTS = [
+  {
+    id: "prospector", label: "Prospector", role: "Lead Intelligence", icon: "◎",
+    phases: ["Scanning ICP parameters…", "Cross-referencing firmographic signals…", "Scoring prospect fit…", "Building qualified list…"],
+    handoff: "8 qualified prospects → Outreach",
+    buildSystem: (m) => `You are a senior B2B lead researcher.\nAGENCY: ${m.name} | SERVICE: ${m.service}\nICP: ${m.icp} | GEO: ${m.geography} | GOAL: ${m.goal}\n${m.brandCtx||""}\nRULES: Every prospect matches ICP with evidence. Realistic companies, titles, emails (firstname@company.com). Outreach hook specific to each company.\nFORMAT for each of 8:\n## PROSPECT [N]: [Company]\n**Contact:** [Name · Title]\n**Company:** [size · ARR · vertical]\n**ICP match:** [2 specific reasons]\n**Email:** [email]\n**Hook:** [specific angle]\n---`,
+    buildPrompt: (m) => `Find 8 qualified prospects for ${m.name}. Service: ${m.service}. Target: ${m.icp}. Geography: ${m.geography}. Revenue goal: ${m.goal}. Make each feel researched.`,
+    extractMemory: (o) => ({ prospects: o, prospectCount: (o.match(/## PROSPECT/g)||[]).length }),
+  },
+  {
+    id: "outreach", label: "Outreach", role: "Sales Automation", icon: "◈",
+    phases: ["Reading prospect intelligence…", "Mapping ICP pain points…", "Calibrating voice and angle…", "Writing 3-email sequence…"],
+    handoff: "3-email sequence + LinkedIn → Content",
+    buildSystem: (m) => `You are a world-class B2B cold email strategist.\nAGENCY: ${m.name} | OFFER: ${m.service} | ICP: ${m.icp} | GOAL: ${m.goal}\n${m.brandCtx||""}\nPROSPECT INTEL: ${m.prospects?m.prospects.slice(0,1000):"not yet available"}\nRULES: Never open with "I hope this finds you well". Under 120 words/email. Subject lines 6 words max. Email 3 is a real breakup.\nFORMAT:\n## EMAIL 1 — Day 1\n**Subject:**\n[body]\n## EMAIL 2 — Day 4\n**Subject:**\n[body]\n## EMAIL 3 — Day 10\n**Subject:**\n[body]\n## LINKEDIN NOTE\n[under 280 chars]`,
+    buildPrompt: (m) => `Write outreach sequence for ${m.name}. Offer: ${m.service}. ICP: ${m.icp}. Use prospect intel. Make it feel like a founder who did their homework.`,
+    extractMemory: (o) => ({ emailSequence: o }),
+  },
+  {
+    id: "content", label: "Content", role: "SEO & Authority", icon: "◇",
+    phases: ["Reading campaign context…", "Researching keyword landscape…", "Structuring pillar architecture…", "Writing opening paragraphs…"],
+    handoff: "Pillar article + 5 supporting → Social",
+    buildSystem: (m) => `You are a senior SEO content strategist.\nAGENCY: ${m.name} | NICHE: ${m.service} | AUDIENCE: ${m.icp} | MARKETS: ${m.geography}\n${m.brandCtx||""}\nCAMPAIGN: Prospects: ${m.prospectCount||0} | Outreach: ${m.emailSequence?"ready":"pending"}\nRULES: Target specific search intent. Pillar must establish genuine expertise. Hook in sentence 1.\nFORMAT:\n## PILLAR: [Title]\n**Keyword:** | **Intent:**\n### Outline: [H2s/H3s]\n### Opening 3 Paragraphs: [written in full]\n## SUPPORTING ARTICLES:\n1-5. [Title] | Keyword: [kw]\n## 4-WEEK CALENDAR: [schedule]`,
+    buildPrompt: (m) => `Build content strategy for ${m.name}. Service: ${m.service}. Audience: ${m.icp}. Pillar outline + 3 opening paragraphs + 5 supporting pieces + 4-week calendar.`,
+    extractMemory: (o) => ({ contentStrategy: o }),
+  },
+  {
+    id: "social", label: "Social", role: "Audience Growth", icon: "⬡",
+    phases: ["Loading campaign memory…", "Extracting content angles…", "Mapping audience hooks…", "Writing 14 platform-native posts…"],
+    handoff: "7-day calendar (LinkedIn + X) → Ads",
+    buildSystem: (m) => `You are a B2B social strategist writing for agency founders.\nAGENCY: ${m.name} | EXPERTISE: ${m.service} | AUDIENCE: ${m.icp}\n${m.brandCtx||""}\nRULES: Sound like a specific human founder. Vary formats: insight/hot take/story/question/list. LinkedIn multi-paragraph ok, end with question. X under 280 chars. Never "the secret is…"\nFORMAT — for each of 7 days:\n## DAY [N]\n**LinkedIn:**\n[post]\n**X:**\n[post]`,
+    buildPrompt: (m) => `Write 7 days of social content (14 posts: LinkedIn + X) for ${m.name}. Expertise: ${m.service}. Audience: ${m.icp}. Every post must feel like a real founder wrote it.`,
+    extractMemory: (o) => ({ socialCalendar: o }),
+  },
+  {
+    id: "ads", label: "Ads", role: "Paid Acquisition", icon: "◆",
+    phases: ["Pulling ICP signals from memory…", "Mapping audience segments…", "Writing ad creative variants…", "Building landing page copy…"],
+    handoff: "Full ad package → Client Success",
+    buildSystem: (m) => `You are a performance marketing expert for B2B agencies.\nAGENCY: ${m.name} | OFFER: ${m.service} | TARGET: ${m.icp} | GOAL: ${m.goal}\n${m.brandCtx||""}\nPROSPECTS: ${m.prospectCount?`${m.prospectCount} ICP-matched`:"not available"}\nRULES: Headlines lead with outcome. Primary text opens with pain. Each variant tests different angle. Google headlines ≤30 chars. CTAs specific.\nFORMAT:\n## META ADS\n### Variant 1 — [Angle]\n**Headline:** | **Primary Text:** | **CTA:**\n[repeat x3]\n## GOOGLE SEARCH ADS\n### Ad 1: H1|H2|H3 / D1: / D2:\n[repeat x2]\n## LANDING PAGE\n**Headline:** | **Sub:** | **Bullets:** (3) | **CTA:**`,
+    buildPrompt: (m) => `Create full paid acquisition package for ${m.name}. Offer: ${m.service}. Target: ${m.icp}. Goal: ${m.goal}. 3 Meta variants + 2 Google ads + landing page copy.`,
+    extractMemory: (o) => ({ adPackage: o }),
+  },
+  {
+    id: "cs", label: "Client Success", role: "Retention & Ops", icon: "◉",
+    phases: ["Reading full campaign from memory…", "Mapping client journey…", "Building onboarding sequence…", "Generating retention system…"],
+    handoff: "Full CS system + campaign summary → Site Launch",
+    buildSystem: (m) => `You are a premium client success manager.\nAGENCY: ${m.name} | SERVICE: ${m.service} | CLIENT TYPE: ${m.icp} | GOAL: ${m.goal}\n${m.brandCtx||""}\nCAMPAIGN: Prospects:${m.prospectCount||0} | Outreach:${m.emailSequence?"ready":"pending"} | Content:${m.contentStrategy?"built":"pending"} | Social:${m.socialCalendar?"ready":"pending"} | Ads:${m.adPackage?"ready":"pending"}\nRULES: Each onboarding email has ONE purpose. Warm but efficient. Churn email addresses silence without desperation. Report leads with ROI.\nFORMAT:\n## ONBOARDING SEQUENCE\n### Day 1: / Day 3: / Day 7: / Day 14: / Day 30:\n[each: **Subject:** + body]\n## CHURN PREVENTION\n**Subject:** [body]\n## MONTHLY REPORT TEMPLATE\n[sections]\n## CAMPAIGN EXECUTIVE SUMMARY\n[3-sentence summary]`,
+    buildPrompt: (m) => `Build complete client success system for ${m.name}. Service: ${m.service}. Client type: ${m.icp}. Onboarding sequence + churn prevention + monthly report + campaign summary.`,
+    extractMemory: (o) => ({ csSystem: o, csComplete: true }),
+  },
+  {
+    id: "sitelaunch", label: "Site Launch", role: "Domain · Build · Deploy", icon: "◈",
+    phases: ["Analyzing competitor landscape…", "Selecting domain name…", "Generating site architecture…", "Building SEO + funnel structure…", "Preparing deployment package…"],
+    handoff: "Live site brief + deployment checklist → Campaign complete",
+    buildSystem: (m) => `You are a senior web strategist and conversion architect.\nAGENCY: ${m.name} | SERVICE: ${m.service} | ICP: ${m.icp} | GEO: ${m.geography}\n${m.brandCtx||""}\nCAMPAIGN: Prospects:${m.prospectCount||0} | All agents: ${m.csComplete?"complete":"in progress"}\nDELIVERABLES:\n1. Domain recommendation (3 options ranked)\n2. Site architecture (pages + purpose)\n3. Hero: headline + subheadline + CTA\n4. SEO meta: title tag + meta desc + 5 keywords\n5. Page-by-page content brief\n6. Schema markup types\n7. Conversion funnel map\n8. Technical SEO checklist (20 items)\n9. Cloudflare Workers deployment brief\n10. 30-day post-launch SEO plan\nFORMAT with ## sections for each deliverable.`,
+    buildPrompt: (m) => `Build complete site launch brief for ${m.name}. Service: ${m.service}. ICP: ${m.icp}. Geography: ${m.geography}. Give a developer everything needed to build and deploy the site. Use full campaign context.`,
+    extractMemory: (o) => ({ siteLaunchBrief: o, campaignComplete: true }),
+  },
+  {
+    id: "legal", label: "Legal", role: "Compliance & Contracts", icon: "⬗",
+    phases: ["Reviewing business model…", "Identifying regulatory requirements…", "Drafting document checklist…", "Building compliance playbook…"],
+    handoff: "Entity structure + document checklist + 3 risk flags",
+    buildSystem: (m) => `You are a business attorney specializing in agency and SaaS operations.\nAGENCY: ${m.name} | SERVICE: ${m.service} | ICP: ${m.icp} | GEO: ${m.geography}\n${m.brandCtx||""}\nRULES: Guidance only — not legal advice. Flag anything requiring an actual attorney. Be specific to this business model.\nFORMAT:\n## ENTITY STRUCTURE\n[recommendation + rationale]\n## REQUIRED DOCUMENTS\n[list with priority: must-have vs nice-to-have]\n## TERMS OF SERVICE — KEY CLAUSES\n[5+ clauses specific to this service model]\n## PRIVACY POLICY REQUIREMENTS\n[data collected, how used, user rights]\n## CLIENT CONTRACT MUST-HAVES\n[5 protective clauses]\n## COMPLIANCE CHECKLIST\n[industry-specific regulatory items]\n## RISK FLAGS\n[3 legal risks to address immediately]`,
+    buildPrompt: (m) => `Identify legal requirements and draft key document checklist for ${m.name}. Service: ${m.service}. Target clients: ${m.icp}. Geography: ${m.geography}. Be specific to this exact business model.`,
+    extractMemory: (o) => ({ legalPlaybook: o }),
+  },
+  {
+    id: "marketing_expert", label: "Marketing Expert", role: "Strategy & Positioning", icon: "◐",
+    phases: ["Analyzing competitive landscape…", "Mapping positioning gaps…", "Building messaging hierarchy…", "Writing 90-day GTM plan…"],
+    handoff: "Positioning statement + messaging hierarchy + 90-day GTM",
+    buildSystem: (m) => `You are a senior go-to-market strategist.\nAGENCY: ${m.name} | SERVICE: ${m.service} | ICP: ${m.icp} | GOAL: ${m.goal}\n${m.brandCtx||""}\nCAMPAIGN CONTEXT: Prospects:${m.prospectCount||0} | Content:${m.contentStrategy?"built":"pending"} | Ads:${m.adPackage?"ready":"pending"}\nRULES: Differentiation must be real, not just "we're better". North Star must be measurable. Channel ranking must be specific.\nFORMAT:\n## POSITIONING STATEMENT\n[one sentence]\n## COMPETITIVE LANDSCAPE\n### Competitor 1/2/3: [name] — [their positioning] — [gap to exploit]\n## DIFFERENTIATION\n[what genuinely makes this different]\n## MESSAGING HIERARCHY\n**Primary:** [message]\n**Supporting:** [3 messages + proof points each]\n## CHANNEL STRATEGY\n[ranked list with rationale + budget allocation]\n## 90-DAY GTM PLAN\n### Month 1 / Month 2 / Month 3: [specific actions]\n## NORTH STAR METRIC\n[the one number that determines if marketing is working]`,
+    buildPrompt: (m) => `Build complete GTM strategy and positioning for ${m.name}. Service: ${m.service}. Target: ${m.icp}. Goal: ${m.goal}. Give me a real competitive edge and specific 90-day plan.`,
+    extractMemory: (o) => ({ gtmStrategy: o }),
+  },
+  {
+    id: "procurement", label: "Procurement", role: "Tool & Spend Tracking", icon: "◑",
+    phases: ["Auditing required tool categories…", "Mapping integration dependencies…", "Benchmarking pricing tiers…", "Building 30-day setup order…"],
+    handoff: "Full tool stack + budget breakdown + setup sequence",
+    buildSystem: (m) => `You are an operations expert who optimizes agency tool stacks.\nAGENCY: ${m.name} | SERVICE: ${m.service} | STAGE: early/growth\n${m.brandCtx||""}\nRULES: Only recommend tools that directly enable ${m.service}. Always include free tiers where available. Flag tools to avoid.\nFORMAT:\n## RECOMMENDED TOOL STACK\n[by category: CRM, Email, Analytics, Hosting, Design, Automation, Comms]\n[each: Tool name | Price | Why this one]\n## MONTHLY BUDGET BREAKDOWN\n[per category + total]\n## FREE ALTERNATIVES\n[where to start free and when to upgrade]\n## TOOLS TO AVOID\n[overpriced or wrong-fit for this stage]\n## INTEGRATION MAP\n[which tools must connect + how]\n## 30-DAY SETUP SEQUENCE\n[ordered list with rationale]\n## SAVINGS OPPORTUNITIES\n[annual vs monthly pricing deals]`,
+    buildPrompt: (m) => `Audit and optimize the tool stack for ${m.name}. Service: ${m.service}. Build complete procurement plan with budget breakdown and 30-day setup sequence.`,
+    extractMemory: (o) => ({ toolStack: o }),
+  },
+  {
+    id: "newsletter", label: "Newsletter", role: "Email Campaigns", icon: "◌",
+    phases: ["Mapping subscriber journey…", "Building lead magnet concept…", "Writing welcome sequence…", "Drafting first broadcast…"],
+    handoff: "5-email welcome sequence + first broadcast + list strategy",
+    buildSystem: (m) => `You are an email marketing strategist for B2B agencies.\nAGENCY: ${m.name} | SERVICE: ${m.service} | AUDIENCE: ${m.icp}\n${m.brandCtx||""}\nCAMPAIGN: Content:${m.contentStrategy?"built":"pending"} | Social:${m.socialCalendar?"ready":"pending"}\nRULES: Every email has ONE job. Subject lines tested for curiosity not clickbait. Welcome sequence builds trust before asking anything.\nFORMAT:\n## EMAIL STRATEGY\n[list building approach + segmentation + frequency]\n## LEAD MAGNET CONCEPT\n[what to offer, format, topic]\n## WELCOME SEQUENCE\n### Email 1 (Instant): Subject: / [body]\n### Email 2 (Day 2): Subject: / [body]\n### Email 3 (Day 4): Subject: / [body]\n### Email 4 (Day 7): Subject: / [body]\n### Email 5 (Day 14): Subject: / [body]\n## FIRST BROADCAST\n**Subject:** | **Preview:**\n[full email body]\n## SUBJECT LINE FORMULAS\n[5 formulas with examples for this audience]\n## LIST HEALTH TARGETS\n[open rate / CTR / unsubscribe benchmarks]`,
+    buildPrompt: (m) => `Build complete email marketing system for ${m.name}. Service: ${m.service}. Audience: ${m.icp}. Write actual emails — not templates. Ready to send.`,
+    extractMemory: (o) => ({ newsletterSystem: o }),
+  },
+  {
+    id: "ppc", label: "PPC Manager", role: "Ongoing Ad Optimization", icon: "◍",
+    phases: ["Running performance audit framework…", "Identifying bid strategy…", "Building negative keyword list…", "Creating optimization schedule…"],
+    handoff: "Weekly optimization checklist + scaling triggers + reporting template",
+    buildSystem: (m) => `You are a PPC specialist managing ongoing paid campaigns for B2B agencies.\nAGENCY: ${m.name} | SERVICE: ${m.service} | TARGET: ${m.icp} | GOAL: ${m.goal}\n${m.brandCtx||""}\nAD PACKAGE: ${m.adPackage?"available — use as context":"not yet built"}\nRULES: Optimization must be actionable weekly. Scaling triggers must have specific thresholds. Reporting must tie to revenue.\nFORMAT:\n## WEEKLY AUDIT FRAMEWORK\n[what to check weekly + monthly on ad accounts]\n## BID STRATEGY\n[when to use manual vs smart bidding + rationale]\n## NEGATIVE KEYWORDS\n[15 negatives specific to ${m.service} campaigns]\n## AD TESTING PROTOCOL\n[A/B test structure + what to test first + cadence]\n## WEEKLY OPTIMIZATION CHECKLIST\n[10 specific tasks with expected impact]\n## SCALING TRIGGERS\n[when to increase budget + by how much + warning signs]\n## REPORTING TEMPLATE\n[weekly metrics dashboard structure]`,
+    buildPrompt: (m) => `Build complete PPC optimization system for ${m.name}. Service: ${m.service}. Target: ${m.icp}. Goal: ${m.goal}. Give me a weekly operating rhythm for paid ads I can hand to anyone.`,
+    extractMemory: (o) => ({ ppcPlaybook: o }),
+  },
+];
+
+const SETUP_STEPS = [
+  { key: "name",      label: "Agency name",         hint: "Your brand across all channels",             ph: "Apex Growth Partners" },
+  { key: "service",   label: "Core service",         hint: "Agents are configured entirely around this", ph: "B2B lead gen + LinkedIn outreach for SaaS" },
+  { key: "icp",       label: "Ideal client profile", hint: "More specific = better agent output",        ph: "SaaS founders $1M–$10M ARR needing enterprise pipeline" },
+  { key: "geography", label: "Target markets",       hint: "Shapes prospecting and ad targeting",        ph: "United States, Canada, UK" },
+  { key: "goal",      label: "90-day revenue goal",  hint: "Agents calibrate volume around this",        ph: "$100,000 in client revenue" },
+];
+
+const SHELL = [
+  { id: "domain",    label: "Domain",      fn: (b) => `${b.name?.toLowerCase().replace(/\s+/g,"")}.com` },
+  { id: "email",     label: "Email",       fn: (b) => `hello@${b.name?.toLowerCase().replace(/\s+/g,"")}.com` },
+  { id: "phone",     label: "Phone",       fn: () => "Twilio · AI routing" },
+  { id: "crm",       label: "CRM",         fn: () => "HubSpot · sequences loaded" },
+  { id: "payments",  label: "Payments",    fn: () => "Stripe · auto-billing" },
+  { id: "contracts", label: "Contracts",   fn: () => "DocuSign · auto-send" },
+  { id: "ads",       label: "Ad accounts", fn: () => "Meta + Google · pixels on" },
+  { id: "social",    label: "Social",      fn: () => "LinkedIn + X · Buffer active" },
+  { id: "analytics", label: "Analytics",   fn: () => "GA4 · revenue dashboard" },
+];
+
+const MEM_KEYS = [
+  { key: "prospectCount",   label: "Prospects", fmt: (v) => `${v} found` },
+  { key: "emailSequence",   label: "Outreach",  fmt: () => "sequence ready" },
+  { key: "contentStrategy", label: "Content",   fmt: () => "strategy built" },
+  { key: "socialCalendar",  label: "Social",    fmt: () => "7-day calendar" },
+  { key: "adPackage",       label: "Ads",       fmt: () => "package ready" },
+  { key: "csSystem",        label: "CS",        fmt: () => "system ready" },
+  { key: "siteLaunchBrief", label: "Site",      fmt: () => "brief ready" },
+  { key: "legalPlaybook",   label: "Legal",     fmt: () => "playbook ready" },
+  { key: "gtmStrategy",     label: "GTM",       fmt: () => "strategy built" },
+  { key: "toolStack",       label: "Tools",     fmt: () => "stack defined" },
+  { key: "newsletterSystem", label: "Newsletter", fmt: () => "system ready" },
+  { key: "ppcPlaybook",     label: "PPC",       fmt: () => "playbook ready" },
+];
+
+// ─── CSS ──────────────────────────────────────────────────────────────────────
+const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes slideIn{from{opacity:0;transform:translateX(-5px)}to{opacity:1;transform:translateX(0)}}
+  @keyframes typeIn{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+  .fu{animation:fadeUp .45s cubic-bezier(.22,.68,0,1.2) both}
+  .fi{animation:fadeIn .3s ease both}
+  .si{animation:slideIn .25s ease both}
+  .ti{animation:typeIn .3s ease both}
+
+  .sv-input{width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);
+    border-radius:8px;padding:13px 16px;font-size:14px;font-family:'Outfit',sans-serif;
+    color:#fafafa;outline:none;transition:border-color .2s,box-shadow .2s}
+  .sv-input:focus{border-color:rgba(167,139,250,0.6);box-shadow:0 0 0 3px rgba(124,58,237,0.08)}
+  .sv-input::placeholder{color:rgba(255,255,255,0.18)}
+
+  .sv-btn{background:#7c3aed;color:#fff;border:none;border-radius:8px;padding:12px 24px;
+    font-size:14px;font-family:'Outfit',sans-serif;font-weight:600;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;justify-content:center;gap:8px}
+  .sv-btn:hover{background:#6d28d9;box-shadow:0 4px 20px rgba(124,58,237,0.4)}
+  .sv-btn:active{transform:scale(0.98)}
+  .sv-btn:disabled{opacity:.3;cursor:not-allowed;box-shadow:none}
+  .sv-btn.outline{background:transparent;border:1.5px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.7)}
+  .sv-btn.outline:hover{border-color:rgba(255,255,255,0.5);background:rgba(255,255,255,0.05);box-shadow:none}
+
+  .sv-ghost{background:transparent;border:1px solid rgba(255,255,255,0.1);border-radius:7px;
+    padding:7px 14px;font-size:11px;font-family:'JetBrains Mono',monospace;
+    color:rgba(255,255,255,0.35);cursor:pointer;letter-spacing:.5px;text-transform:uppercase;transition:all .15s}
+  .sv-ghost:hover{border-color:rgba(167,139,250,0.5);color:#a78bfa}
+
+  .agent-tile{border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:12px 14px;
+    cursor:pointer;transition:all .2s;background:rgba(255,255,255,0.02);margin-bottom:4px}
+  .agent-tile:hover{border-color:rgba(255,255,255,0.14);background:rgba(255,255,255,0.035)}
+  .agent-tile.active{border-color:rgba(167,139,250,0.5);background:rgba(124,58,237,0.08)}
+  .agent-tile.done{border-color:rgba(74,222,128,0.3);background:rgba(74,222,128,0.03)}
+  .agent-tile.sel{border-color:rgba(167,139,250,0.4)}
+  .agent-tile.sitelaunch.done{border-color:rgba(74,222,128,0.5)}
+  .agent-tile.sitelaunch.active{border-color:rgba(74,222,128,0.5);background:rgba(74,222,128,0.06)}
+
+  .shell-row{display:flex;align-items:center;gap:12px;padding:9px 16px;
+    border-bottom:1px solid rgba(255,255,255,0.04);transition:background .15s}
+  .shell-row:last-child{border-bottom:none}
+  .shell-row.lit{background:rgba(74,222,128,0.04)}
+
+  .phase-line{display:flex;align-items:center;gap:9px;padding:5px 0;
+    font-size:11px;font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,0.4)}
+
+  .md-h2{font-size:14px;font-weight:600;color:#a78bfa;margin-top:20px;margin-bottom:7px;font-family:'Outfit',sans-serif}
+  .md-h3{font-size:13px;font-weight:600;color:rgba(255,255,255,0.75);margin-top:13px;margin-bottom:5px;font-family:'Outfit',sans-serif}
+  .md-kv{font-size:12px;color:#c4b5fd;font-family:'JetBrains Mono',monospace;margin-top:3px}
+  .md-li{font-size:13px;color:rgba(255,255,255,0.65);padding-left:14px;margin-top:3px;line-height:1.65;position:relative}
+  .md-p{font-size:13px;color:rgba(255,255,255,0.6);line-height:1.75;margin-top:2px}
+  .md-hr{border:none;border-top:1px solid rgba(255,255,255,0.07);margin:12px 0}
+
+  .plan-card{border:1.5px solid rgba(255,255,255,0.1);border-radius:16px;padding:28px;
+    background:rgba(255,255,255,0.03);transition:all .2s}
+  .plan-card:hover{border-color:rgba(167,139,250,0.4);background:rgba(124,58,237,0.06);transform:translateY(-2px)}
+  .plan-card.hot{border-color:rgba(167,139,250,0.5);background:rgba(124,58,237,0.08)}
+
+  .connector{width:1px;height:12px;margin-left:20px;transition:background .5s}
+  .connector.done{background:rgba(74,222,128,0.3)}
+  .connector.idle{background:rgba(255,255,255,0.07)}
+
+  .grade-chip{display:inline-flex;align-items:center;justify-content:center;
+    width:28px;height:28px;border-radius:6px;font-family:'Instrument Serif',serif;
+    font-size:14px;background:rgba(167,139,250,0.12);color:#a78bfa;
+    border:1px solid rgba(167,139,250,0.2);flex-shrink:0}
+  .grade-chip.site{background:rgba(74,222,128,0.1);color:#4ade80;border-color:rgba(74,222,128,0.2)}
+
+  .doc-chip{display:inline-flex;align-items:center;gap:5px;background:rgba(167,139,250,0.08);
+    border:1px solid rgba(167,139,250,0.18);border-radius:5px;padding:3px 9px;
+    font-size:10px;font-family:'JetBrains Mono',monospace;color:#a78bfa;cursor:pointer}
+
+  .nav-link{color:rgba(255,255,255,0.5);text-decoration:none;font-size:13px;
+    font-family:'JetBrains Mono',monospace;letter-spacing:.5px;transition:color .15s}
+  .nav-link:hover{color:#fafafa}
+
+  ::-webkit-scrollbar{width:3px}
+  ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:3px}
+`;
+
+// ─── Micro components ─────────────────────────────────────────────────────────
+const Spin = ({ size=13, color="#7c3aed" }) => (
+  <div style={{width:size,height:size,borderRadius:"50%",border:`1.5px solid ${color}22`,borderTopColor:color,animation:"spin .65s linear infinite",flexShrink:0}}/>
+);
+const Tick = ({ green }) => (
+  <div style={{width:15,height:15,borderRadius:"50%",background:green?"rgba(74,222,128,0.12)":"rgba(167,139,250,0.1)",border:`1px solid ${green?"rgba(74,222,128,0.3)":"rgba(167,139,250,0.25)"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:green?"#4ade80":"#a78bfa",flexShrink:0}}>✓</div>
+);
+const Dot = ({ i, cur }) => (
+  <div style={{height:3,borderRadius:2,flexShrink:0,width:i===cur?14:3,background:i===cur?"#7c3aed":i<cur?"rgba(167,139,250,0.4)":"rgba(255,255,255,0.08)",transition:"all .3s"}}/>
+);
+const Md = ({ text }) => {
+  if (!text) return null;
+  return <div>{text.split("\n").map((line,i)=>{
+    if(line.startsWith("## "))  return <div key={i} className="md-h2">{line.slice(3)}</div>;
+    if(line.startsWith("### ")) return <div key={i} className="md-h3">{line.slice(4)}</div>;
+    if(line==="---")             return <hr  key={i} className="md-hr"/>;
+    if(line==="")                return <div key={i} style={{height:5}}/>;
+    if(/^\*\*[^*]+:\*\*/.test(line)) return <div key={i} className="md-kv" dangerouslySetInnerHTML={{__html:line.replace(/\*\*(.*?)\*\*/g,'<span style="color:#a78bfa">$1</span>')}}/>;
+    if(line.startsWith("- ")||line.startsWith("* ")) return <div key={i} className="md-li"><span style={{position:"absolute",left:0,color:"rgba(124,58,237,0.8)"}}>·</span>{line.slice(2)}</div>;
+    if(line.includes("**")) return <div key={i} className="md-p" dangerouslySetInnerHTML={{__html:line.replace(/\*\*(.*?)\*\*/g,'<span style="color:rgba(255,255,255,0.85);font-weight:600">$1</span>')}}/>;
+    return <div key={i} className="md-p">{line}</div>;
+  })}</div>;
+};
+const UploadZone = ({ docs, onAdd, onRemove, label }) => {
+  const ref = useRef();
+  const handle = async (files) => { for(const f of Array.from(files)){ const t=await f.text().catch(()=>""); onAdd({name:f.name,content:t}); } };
+  return <div>
+    <input ref={ref} type="file" multiple accept=".md,.txt,.csv" style={{display:"none"}} onChange={e=>handle(e.target.files)}/>
+    <div onClick={()=>ref.current.click()} style={{border:"1px dashed rgba(167,139,250,0.2)",borderRadius:8,padding:"13px",textAlign:"center",cursor:"pointer",background:"rgba(124,58,237,0.02)",transition:"all .2s"}}
+      onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(167,139,250,0.45)"}}
+      onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(167,139,250,0.2)"}}>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.25)",fontFamily:"'JetBrains Mono',monospace"}}>{label}</div>
+      <div style={{fontSize:10,color:"rgba(255,255,255,0.15)",marginTop:3,fontFamily:"'JetBrains Mono',monospace"}}>.md · .txt · .csv</div>
+    </div>
+    {docs.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:5,marginTop:7}}>{docs.map((d,i)=><span key={i} className="doc-chip" onClick={()=>onRemove(i)}>◈ {d.name.length>16?d.name.slice(0,14)+"…":d.name} ×</span>)}</div>}
+  </div>;
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// LANDING PAGE
+// ═══════════════════════════════════════════════════════════════════════════════
+const Landing = ({ onGetStarted, onLogin }) => (
+  <div style={{minHeight:"100vh",background:"#0a0a0f",color:"#fafafa",fontFamily:"'Outfit',sans-serif",overflowX:"hidden"}}>
+    <nav style={{position:"fixed",top:0,left:0,right:0,zIndex:50,padding:"0 32px",height:56,display:"flex",alignItems:"center",justifyContent:"space-between",background:"rgba(10,10,15,0.9)",backdropFilter:"blur(12px)",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <span style={{color:"#7c3aed",fontFamily:"'JetBrains Mono',monospace",fontSize:14}}>◎</span>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,letterSpacing:2,color:"rgba(255,255,255,0.5)",textTransform:"uppercase"}}>Supervisor</span>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:28}}>
+        <a href="#features" className="nav-link">Features</a>
+        <a href="#pricing" className="nav-link">Pricing</a>
+        <button className="sv-btn outline" style={{padding:"7px 18px",fontSize:12}} onClick={onLogin}>Log in</button>
+        <button className="sv-btn" style={{padding:"8px 20px",fontSize:13}} onClick={()=>onGetStarted(null)}>Get started →</button>
+      </div>
+    </nav>
+
+    <section style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",padding:"120px 32px 80px",position:"relative",overflow:"hidden"}}>
+      <div style={{position:"absolute",top:"30%",left:"50%",transform:"translate(-50%,-50%)",width:600,height:600,borderRadius:"50%",background:"radial-gradient(circle,rgba(124,58,237,0.12) 0%,transparent 70%)",pointerEvents:"none"}}/>
+      <div style={{position:"absolute",inset:0,backgroundImage:"linear-gradient(rgba(124,58,237,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(124,58,237,0.04) 1px,transparent 1px)",backgroundSize:"48px 48px",pointerEvents:"none"}}/>
+      <div style={{textAlign:"center",maxWidth:760,position:"relative",zIndex:2}} className="fu">
+        <div style={{display:"inline-flex",alignItems:"center",gap:8,background:"rgba(124,58,237,0.12)",border:"1px solid rgba(167,139,250,0.2)",borderRadius:100,padding:"6px 16px",marginBottom:32,fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:"#a78bfa",letterSpacing:1}}>
+          ◎ 12-agent autonomous agency platform
+        </div>
+        <h1 style={{fontFamily:"'Instrument Serif',serif",fontSize:"clamp(42px,7vw,76px)",fontWeight:400,lineHeight:1.1,marginBottom:24,color:"#fafafa"}}>
+          Your agency runs itself.<br/><em style={{color:"#a78bfa"}}>You collect.</em>
+        </h1>
+        <p style={{fontSize:18,color:"rgba(255,255,255,0.45)",lineHeight:1.7,marginBottom:44,maxWidth:540,margin:"0 auto 44px"}}>
+          12 AI agents prospect, outreach, create content, run ads, handle clients, launch your site, and manage legal, GTM, email, PPC — autonomously. In a closed loop. Forever.
+        </p>
+        <div style={{display:"flex",gap:14,justifyContent:"center",flexWrap:"wrap"}}>
+          <button className="sv-btn" style={{fontSize:15,padding:"14px 32px"}} onClick={()=>onGetStarted(null)}>Deploy your agency →</button>
+          <button className="sv-btn outline" style={{fontSize:15,padding:"14px 32px"}} onClick={onLogin}>Sign in</button>
+        </div>
+        <p style={{marginTop:20,fontSize:11,color:"rgba(255,255,255,0.2)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:1}}>
+          Powered by Claude · GPT · Gemini failover · No setup required · Cancel anytime
+        </p>
+      </div>
+    </section>
+
+    <section id="features" style={{padding:"80px 32px",maxWidth:960,margin:"0 auto"}}>
+      <div style={{textAlign:"center",marginBottom:56}}>
+        <div style={{fontSize:10,color:"rgba(255,255,255,0.2)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:3,textTransform:"uppercase",marginBottom:16}}>The 12-Agent Loop</div>
+        <h2 style={{fontFamily:"'Instrument Serif',serif",fontSize:"clamp(28px,4vw,44px)",fontWeight:400,color:"#fafafa"}}>
+          Every task. Automated.<br/><em style={{color:"#a78bfa"}}>End to end.</em>
+        </h2>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(240px,1fr))",gap:16}}>
+        {AGENTS.map((a,i)=>(
+          <div key={a.id} className="fu" style={{animationDelay:`${i*0.07}s`,background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"20px 22px",transition:"all .2s"}}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(167,139,250,0.3)";e.currentTarget.style.background="rgba(124,58,237,0.06)"}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.07)";e.currentTarget.style.background="rgba(255,255,255,0.02)"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+              <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:16,color:a.id==="sitelaunch"?"#4ade80":"#a78bfa"}}>{a.icon}</span>
+              <div>
+                <div style={{fontSize:14,fontWeight:600,color:"#fafafa"}}>{a.label}</div>
+                <div style={{fontSize:10,color:"rgba(255,255,255,0.3)",fontFamily:"'JetBrains Mono',monospace"}}>{a.role}</div>
+              </div>
+            </div>
+            <p style={{fontSize:12,color:"rgba(255,255,255,0.4)",lineHeight:1.6}}>{a.handoff}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section id="pricing" style={{padding:"80px 32px",maxWidth:960,margin:"0 auto"}}>
+      <div style={{textAlign:"center",marginBottom:56}}>
+        <div style={{fontSize:10,color:"rgba(255,255,255,0.2)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:3,textTransform:"uppercase",marginBottom:16}}>Pricing</div>
+        <h2 style={{fontFamily:"'Instrument Serif',serif",fontSize:"clamp(28px,4vw,44px)",fontWeight:400,color:"#fafafa"}}>
+          Pay for results.<br/><em style={{color:"#a78bfa"}}>Not headcount.</em>
+        </h2>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:20}}>
+        {PLANS.map((plan,i)=>(
+          <div key={plan.id} className={`plan-card${plan.highlight?" hot":""}`} style={{animationDelay:`${i*0.1}s`,position:"relative"}}>
+            {plan.highlight&&<div style={{position:"absolute",top:-12,left:"50%",transform:"translateX(-50%)",background:"#7c3aed",color:"#fff",fontSize:10,fontFamily:"'JetBrains Mono',monospace",letterSpacing:1,padding:"4px 14px",borderRadius:100,textTransform:"uppercase",whiteSpace:"nowrap"}}>Most Popular</div>}
+            <div style={{marginBottom:6,fontSize:10,color:"rgba(255,255,255,0.3)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:2,textTransform:"uppercase"}}>{plan.name}</div>
+            <div style={{display:"flex",alignItems:"baseline",gap:4,marginBottom:8}}>
+              <span style={{fontFamily:"'Instrument Serif',serif",fontSize:40,color:"#fafafa"}}>{plan.price}</span>
+              <span style={{fontSize:12,color:"rgba(255,255,255,0.3)"}}>{plan.period}</span>
+            </div>
+            <p style={{fontSize:13,color:"rgba(255,255,255,0.4)",marginBottom:24,lineHeight:1.5}}>{plan.desc}</p>
+            <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:28}}>
+              {plan.features.map(f=>(
+                <div key={f} style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                  <span style={{color:"#4ade80",fontSize:11,marginTop:1,flexShrink:0}}>✓</span>
+                  <span style={{fontSize:13,color:"rgba(255,255,255,0.6)"}}>{f}</span>
+                </div>
+              ))}
+            </div>
+            <button className={`sv-btn${plan.highlight?"":" outline"}`} style={{width:"100%",fontSize:13}} onClick={()=>onGetStarted(plan.id)}>Get started →</button>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <footer style={{borderTop:"1px solid rgba(255,255,255,0.06)",padding:"32px",textAlign:"center"}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:8,marginBottom:12}}>
+        <span style={{color:"#7c3aed",fontFamily:"'JetBrains Mono',monospace"}}>◎</span>
+        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,letterSpacing:2,color:"rgba(255,255,255,0.25)",textTransform:"uppercase"}}>Supervisor</span>
+      </div>
+      <p style={{fontSize:11,color:"rgba(255,255,255,0.15)",fontFamily:"'JetBrains Mono',monospace"}}>Autonomous agency platform · Multi-provider AI · 12 agents</p>
+    </footer>
+  </div>
+);
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AUTH SCREEN
+// ═══════════════════════════════════════════════════════════════════════════════
+const AuthScreen = ({ onSuccess, onBack }) => {
+  const [tab, setTab]         = useState("signup");
+  const [email, setEmail]     = useState("");
+  const [password, setPassword] = useState("");
+  const [agency, setAgency]   = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError]     = useState("");
+
+  const handleSubmit = async () => {
+    if (!email || !password) return setError("Email and password required");
+    if (tab === "signup" && !agency) return setError("Agency name required");
+    if (password.length < 8) return setError("Password must be at least 8 characters");
+    setLoading(true); setError("");
+    try {
+      if (tab === "signup") {
+        const session = await sbAuth.signup(email, password, agency);
+        onSuccess({
+          access_token: session.access_token,
+          user: session.user,
+          org_name: agency || session.user?.user_metadata?.agency_name || email.split("@")[0],
+          plan: "trial",
+        });
+      } else {
+        const session = await sbAuth.login(email, password);
+        const orgName = session.user?.user_metadata?.agency_name || session.user?.email?.split("@")[0] || "Your Agency";
+        onSuccess({
+          access_token: session.access_token,
+          user: session.user,
+          org_name: orgName,
+          plan: session.user?.user_metadata?.plan || "trial",
+        });
+      }
+    } catch(e) { setError(e.message || "Something went wrong. Please try again."); }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:"#0a0a0f",display:"flex",alignItems:"center",justifyContent:"center",padding:"32px",fontFamily:"'Outfit',sans-serif"}}>
+      <div style={{position:"fixed",top:"40%",left:"50%",transform:"translate(-50%,-50%)",width:500,height:500,borderRadius:"50%",background:"radial-gradient(circle,rgba(124,58,237,0.1) 0%,transparent 70%)",pointerEvents:"none"}}/>
+      <div style={{width:"100%",maxWidth:400,position:"relative",zIndex:2}} className="fu">
+        <div style={{textAlign:"center",marginBottom:40}}>
+          <div style={{display:"inline-flex",alignItems:"center",gap:8,marginBottom:20}}>
+            <span style={{color:"#7c3aed",fontFamily:"'JetBrains Mono',monospace",fontSize:16}}>◎</span>
+            <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,letterSpacing:2,color:"rgba(255,255,255,0.4)",textTransform:"uppercase"}}>Supervisor</span>
+          </div>
+          <h2 style={{fontFamily:"'Instrument Serif',serif",fontSize:30,fontWeight:400,color:"#fafafa",marginBottom:6}}>
+            {tab==="signup"?"Create your account":"Welcome back"}
+          </h2>
+          <p style={{fontSize:13,color:"rgba(255,255,255,0.35)"}}>
+            {tab==="signup"?"Deploy your autonomous agency in 60 seconds":"Sign in to your autonomous agency"}
+          </p>
+        </div>
+
+        <div style={{display:"flex",background:"rgba(255,255,255,0.04)",borderRadius:10,padding:4,marginBottom:28}}>
+          {["signup","login"].map(t=>(
+            <button key={t} onClick={()=>{setTab(t);setError("");}} style={{flex:1,padding:"9px",borderRadius:8,border:"none",background:tab===t?"rgba(124,58,237,0.3)":"transparent",color:tab===t?"#c4b5fd":"rgba(255,255,255,0.35)",fontSize:13,fontFamily:"'Outfit',sans-serif",fontWeight:600,cursor:"pointer",transition:"all .2s"}}>
+              {t==="signup"?"Sign up":"Log in"}
+            </button>
+          ))}
+        </div>
+
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          {tab==="signup"&&(
+            <div>
+              <label style={{fontSize:11,color:"rgba(255,255,255,0.3)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:1,textTransform:"uppercase",marginBottom:6,display:"block"}}>Agency name</label>
+              <input className="sv-input" placeholder="Apex Growth Partners" value={agency} onChange={e=>setAgency(e.target.value)} autoFocus/>
+            </div>
+          )}
+          <div>
+            <label style={{fontSize:11,color:"rgba(255,255,255,0.3)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:1,textTransform:"uppercase",marginBottom:6,display:"block"}}>Email</label>
+            <input className="sv-input" type="email" placeholder="you@company.com" value={email} onChange={e=>setEmail(e.target.value)} autoFocus={tab==="login"}/>
+          </div>
+          <div>
+            <label style={{fontSize:11,color:"rgba(255,255,255,0.3)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:1,textTransform:"uppercase",marginBottom:6,display:"block"}}>Password</label>
+            <input className="sv-input" type="password" placeholder="Minimum 8 characters" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
+          </div>
+          {error&&<div style={{fontSize:12,color:"#f87171",fontFamily:"'JetBrains Mono',monospace",padding:"8px 12px",background:"rgba(248,113,113,0.08)",border:"1px solid rgba(248,113,113,0.2)",borderRadius:6}}>{error}</div>}
+          <button className="sv-btn" style={{marginTop:4,fontSize:14,padding:"13px"}} onClick={handleSubmit} disabled={loading}>
+            {loading?<><Spin size={14} color="#fff"/> Processing…</>:tab==="signup"?"Create account →":"Sign in →"}
+          </button>
+        </div>
+        <button onClick={onBack} style={{display:"block",margin:"20px auto 0",background:"none",border:"none",color:"rgba(255,255,255,0.25)",fontSize:12,cursor:"pointer",fontFamily:"'JetBrains Mono',monospace"}}>← Back to home</button>
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SUBSCRIBE — Stripe payment with real checkout
+// ═══════════════════════════════════════════════════════════════════════════════
+const SubscribePage = ({ session, preselect, onPlanSelected, onSkip }) => {
+  const [sel, setSel]       = useState(preselect || "growth");
+  const [clicked, setClicked] = useState(false);
+
+  const handleCheckout = (planId) => {
+    const plan = PLANS.find(p => p.id === planId);
+    if (!plan) return;
+    setSel(planId);
+    setClicked(true);
+    // Open real Stripe payment link in new tab
+    window.open(plan.link, "_blank");
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:"#0a0a0f",color:"#fafafa",fontFamily:"'Outfit',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",padding:"32px"}}>
+      <div style={{width:"100%",maxWidth:880}} className="fu">
+        <div style={{textAlign:"center",marginBottom:48}}>
+          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:"rgba(255,255,255,0.2)",letterSpacing:3,textTransform:"uppercase",marginBottom:16}}>
+            Welcome, {session?.org_name || "founder"} ◎
+          </div>
+          <h2 style={{fontFamily:"'Instrument Serif',serif",fontSize:"clamp(28px,5vw,44px)",fontWeight:400,color:"#fafafa",marginBottom:12}}>
+            Choose your plan to activate<br/><em style={{color:"#a78bfa"}}>your 12-agent workforce.</em>
+          </h2>
+          <p style={{fontSize:14,color:"rgba(255,255,255,0.35)"}}>Clicking a plan opens Stripe checkout in a new tab. Return here once payment is complete.</p>
+        </div>
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:18,marginBottom:32}}>
+          {PLANS.map((plan,i)=>(
+            <div key={plan.id} className={`plan-card${plan.highlight?" hot":""}`}
+              style={{position:"relative",cursor:"pointer",border:sel===plan.id?"1.5px solid rgba(167,139,250,0.7)":""}}
+              onClick={()=>setSel(plan.id)}>
+              {plan.highlight&&<div style={{position:"absolute",top:-12,left:"50%",transform:"translateX(-50%)",background:"#7c3aed",color:"#fff",fontSize:10,fontFamily:"'JetBrains Mono',monospace",letterSpacing:1,padding:"4px 14px",borderRadius:100,textTransform:"uppercase",whiteSpace:"nowrap"}}>Recommended</div>}
+              <div style={{marginBottom:4,fontSize:10,color:"rgba(255,255,255,0.3)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:2,textTransform:"uppercase"}}>{plan.name}</div>
+              <div style={{display:"flex",alignItems:"baseline",gap:4,marginBottom:6}}>
+                <span style={{fontFamily:"'Instrument Serif',serif",fontSize:38,color:"#fafafa"}}>{plan.price}</span>
+                <span style={{fontSize:12,color:"rgba(255,255,255,0.3)"}}>/mo</span>
+              </div>
+              <p style={{fontSize:12,color:"rgba(255,255,255,0.35)",marginBottom:20,lineHeight:1.5}}>{plan.desc}</p>
+              <ul style={{listStyle:"none",marginBottom:24,display:"flex",flexDirection:"column",gap:7}}>
+                {plan.features.map(f=>(
+                  <li key={f} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                    <span style={{color:"#4ade80",fontSize:10,marginTop:2,flexShrink:0}}>✓</span>
+                    <span style={{fontSize:12,color:"rgba(255,255,255,0.55)"}}>{f}</span>
+                  </li>
+                ))}
+              </ul>
+              <button className={`sv-btn${plan.highlight?"":" outline"}`} style={{width:"100%",fontSize:13}}
+                onClick={e=>{e.stopPropagation();handleCheckout(plan.id);}}>
+                {sel===plan.id&&clicked ? "Opening Stripe…" : "Subscribe →"}
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {clicked && (
+          <div style={{textAlign:"center",marginBottom:24,padding:"16px",background:"rgba(74,222,128,0.06)",border:"1px solid rgba(74,222,128,0.2)",borderRadius:10}}>
+            <p style={{fontSize:13,color:"rgba(74,222,128,0.8)",marginBottom:12}}>✓ Stripe opened in a new tab. Complete payment, then continue.</p>
+            <button className="sv-btn" onClick={()=>onPlanSelected(sel)}>
+              I've completed payment — Continue →
+            </button>
+          </div>
+        )}
+
+        <div style={{textAlign:"center"}}>
+          <button onClick={onSkip} style={{background:"none",border:"none",color:"rgba(255,255,255,0.2)",fontSize:12,cursor:"pointer",fontFamily:"'JetBrains Mono',monospace"}}>
+            Skip for now — continue to setup
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ONBOARDING
+// ═══════════════════════════════════════════════════════════════════════════════
+const Onboarding = ({ session, onComplete }) => {
+  const [step, setStep]       = useState(0);
+  const [val, setVal]         = useState("");
+  const [biz, setBiz]         = useState({ name: session?.org_name || "" });
+  const [brandDocs, setBrandDocs] = useState([]);
+  const [provisioning, setProvisioning] = useState(false);
+  const [provStep, setProvStep] = useState(0);
+
+  const submit = async () => {
+    if (!val.trim()) return;
+    const updated = { ...biz, [SETUP_STEPS[step].key]: val.trim() };
+    setBiz(updated);
+    setVal("");
+    if (step < SETUP_STEPS.length - 1) {
+      setStep(s => s + 1);
+    } else {
+      setProvisioning(true);
+      try { await sbData.saveAgencyProfile(session.access_token, updated); } catch {}
+      for (let i = 0; i < SHELL.length; i++) {
+        await new Promise(r => setTimeout(r, 400 + Math.random() * 350));
+        setProvStep(i + 1);
+      }
+      await new Promise(r => setTimeout(r, 700));
+      onComplete(updated, brandDocs);
+    }
+  };
+
+  if (provisioning) return (
+    <div style={{minHeight:"100vh",background:"#0a0a0f",display:"flex",alignItems:"center",justifyContent:"center",padding:"32px",fontFamily:"'Outfit',sans-serif"}}>
+      <div style={{width:"100%",maxWidth:440}} className="fi">
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:"rgba(255,255,255,0.2)",letterSpacing:3,textTransform:"uppercase",marginBottom:14}}>◎ Deploying</div>
+          <h2 style={{fontFamily:"'Instrument Serif',serif",fontSize:26,fontWeight:400,color:"#fafafa",marginBottom:6}}>
+            Building <em style={{color:"#a78bfa"}}>{biz.name}</em>
+          </h2>
+          <p style={{fontSize:12,color:"rgba(255,255,255,0.28)"}}>Provisioning 12 agents + 9 business systems…</p>
+        </div>
+        <div style={{height:2,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:22}}>
+          <div style={{height:"100%",borderRadius:2,background:"linear-gradient(90deg,#7c3aed,#a78bfa)",width:`${(provStep/SHELL.length)*100}%`,transition:"width .45s cubic-bezier(.22,.68,0,1.2)"}}/>
+        </div>
+        <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,overflow:"hidden"}}>
+          {SHELL.map((item,i)=>{
+            const done=i<provStep;
+            return <div key={item.id} className={`shell-row${done?" lit":""}`}>
+              <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:done?"#4ade80":"rgba(255,255,255,0.15)",transition:"color .3s"}}>◎</span>
+              <div style={{flex:1}}>
+                <div style={{fontSize:12,color:done?"rgba(255,255,255,0.75)":"rgba(255,255,255,0.2)",fontWeight:500,transition:"color .3s"}}>{item.label}</div>
+                {done&&<div className="si" style={{fontSize:10,color:"rgba(255,255,255,0.28)",fontFamily:"'JetBrains Mono',monospace",marginTop:2}}>{item.fn(biz)}</div>}
+              </div>
+              {done?<Tick green/>:i===provStep?<Spin size={11}/>:<div style={{width:11,height:11,borderRadius:"50%",background:"rgba(255,255,255,0.04)"}}/>}
+            </div>;
+          })}
+        </div>
+        <p style={{textAlign:"center",marginTop:14,fontFamily:"'JetBrains Mono',monospace",fontSize:10,color:"rgba(255,255,255,0.18)"}}>
+          {provStep<SHELL.length?`${SHELL.length-provStep} remaining…`:"✓ All systems live"}
+        </p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{minHeight:"100vh",background:"#0a0a0f",display:"flex",fontFamily:"'Outfit',sans-serif"}}>
+      <div style={{width:280,background:"#0d0d14",borderRight:"1px solid rgba(255,255,255,0.06)",padding:"40px 28px",display:"flex",flexDirection:"column",justifyContent:"space-between",flexShrink:0}}>
+        <div>
+          <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:10,letterSpacing:2,color:"rgba(255,255,255,0.3)",textTransform:"uppercase",marginBottom:36}}>
+            <span style={{color:"#7c3aed"}}>◎</span> Supervisor
+          </div>
+          <h2 style={{fontFamily:"'Instrument Serif',serif",fontSize:26,fontWeight:400,color:"#fafafa",lineHeight:1.25,marginBottom:12}}>
+            Set up your<br/><em style={{color:"#a78bfa"}}>agency profile.</em>
+          </h2>
+          <p style={{fontSize:12,color:"rgba(255,255,255,0.3)",lineHeight:1.7,marginBottom:28}}>
+            5 questions. Your agent workforce deploys immediately after.
+          </p>
+          {SETUP_STEPS.map((s,i)=>(
+            <div key={s.key} style={{display:"flex",gap:10,alignItems:"center",marginBottom:12}}>
+              <div style={{width:20,height:20,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontFamily:"'JetBrains Mono',monospace",flexShrink:0,
+                background:i<step?"#7c3aed":i===step?"rgba(124,58,237,0.2)":"rgba(255,255,255,0.05)",
+                border:i===step?"1px solid rgba(167,139,250,0.5)":"1px solid transparent",
+                color:i<=step?"#fff":"rgba(255,255,255,0.2)"}}>
+                {i<step?"✓":i+1}
+              </div>
+              <span style={{fontSize:12,color:i===step?"rgba(255,255,255,0.8)":i<step?"rgba(255,255,255,0.45)":"rgba(255,255,255,0.2)",fontWeight:i===step?600:400}}>
+                {s.label}
+              </span>
+            </div>
+          ))}
+        </div>
+        <div style={{fontSize:9,color:"rgba(255,255,255,0.15)",fontFamily:"'JetBrains Mono',monospace",paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.06)"}}>
+          claude-opus-4-6 · multi-provider failover · persistent memory
+        </div>
+      </div>
+
+      <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:"48px 32px"}}>
+        <div style={{width:"100%",maxWidth:440}}>
+          <div style={{display:"flex",gap:4,marginBottom:36}}>
+            {SETUP_STEPS.map((_,i)=><Dot key={i} i={i} cur={step}/>)}
+          </div>
+          <div className="fu" key={step}>
+            <div style={{fontSize:9,color:"rgba(255,255,255,0.2)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>
+              {step+1} / {SETUP_STEPS.length}
+            </div>
+            <h2 style={{fontFamily:"'Instrument Serif',serif",fontSize:24,fontWeight:400,color:"#fafafa",marginBottom:6}}>
+              {SETUP_STEPS[step].label}
+            </h2>
+            <p style={{fontSize:12,color:"rgba(255,255,255,0.28)",marginBottom:18}}>{SETUP_STEPS[step].hint}</p>
+            <input className="sv-input" placeholder={SETUP_STEPS[step].ph} value={val}
+              onChange={e=>setVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()} autoFocus/>
+
+            {step===1&&(
+              <div style={{marginTop:14}}>
+                <div style={{fontSize:9,color:"rgba(255,255,255,0.2)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:2,textTransform:"uppercase",marginBottom:8}}>Optional — brand context</div>
+                <UploadZone docs={brandDocs} onAdd={d=>setBrandDocs(p=>[...p,d])} onRemove={i=>setBrandDocs(p=>p.filter((_,j)=>j!==i))} label="Drop voice guides or brand docs"/>
+              </div>
+            )}
+
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:22}}>
+              {step>0
+                ?<button onClick={()=>{setStep(s=>s-1);setVal("");}} style={{background:"none",border:"none",color:"rgba(255,255,255,0.25)",cursor:"pointer",fontSize:13}}>← back</button>
+                :<span/>}
+              <button className="sv-btn" onClick={submit} disabled={!val.trim()}>
+                {step<SETUP_STEPS.length-1?"Continue →":"Deploy Agency →"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════════════════════════════════════════
+const Dashboard = ({ session, biz, initialBrandDocs=[], onLogout }) => {
+  const [agentOut, setAgentOut]       = useState({});
+  const [agentSt, setAgentSt]         = useState({});
+  const [agentPhases, setAgentPhases] = useState({});
+  const [memory, setMemory]           = useState({});
+  const [sel, setSel]                 = useState(AGENTS[0].id);
+  const [running, setRunning]         = useState(false);
+  const [log, setLog]                 = useState([]);
+  const [trainOpen, setTrainOpen]     = useState(false);
+  const [brandDocs, setBrandDocs]     = useState(initialBrandDocs);
+  const [samples, setSamples]         = useState([]);
+  const [campaignId, setCampaignId]   = useState(null);
+  const [backendStatus, setBackendStatus] = useState("checking"); // checking | online | offline
+  const [providerInfo, setProviderInfo]   = useState([]);
+  const outRef    = useRef(null);
+  const cancelRef = useRef(false);
+
+  // Check backend health on mount and every 30s
+  useEffect(()=>{
+    const check = async () => {
+      try {
+        const r = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(3000) });
+        if (r.ok) {
+          const d = await r.json();
+          setBackendStatus("online");
+          setProviderInfo(d.providers || []);
+        } else { setBackendStatus("offline"); }
+      } catch { setBackendStatus("offline"); }
+    };
+    check();
+    const iv = setInterval(check, 30000);
+    return ()=>clearInterval(iv);
+  },[]);
+
+  useEffect(()=>{
+    const saved = loadCamp();
+    if (saved?.agentOut) {
+      setAgentOut(saved.agentOut);
+      setAgentSt(saved.agentSt || {});
+      setMemory(saved.memory || {});
+      setLog(saved.log || []);
+      setCampaignId(saved.campaignId || null);
+    }
+  },[]);
+
+  useEffect(()=>{
+    if (Object.keys(agentOut).length > 0) {
+      saveCamp({ agentOut, agentSt, memory, log, campaignId, savedAt: Date.now() });
+    }
+  },[agentOut, agentSt, memory]);
+
+  useEffect(()=>{ if(outRef.current) outRef.current.scrollTop=outRef.current.scrollHeight; },[agentOut]);
+
+  const addLog = (msg) => setLog(l=>[...l.slice(-99),{msg,t:Date.now()}]);
+
+  const buildBrandCtx = useCallback(()=>{
+    let ctx = "";
+    if(brandDocs.length){ctx+="\n\n=== BRAND DOCS ===\n";brandDocs.forEach(d=>{ctx+=`\n[${d.name}]\n${d.content.slice(0,1500)}\n`;})}
+    if(samples.length){ctx+="\n\n=== TONE SAMPLES ===\n";samples.forEach(d=>{ctx+=`\n[${d.name}]\n${d.content.slice(0,1200)}\n`;})}
+    return ctx;
+  },[brandDocs,samples]);
+
+  const runAgent = useCallback(async(agentId, currentMemory)=>{
+    if(cancelRef.current) return currentMemory;
+    const agent = AGENTS.find(a=>a.id===agentId);
+    if(!agent) return currentMemory;
+
+    setSel(agentId);
+    setAgentSt(s=>({...s,[agentId]:"running"}));
+    setAgentOut(o=>({...o,[agentId]:""}));
+    setAgentPhases(p=>({...p,[agentId]:[]}));
+    addLog(`▶ ${agent.label} started`);
+
+    const fullMem = { ...currentMemory, ...biz, brandCtx: buildBrandCtx() };
+    const startedAt = new Date().toISOString();
+
+    try {
+      // Try backend first, fall back to direct API
+      let output = "";
+      let extracted = {};
+      let usedBackend = false;
+
+      try {
+        const healthRes = await fetch(`${API_URL}/health`, { signal: AbortSignal.timeout(3000) });
+        if (healthRes.ok) usedBackend = true;
+      } catch {}
+
+      if (usedBackend) {
+        // ── Backend agentic loop ──
+        const result = await streamBackendAgent(agentId, biz, currentMemory, {
+          onText: (text, provider, model) => {
+            output = text;
+            setAgentOut(o=>({...o,[agentId]:text}));
+          },
+          onToolCall: (toolName, toolInput) => {
+            setAgentPhases(p=>({...p,[agentId]:[...(p[agentId]||[]),`⚡ ${toolName}(${JSON.stringify(toolInput).slice(0,60)}…)`]}));
+            addLog(`  ↳ ${agent.label} → ${toolName}`);
+          },
+          onToolResult: (toolName, toolOutput) => {
+            setAgentPhases(p=>({...p,[agentId]:[...(p[agentId]||[]),`✓ ${toolName} returned`]}));
+          },
+          onDone: (finalText, memUpdate, provider) => {
+            output = finalText;
+            extracted = memUpdate || {};
+            addLog(`  ◎ ${agent.label} via ${provider || "backend"}`);
+          },
+          onError: (errMsg) => { throw new Error(errMsg); },
+        });
+        output = result.output;
+        extracted = result.memoryUpdate || {};
+      } else {
+        // ── Fallback: direct API (legacy) ──
+        let done = false;
+        const phaseTimer = async()=>{
+          for(let i=0;i<(agent.phases||[]).length;i++){
+            if(done||cancelRef.current) break;
+            await new Promise(r=>setTimeout(r,800+Math.random()*700));
+            if(done) break;
+            setAgentPhases(p=>({...p,[agentId]:[...(p[agentId]||[]),agent.phases[i]]}));
+          }
+        };
+        phaseTimer();
+        await streamClaude(agent.buildSystem(fullMem), agent.buildPrompt(fullMem), text=>{
+          output = text;
+          setAgentOut(o=>({...o,[agentId]:text}));
+        });
+        done = true;
+        extracted = agent.extractMemory(output);
+      }
+
+      const nextMemory = {...currentMemory,...extracted};
+      setMemory(nextMemory);
+      setAgentSt(s=>({...s,[agentId]:"done"}));
+
+      const g = grade(output);
+      addLog(`✓ ${agent.label} — Grade: ${g.grade} · ${g.words} words${usedBackend?" [backend]":" [direct]"}`);
+
+      if (session?.access_token) {
+        await sbData.logAgentRun(session.access_token, campaignId, agentId, agent.label, output, startedAt);
+      }
+
+      return nextMemory;
+    } catch(err) {
+      setAgentSt(s=>({...s,[agentId]:"error"}));
+      setAgentOut(o=>({...o,[agentId]:`## Error\n\n**${err.message}**\n\nBackend may be offline. Check server or API keys.`}));
+      addLog(`✗ ${agent.label} failed: ${err.message.slice(0,80)}`);
+      return currentMemory;
+    }
+  },[biz,buildBrandCtx,session,campaignId]);
+
+  const runCampaign = async(startIdx)=>{
+    if(running) return;
+    const idx = (!startIdx||startIdx<0)?0:startIdx;
+    cancelRef.current = false;
+    setRunning(true);
+    addLog(`◎ Campaign loop — ${AGENTS[idx].label} → ${AGENTS[AGENTS.length-1].label}`);
+    let mem = {...memory};
+    for(let i=idx;i<AGENTS.length;i++){
+      if(cancelRef.current){addLog("⊘ Paused");break;}
+      if(i>idx) await new Promise(r=>setTimeout(r,1000));
+      mem = (await runAgent(AGENTS[i].id,mem))||mem;
+    }
+    if(!cancelRef.current) addLog("◆ Campaign complete — all agents finished");
+    setRunning(false);
+  };
+
+  const pause = ()=>{cancelRef.current=true;setRunning(false);};
+
+  const reset = ()=>{
+    cancelRef.current=true;setRunning(false);
+    setAgentOut({});setAgentSt({});setAgentPhases({});setMemory({});setLog([]);setCampaignId(null);
+    wipeCamp();
+  };
+
+  const doneCount = Object.values(agentSt).filter(s=>s==="done").length;
+  const selAgent  = AGENTS.find(a=>a.id===sel);
+  const selSt     = sel?(agentSt[sel]||"idle"):"idle";
+  const selOut    = sel?(agentOut[sel]||""):"";
+  const selPhases = sel?(agentPhases[sel]||[]):[];
+  const selGrade  = selSt==="done"?grade(selOut):null;
+  const nextIdx   = AGENTS.findIndex(a=>!agentSt[a.id]||agentSt[a.id]==="idle"||agentSt[a.id]==="error");
+  const btnLabel  = running?"Running…":doneCount===AGENTS.length?"↺ Re-run":doneCount===0?"▶ Run Full Campaign":`▶ Continue (${AGENTS[nextIdx<0?0:nextIdx]?.label})`;
+
+  return (
+    <div style={{height:"100vh",display:"flex",flexDirection:"column",overflow:"hidden",background:"#0a0a0f",fontFamily:"'Outfit',sans-serif"}}>
+      <div style={{background:"#0d0d14",borderBottom:"1px solid rgba(255,255,255,0.06)",padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:50,flexShrink:0,zIndex:30}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{color:"#7c3aed",fontFamily:"'JetBrains Mono',monospace",fontSize:13}}>◎</span>
+          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:"rgba(255,255,255,0.3)",letterSpacing:2,textTransform:"uppercase"}}>Supervisor</span>
+          <span style={{color:"rgba(255,255,255,0.08)"}}>·</span>
+          <span style={{fontFamily:"'Instrument Serif',serif",fontSize:15,color:"rgba(255,255,255,0.8)"}}>{biz.name}</span>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:doneCount===AGENTS.length?"#4ade80":"rgba(255,255,255,0.25)"}}>{doneCount}/{AGENTS.length} done</span>
+          <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,display:"flex",alignItems:"center",gap:4,color:backendStatus==="online"?"#4ade80":backendStatus==="offline"?"#f59e0b":"rgba(255,255,255,0.2)"}}>
+            <span style={{width:5,height:5,borderRadius:"50%",background:backendStatus==="online"?"#4ade80":backendStatus==="offline"?"#f59e0b":"rgba(255,255,255,0.15)"}}/>
+            {backendStatus==="online"?`engine · ${providerInfo.filter(p=>p.available).length} providers`:backendStatus==="offline"?"direct mode":"…"}
+          </span>
+          {session?.plan&&session.plan!=="trial"&&<span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:9,color:"rgba(167,139,250,0.5)",border:"1px solid rgba(167,139,250,0.2)",borderRadius:4,padding:"2px 7px",textTransform:"uppercase"}}>{session.plan}</span>}
+          <button className="sv-ghost" onClick={()=>setTrainOpen(v=>!v)}>{trainOpen?"× close":"⬆ train"}</button>
+          <button className="sv-ghost" style={{borderColor:"rgba(239,68,68,0.2)",color:"rgba(239,68,68,0.45)"}} onClick={reset}>reset</button>
+          <a href="personas.html" target="_blank" className="sv-ghost" style={{textDecoration:"none",display:"inline-flex",alignItems:"center",gap:5}}>◈ first 100 users</a>
+          <button className="sv-ghost" onClick={onLogout}>sign out</button>
+        </div>
+      </div>
+
+      {trainOpen&&<div className="fi" style={{background:"#0d0d14",borderBottom:"1px solid rgba(255,255,255,0.06)",padding:"16px 20px",flexShrink:0}}>
+        <div style={{maxWidth:800,margin:"0 auto"}}>
+          <div style={{fontSize:9,color:"rgba(255,255,255,0.2)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:3,textTransform:"uppercase",marginBottom:12}}>Agent training context — injected into every agent</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div>
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.3)",fontFamily:"'JetBrains Mono',monospace",marginBottom:7}}>Brand docs · voice · positioning</div>
+              <UploadZone docs={brandDocs} onAdd={d=>setBrandDocs(p=>[...p,d])} onRemove={i=>setBrandDocs(p=>p.filter((_,j)=>j!==i))} label="Drop .md or .txt brand files"/>
+            </div>
+            <div>
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.3)",fontFamily:"'JetBrains Mono',monospace",marginBottom:7}}>Sample posts · emails · convos</div>
+              <UploadZone docs={samples} onAdd={d=>setSamples(p=>[...p,d])} onRemove={i=>setSamples(p=>p.filter((_,j)=>j!==i))} label="Drop examples that teach your tone"/>
+            </div>
+          </div>
+          {(brandDocs.length+samples.length)>0&&<div style={{marginTop:10,padding:"8px 12px",background:"rgba(74,222,128,0.05)",border:"1px solid rgba(74,222,128,0.15)",borderRadius:7,fontSize:10,color:"rgba(74,222,128,0.8)",fontFamily:"'JetBrains Mono',monospace"}}>✓ {brandDocs.length+samples.length} file{brandDocs.length+samples.length!==1?"s":""} loaded — active on next agent run</div>}
+        </div>
+      </div>}
+
+      <div style={{flex:1,display:"grid",gridTemplateColumns:"268px 1fr 200px",minHeight:0,overflow:"hidden"}}>
+        {/* LEFT: pipeline */}
+        <div style={{background:"#0d0d14",borderRight:"1px solid rgba(255,255,255,0.06)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          <div style={{flex:1,overflowY:"auto",padding:"16px 14px"}}>
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.18)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:3,textTransform:"uppercase",marginBottom:10}}>Campaign</div>
+              {!running
+                ?<button className="sv-btn" style={{width:"100%",fontSize:12,padding:"10px"}} onClick={()=>runCampaign(nextIdx<0?0:nextIdx)}>{btnLabel}</button>
+                :<button onClick={pause} style={{width:"100%",background:"rgba(239,68,68,0.1)",border:"1px solid rgba(239,68,68,0.25)",borderRadius:8,padding:"10px",fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:"#f87171",cursor:"pointer",letterSpacing:.5,textTransform:"uppercase"}}>⊘ Pause</button>}
+              {running&&<div style={{marginTop:8,fontSize:10,color:"rgba(167,139,250,0.7)",fontFamily:"'JetBrains Mono',monospace",display:"flex",alignItems:"center",gap:6}}><Spin size={9} color="#a78bfa"/> autonomous loop active</div>}
+            </div>
+
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.18)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:3,textTransform:"uppercase",marginBottom:10}}>Agent Pipeline</div>
+              {AGENTS.map((agent,idx)=>{
+                const st=agentSt[agent.id]||"idle";
+                const isSel=sel===agent.id,isDone=st==="done",isRun=st==="running",isSite=agent.id==="sitelaunch";
+                return <div key={agent.id}>
+                  <div className={`agent-tile${isRun?" active":""}${isDone?" done":""}${isSel&&!isRun?" sel":""} ${isSite?"sitelaunch":""}`} onClick={()=>setSel(agent.id)}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:9}}>
+                        <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,color:isDone?(isSite?"#4ade80":"#a78bfa"):isRun?(isSite?"#4ade80":"#a78bfa"):"rgba(255,255,255,0.22)",transition:"color .3s"}}>{agent.icon}</span>
+                        <div>
+                          <div style={{fontSize:12,fontWeight:600,color:"rgba(255,255,255,0.85)"}}>{agent.label}</div>
+                          <div style={{fontSize:9,color:"rgba(255,255,255,0.22)",fontFamily:"'JetBrains Mono',monospace",marginTop:1}}>{agent.role}</div>
+                        </div>
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:6}}>
+                        {isDone&&<div className={`grade-chip${isSite?" site":""}`}>{grade(agentOut[agent.id]).grade}</div>}
+                        {isDone&&<Tick green={isSite}/>}
+                        {isRun&&<Spin size={11} color={isSite?"#4ade80":"#a78bfa"}/>}
+                        {st==="error"&&<span style={{fontSize:9,color:"#f87171",fontFamily:"'JetBrains Mono',monospace"}}>ERR</span>}
+                      </div>
+                    </div>
+                    {isDone&&<div className="si" style={{marginTop:7,fontSize:9,color:"rgba(255,255,255,0.18)",fontFamily:"'JetBrains Mono',monospace",lineHeight:1.5}}>✓ {agent.handoff}</div>}
+                    <button onClick={e=>{e.stopPropagation();runAgent(agent.id,memory);}} style={{marginTop:8,width:"100%",background:"transparent",border:`1px solid ${isRun?"transparent":isDone?"rgba(255,255,255,0.08)":isSite?"rgba(74,222,128,0.2)":"rgba(167,139,250,0.2)"}`,borderRadius:6,padding:"5px 0",fontSize:10,fontFamily:"'JetBrains Mono',monospace",letterSpacing:.5,textTransform:"uppercase",color:isRun?"rgba(255,255,255,0.2)":isDone?"rgba(255,255,255,0.2)":isSite?"rgba(74,222,128,0.6)":"rgba(167,139,250,0.6)",cursor:isRun?"not-allowed":"pointer"}}>
+                      {isRun?"running…":isDone?"re-run":"run"}
+                    </button>
+                  </div>
+                  {idx<AGENTS.length-1&&<div className={`connector ${isDone?"done":"idle"}`}/>}
+                </div>;
+              })}
+            </div>
+
+            <div>
+              <div style={{fontSize:9,color:"rgba(255,255,255,0.18)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:3,textTransform:"uppercase",marginBottom:8}}>Infrastructure</div>
+              {SHELL.map(item=>(
+                <div key={item.id} style={{display:"flex",alignItems:"center",gap:7,padding:"4px 4px"}}>
+                  <span style={{fontSize:8,color:"rgba(74,222,128,0.5)",fontFamily:"'JetBrains Mono',monospace"}}>✓</span>
+                  <span style={{fontSize:10,color:"rgba(255,255,255,0.22)"}}>{item.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* CENTER: output */}
+        <div style={{display:"flex",flexDirection:"column",overflow:"hidden",background:"#0a0a0f"}}>
+          {selAgent&&<div style={{padding:"12px 20px",borderBottom:"1px solid rgba(255,255,255,0.05)",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,color:selAgent.id==="sitelaunch"?"#4ade80":"#a78bfa"}}>{selAgent.icon}</span>
+              <span style={{fontSize:14,fontWeight:600,color:"#fafafa"}}>{selAgent.label}</span>
+              <span style={{fontSize:9,color:"rgba(255,255,255,0.2)",fontFamily:"'JetBrains Mono',monospace"}}>{selAgent.role}</span>
+              {selGrade&&<div className={`grade-chip${selAgent.id==="sitelaunch"?" site":""}`}>{selGrade.grade}</div>}
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              {selSt==="running"&&<span style={{fontSize:9,color:selAgent.id==="sitelaunch"?"#4ade80":"#a78bfa",fontFamily:"'JetBrains Mono',monospace",display:"flex",alignItems:"center",gap:5}}><Spin size={9} color={selAgent.id==="sitelaunch"?"#4ade80":"#a78bfa"}/> running</span>}
+              {selSt==="done"&&<span style={{fontSize:9,color:"#4ade80",fontFamily:"'JetBrains Mono',monospace"}}>✓ complete</span>}
+              {(selSt==="idle"||selSt==="error")&&!running&&<button className="sv-btn" style={{padding:"7px 16px",fontSize:11,background:selAgent.id==="sitelaunch"?"#16a34a":"#7c3aed"}} onClick={()=>runAgent(selAgent.id,memory)}>Run agent →</button>}
+            </div>
+          </div>}
+
+          {selSt==="running"&&selPhases.length>0&&!selOut&&<div style={{padding:"14px 20px",borderBottom:"1px solid rgba(255,255,255,0.04)",background:"rgba(124,58,237,0.03)",flexShrink:0}}>
+            {selPhases.map((ph,i)=>(
+              <div key={i} className="phase-line ti" style={{animationDelay:`${i*.06}s`}}><Tick/> {ph}</div>
+            ))}
+            <div className="phase-line"><Spin size={11} color={selAgent?.id==="sitelaunch"?"#4ade80":"#a78bfa"}/><span style={{color:selAgent?.id==="sitelaunch"?"#4ade80":"#a78bfa"}}>Generating output…</span></div>
+          </div>}
+
+          <div ref={outRef} style={{flex:1,overflowY:"auto",padding:"20px 24px",minHeight:0}}>
+            {selOut
+              ?<Md text={selOut}/>
+              :<div style={{height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,opacity:.4}}>
+                <span style={{fontSize:24,fontFamily:"'JetBrains Mono',monospace",color:"rgba(255,255,255,0.2)"}}>{selAgent?.icon}</span>
+                <span style={{fontSize:12,color:"rgba(255,255,255,0.25)",fontFamily:"'JetBrains Mono',monospace"}}>{selAgent?`${selAgent.label} standing by`:"Select an agent"}</span>
+                {!running&&doneCount===0&&<span style={{fontSize:10,color:"rgba(255,255,255,0.15)",textAlign:"center",maxWidth:200,lineHeight:1.6}}>Press "Run Full Campaign" to start</span>}
+              </div>}
+          </div>
+
+          {selSt==="done"&&selOut&&<div style={{padding:"9px 20px",borderTop:"1px solid rgba(255,255,255,0.05)",display:"flex",gap:18,alignItems:"center",flexShrink:0,background:"rgba(255,255,255,0.01)"}}>
+            {[{l:"words",v:selGrade?.words},{l:"sections",v:selGrade?.sections},{l:"grade",v:selGrade?.grade}].map(s=>(
+              <div key={s.l} style={{display:"flex",gap:5,alignItems:"baseline"}}>
+                <span style={{fontFamily:"'Instrument Serif',serif",fontSize:17,color:"#a78bfa"}}>{s.v}</span>
+                <span style={{fontSize:9,color:"rgba(255,255,255,0.2)",fontFamily:"'JetBrains Mono',monospace"}}>{s.l}</span>
+              </div>
+            ))}
+            <div style={{flex:1}}/>
+            <button className="sv-ghost" onClick={()=>navigator.clipboard?.writeText(selOut)}>copy</button>
+          </div>}
+        </div>
+
+        {/* RIGHT: log + memory */}
+        <div style={{background:"#0d0d14",borderLeft:"1px solid rgba(255,255,255,0.06)",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          <div style={{padding:"12px 14px",borderBottom:"1px solid rgba(255,255,255,0.05)",flexShrink:0}}>
+            <div style={{fontSize:9,color:"rgba(255,255,255,0.18)",fontFamily:"'JetBrains Mono',monospace",letterSpacing:3,textTransform:"uppercase"}}>Supervisor Log</div>
+          </div>
+          <div style={{padding:"10px 12px",borderBottom:"1px solid rgba(255,255,255,0.05)",flexShrink:0}}>
+            <div style={{fontSize:9,color:"rgba(255,255,255,0.15)",fontFamily:"'JetBrains Mono',monospace",marginBottom:7}}>Campaign Memory</div>
+            {MEM_KEYS.map(mk=>(
+              <div key={mk.key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0",borderBottom:"1px solid rgba(255,255,255,0.03)"}}>
+                <span style={{fontSize:9,color:"rgba(255,255,255,0.2)",fontFamily:"'JetBrains Mono',monospace"}}>{mk.label}</span>
+                {memory[mk.key]
+                  ?<span style={{fontSize:9,color:"#4ade80",fontFamily:"'JetBrains Mono',monospace"}}>✓ {mk.fmt(memory[mk.key])}</span>
+                  :<span style={{fontSize:9,color:"rgba(255,255,255,0.1)",fontFamily:"'JetBrains Mono',monospace"}}>pending</span>}
+              </div>
+            ))}
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:"10px 12px"}}>
+            {log.length===0&&<div style={{fontSize:9,color:"rgba(255,255,255,0.1)",fontFamily:"'JetBrains Mono',monospace",textAlign:"center",marginTop:16}}>No activity yet</div>}
+            {log.map((entry,i)=>(
+              <div key={i} style={{fontSize:10,fontFamily:"'JetBrains Mono',monospace",padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,0.03)",lineHeight:1.5,color:entry.msg.startsWith("✓")?"rgba(74,222,128,0.75)":entry.msg.startsWith("✗")?"rgba(248,113,113,0.75)":entry.msg.startsWith("◆")?"#a78bfa":entry.msg.startsWith("⊘")?"rgba(251,191,36,0.7)":"rgba(255,255,255,0.25)"}}>
+                {entry.msg}
+              </div>
+            ))}
+          </div>
+          {doneCount>0&&<div style={{padding:"10px 12px",borderTop:"1px solid rgba(255,255,255,0.05)",flexShrink:0}}>
+            <div style={{fontSize:9,color:"rgba(255,255,255,0.15)",fontFamily:"'JetBrains Mono',monospace",marginBottom:7}}>Output Grades</div>
+            {AGENTS.filter(a=>agentSt[a.id]==="done").map(a=>{
+              const g=grade(agentOut[a.id]);
+              return <div key={a.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0"}}>
+                <span style={{fontSize:9,color:"rgba(255,255,255,0.28)",fontFamily:"'JetBrains Mono',monospace"}}>{a.label}</span>
+                <span style={{fontFamily:"'Instrument Serif',serif",fontSize:14,color:a.id==="sitelaunch"?"#4ade80":"#a78bfa"}}>{g.grade}</span>
+              </div>;
+            })}
+          </div>}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ROOT APP
+// ═══════════════════════════════════════════════════════════════════════════════
+function SupervisorApp() {
+  const [screen, setScreen]     = useState("boot");
+  const [session, setSession]   = useState(null);
+  const [biz, setBiz]           = useState(null);
+  const [brandDocs, setBrandDocs] = useState([]);
+  const [preselect, setPreselect] = useState("growth");
+
+  useEffect(()=>{
+    const saved    = loadSession();
+    const savedBiz = loadBiz();
+    if (saved?.access_token && savedBiz?.name) {
+      setSession(saved); setBiz(savedBiz); setScreen("dashboard");
+    } else if (saved?.access_token) {
+      setSession(saved); setScreen("subscribe");
+    } else {
+      setScreen("landing");
+    }
+  },[]);
+
+  const handleAuthSuccess = (data) => {
+    const sess = { access_token: data.access_token, user: data.user, org_name: data.org_name, plan: data.plan };
+    setSession(sess);
+    saveSession(sess);
+    setScreen("subscribe");
+  };
+
+  const handlePlanSelected = (planId) => {
+    const updated = { ...session, plan: planId };
+    setSession(updated);
+    saveSession(updated);
+    setScreen("onboarding");
+  };
+
+  const handleOnboardingComplete = (bizProfile, docs) => {
+    setBiz(bizProfile); setBrandDocs(docs);
+    saveBiz(bizProfile);
+    setScreen("dashboard");
+  };
+
+  const handleLogout = async () => {
+    if (session?.access_token) await sbAuth.logout(session.access_token).catch(()=>{});
+    clearSession();
+    setSession(null); setBiz(null);
+    setScreen("landing");
+  };
+
+  if (screen === "boot") return (
+    <div style={{minHeight:"100vh",background:"#0a0a0f",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <Spin size={18} color="#7c3aed"/>
+    </div>
+  );
+
+  return (
+    <>
+      <style>{CSS}</style>
+      {screen==="landing"    && <Landing onGetStarted={(planId)=>{if(planId) setPreselect(planId); setScreen("auth");}} onLogin={()=>setScreen("auth")}/>}
+      {screen==="auth"       && <AuthScreen onSuccess={handleAuthSuccess} onBack={()=>setScreen("landing")}/>}
+      {screen==="subscribe"  && <SubscribePage session={session} preselect={preselect} onPlanSelected={handlePlanSelected} onSkip={()=>setScreen("onboarding")}/>}
+      {screen==="onboarding" && <Onboarding session={session} onComplete={handleOnboardingComplete}/>}
+      {screen==="dashboard"  && biz && <Dashboard session={session} biz={biz} initialBrandDocs={brandDocs} onLogout={handleLogout}/>}
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(SupervisorApp));
+</script>
+</body>
+</html>
