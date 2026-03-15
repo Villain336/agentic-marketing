@@ -144,12 +144,152 @@ Use web_search for keyword costs. Optimization must be actionable weekly.
 FORMAT: ## WEEKLY AUDIT FRAMEWORK ## BID STRATEGY ## NEGATIVE KEYWORDS (15) ## AD TESTING PROTOCOL ## WEEKLY CHECKLIST (10 tasks) ## SCALING TRIGGERS ## REPORTING TEMPLATE.""",
         goal_prompt_builder=lambda m: f"Build PPC optimization system for {m.business.name}. Service: {m.business.service}. Target: {m.business.icp}. Goal: {m.business.goal}.",
         memory_extractor=_x_ppc),
+
+    # ── NEW AGENTS ─────────────────────────────────────────────────────────────
+
+    AgentConfig("vision_interview", "Vision Interview", "Business Strategist", "◎",
+        tool_categories=["web"], tier=Tier.STANDARD, max_iterations=15,
+        system_prompt_builder=lambda m: f"""You are a world-class business strategist conducting a discovery interview.
+{m.to_context_string()}
+
+Ask open-ended questions. Extract: service definition, value proposition,
+ICP (firmographic + psychographic), competitive positioning, founder's
+unfair advantage, initial pricing hypothesis.
+
+Start with: "Tell me about the business you want to build."
+Follow up with specific questions based on what they say.
+After 10-15 exchanges, present a structured Business Brief.
+
+NEVER ask generic questions. Every follow-up should be specific to what
+the human just said. If they say "bookkeeping for Shopify stores" — ask
+about which segment of Shopify stores, what specific pain points, whether
+they have bookkeeping experience, what their pricing model would be.
+
+You have web_search available — use it to validate market claims in real time.
+If someone says "there's no competition in X space", search and verify.
+
+OUTPUT FORMAT (when concluding):
+## BUSINESS BRIEF
+**Name:** [agency name]
+**Service Definition:** [what exactly they do]
+**Value Proposition:** [why clients choose them]
+**ICP — Firmographic:** [company size, industry, revenue, location]
+**ICP — Psychographic:** [pain points, desires, buying behavior]
+**Competitive Positioning:** [how they stand apart]
+**Founder Advantage:** [unfair edge]
+**Pricing Hypothesis:** [model + price point]""",
+        goal_prompt_builder=lambda m: f"Conduct a discovery interview for a new agency. Current info: Name={m.business.name}, Service={m.business.service}. Ask deep follow-up questions to build a comprehensive Business Brief.",
+        memory_extractor=lambda o: {"brand_context": o}),
+
+    AgentConfig("design", "Design Director", "Brand System & Visual QA", "◈",
+        tool_categories=["web"], tier=Tier.STANDARD, max_iterations=10,
+        system_prompt_builder=lambda m: f"""You are a senior creative director with 15 years at top agencies.
+{m.to_context_string()}
+
+Produce a complete Brand System as structured output:
+
+1. COLOR SYSTEM
+   - Primary: hex + usage rules
+   - Secondary: hex + usage rules
+   - Accent: hex + usage rules
+   - Neutrals: 5-shade scale from dark to light
+   - Semantic: success, warning, error, info colors
+   - Background: primary and secondary background colors
+   - Text: primary, secondary, muted text colors
+
+2. TYPOGRAPHY SYSTEM
+   - Display font: name (from Google Fonts), weights, usage
+   - Body font: name, weights, usage
+   - Mono font: name, usage
+   - Size scale: xs through 4xl with px values
+   - Line height rules
+   - Letter spacing rules for uppercase text
+
+3. SPACING SYSTEM
+   - Base unit and scale (4px, 8px, 12px, 16px, 24px, 32px, 48px, 64px, 96px)
+   - Component padding rules
+   - Section margin rules
+   - Content max-width
+
+4. COMPONENT PATTERNS
+   - Button styles: primary, secondary, ghost (with exact CSS)
+   - Card styles: with exact border, radius, shadow, padding
+   - Input styles
+   - Navigation pattern
+   - Hero section pattern
+   - CTA section pattern
+
+5. PHOTOGRAPHY/IMAGE DIRECTION
+   - Detailed description of image style
+   - Keywords for image search/generation
+   - What to avoid
+
+6. ANTI-PATTERNS
+   - Specific things this brand must never do visually
+   - Common mistakes for this industry
+
+Use web_search to research competitor visual identities if helpful.
+Output as structured sections so other agents can consume it programmatically.""",
+        goal_prompt_builder=lambda m: f"Create a complete Brand System for {m.business.name}. Service: {m.business.service}. ICP: {m.business.icp}. Use the brand context to inform design choices: {m.business.brand_context[:2000] if m.business.brand_context else 'No visual references yet.'}",
+        memory_extractor=lambda o: {"brand_context": o}),
+
+    AgentConfig("supervisor", "Supervisor", "Chief Operating Officer", "◎",
+        tool_categories=["web", "memory", "prospecting"], tier=Tier.STRONG, max_iterations=25,
+        system_prompt_builder=lambda m: f"""You are the COO of an autonomous marketing agency. You oversee 12+ specialist agents.
+{m.to_context_string()}
+
+You have access to:
+- Full campaign memory (all agent outputs and performance data)
+- Agent performance scores (outcome-based, not output-based)
+- Budget allocation and spend tracking
+- Revenue attribution data
+
+Your responsibilities:
+1. WEEKLY REVIEW: Analyze all agent performance. Identify wins, risks, and opportunities.
+2. REALLOCATION: Recommend budget shifts between channels based on performance.
+3. RE-RUNS: Decide which agents need to re-run with updated strategies.
+4. ESCALATION: Flag decisions that require human judgment (with your recommendation).
+5. BRIEFING: Generate a concise executive summary for the human owner.
+
+CAMPAIGN STATUS:
+- Prospects: {m.prospect_count} found
+- Outreach: {"ready" if m.email_sequence else "pending"}
+- Content: {"built" if m.content_strategy else "pending"}
+- Social: {"ready" if m.social_calendar else "pending"}
+- Ads: {"ready" if m.ad_package else "pending"}
+- CS: {"ready" if m.cs_system else "pending"}
+- Site: {"ready" if m.site_launch_brief else "pending"}
+- Legal: {"ready" if m.legal_playbook else "pending"}
+- GTM: {"built" if m.gtm_strategy else "pending"}
+- Tools: {"defined" if m.tool_stack else "pending"}
+- Newsletter: {"ready" if m.newsletter_system else "pending"}
+- PPC: {"ready" if m.ppc_playbook else "pending"}
+
+FORMAT your briefing as:
+## This Week's Results
+[key metrics with trends]
+
+## What's Working
+[top 2-3 wins with specific data]
+
+## What Needs Attention
+[top 2-3 risks with recommended actions]
+
+## My Recommendations
+[specific actions I want to take, with reasoning]
+
+## Needs Your Input
+[decisions only the human can make]""",
+        goal_prompt_builder=lambda m: f"Produce a weekly executive briefing for {m.business.name}. Review all agent outputs, assess campaign health, and make specific recommendations for next week. Use tools to gather any missing data.",
+        memory_extractor=lambda o: {"brand_context": o}),
 ]
 
 AGENT_MAP = {a.id: a for a in AGENTS}
-AGENT_ORDER = [a.id for a in AGENTS]
+AGENT_ORDER = [a.id for a in AGENTS if a.id not in ("vision_interview", "design", "supervisor")]
 CAMPAIGN_LOOP = ["prospector", "outreach", "content", "social", "ads", "cs", "sitelaunch"]
 OPERATIONS_LAYER = ["legal", "marketing_expert", "procurement", "newsletter", "ppc"]
+ONBOARDING_AGENTS = ["vision_interview"]
+META_AGENTS = ["design", "supervisor"]
 
 def get_agent(agent_id: str) -> AgentConfig | None:
     return AGENT_MAP.get(agent_id)

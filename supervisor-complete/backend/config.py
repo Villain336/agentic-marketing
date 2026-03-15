@@ -45,8 +45,33 @@ class Settings:
 
     apollo_api_key: str = ""
     sendgrid_api_key: str = ""
+    sendgrid_from_email: str = ""
     hunter_api_key: str = ""
     serper_api_key: str = ""
+
+    # Social
+    twitter_bearer_token: str = ""
+    twitter_api_key: str = ""
+    twitter_access_token: str = ""
+    linkedin_client_id: str = ""
+    linkedin_client_secret: str = ""
+
+    # Ads
+    meta_access_token: str = ""
+    google_ads_developer_token: str = ""
+
+    # Deployment
+    vercel_token: str = ""
+    cloudflare_api_token: str = ""
+    cloudflare_account_id: str = ""
+
+    # CRM & Calendar
+    hubspot_api_key: str = ""
+    calcom_api_key: str = ""
+
+    # Messaging
+    telegram_bot_token: str = ""
+    slack_bot_token: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -94,8 +119,23 @@ class Settings:
             max_agent_runtime=int(os.getenv("MAX_AGENT_RUNTIME", "300")),
             apollo_api_key=os.getenv("APOLLO_API_KEY", ""),
             sendgrid_api_key=os.getenv("SENDGRID_API_KEY", ""),
+            sendgrid_from_email=os.getenv("SENDGRID_FROM_EMAIL", ""),
             hunter_api_key=os.getenv("HUNTER_API_KEY", ""),
             serper_api_key=os.getenv("SERPER_API_KEY", ""),
+            twitter_bearer_token=os.getenv("TWITTER_BEARER_TOKEN", ""),
+            twitter_api_key=os.getenv("TWITTER_API_KEY", ""),
+            twitter_access_token=os.getenv("TWITTER_ACCESS_TOKEN", ""),
+            linkedin_client_id=os.getenv("LINKEDIN_CLIENT_ID", ""),
+            linkedin_client_secret=os.getenv("LINKEDIN_CLIENT_SECRET", ""),
+            meta_access_token=os.getenv("META_ACCESS_TOKEN", ""),
+            google_ads_developer_token=os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN", ""),
+            vercel_token=os.getenv("VERCEL_TOKEN", ""),
+            cloudflare_api_token=os.getenv("CLOUDFLARE_API_TOKEN", ""),
+            cloudflare_account_id=os.getenv("CLOUDFLARE_ACCOUNT_ID", ""),
+            hubspot_api_key=os.getenv("HUBSPOT_API_KEY", ""),
+            calcom_api_key=os.getenv("CALCOM_API_KEY", ""),
+            telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
+            slack_bot_token=os.getenv("SLACK_BOT_TOKEN", ""),
         )
 
     @property

@@ -252,3 +252,148 @@ class HealthResponse(BaseModel):
     providers: list[dict] = []
     active_campaigns: int = 0
     version: str = "0.1.0"
+
+
+# ── Onboarding Models ────────────────────────────────────────────────────────
+
+class BusinessBrief(BaseModel):
+    name: str = ""
+    service_definition: str = ""
+    value_proposition: str = ""
+    icp_firmographic: str = ""
+    icp_psychographic: str = ""
+    competitive_positioning: str = ""
+    founder_advantage: str = ""
+    pricing_hypothesis: str = ""
+    conversation_transcript: str = ""
+
+
+class VisualDNA(BaseModel):
+    color_palette: dict[str, Any] = {}
+    typography: dict[str, Any] = {}
+    photography_direction: str = ""
+    illustration_style: str = ""
+    layout_preferences: str = ""
+    density: str = "balanced"
+    brand_personality: str = ""
+    anti_patterns: list[str] = []
+    reference_urls: list[str] = []
+    competitor_urls: list[str] = []
+
+
+class FormationProfile(BaseModel):
+    entity_type: str = ""
+    state_of_formation: str = ""
+    registered_agent: str = ""
+    ein: str = ""
+    bank_name: str = ""
+    bank_account_status: str = "pending"
+    insurance_types: list[str] = []
+    insurance_status: str = ""
+    legal_checklist: str = ""
+
+
+class RevenueModel(BaseModel):
+    pricing_model: str = ""
+    price_point: str = ""
+    target_clients_30d: int = 0
+    target_clients_90d: int = 0
+    target_revenue_90d: float = 0
+    target_revenue_year1: float = 0
+    startup_capital: float = 0
+    budget_allocation: dict[str, float] = {}
+    persona_pricing_feedback: str = ""
+
+
+class AutonomyConfig(BaseModel):
+    global_level: str = "guided"
+    per_agent_overrides: dict[str, str] = {}
+    spending_approval_threshold: float = 100.0
+    outbound_approval_required: bool = True
+    content_approval_required: bool = True
+    escalation_channel: str = "email"
+
+
+class OnboardingProfile(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str = ""
+    business_brief: BusinessBrief = Field(default_factory=BusinessBrief)
+    visual_dna: VisualDNA = Field(default_factory=VisualDNA)
+    formation: FormationProfile = Field(default_factory=FormationProfile)
+    revenue_model: RevenueModel = Field(default_factory=RevenueModel)
+    channels: dict[str, Any] = {}
+    market_research: dict[str, Any] = {}
+    autonomy: AutonomyConfig = Field(default_factory=AutonomyConfig)
+    mood_board_references: list[str] = []
+    mood_board_images: list[str] = []
+    current_stage: int = 1
+    completed_stages: list[int] = []
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class VisualAnalysis(BaseModel):
+    dominant_colors: list[str] = []
+    typography_classification: str = ""
+    layout_pattern: str = ""
+    photography_style: str = ""
+    vibe_keywords: list[str] = []
+
+
+# ── Brand System Models ──────────────────────────────────────────────────────
+
+class BrandSystem(BaseModel):
+    campaign_id: str = ""
+    color_system: dict[str, Any] = {}
+    typography_system: dict[str, Any] = {}
+    spacing_system: dict[str, Any] = {}
+    component_patterns: dict[str, Any] = {}
+    photography_direction: str = ""
+    anti_patterns: list[str] = []
+    full_system: dict[str, Any] = {}
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ── Approval Queue Model ────────────────────────────────────────────────────
+
+class ApprovalItem(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    campaign_id: str = ""
+    agent_id: str = ""
+    action_type: str = ""
+    content: dict[str, Any] = {}
+    status: str = "pending"
+    decided_by: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    decided_at: Optional[datetime] = None
+
+
+# ── Spend & Revenue Models ───────────────────────────────────────────────────
+
+class SpendEntry(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    campaign_id: str = ""
+    agent_id: str = ""
+    amount: float = 0
+    tool: str = ""
+    description: str = ""
+    approved_by: str = "auto"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class RevenueEvent(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    campaign_id: str = ""
+    amount: float = 0
+    client_id: str = ""
+    source_agent: str = ""
+    attribution_chain: dict[str, Any] = {}
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class PerformanceEvent(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    campaign_id: str = ""
+    source: str = ""
+    event_type: str = ""
+    data: dict[str, Any] = {}
+    created_at: datetime = Field(default_factory=datetime.utcnow)
