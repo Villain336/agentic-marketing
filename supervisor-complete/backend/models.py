@@ -189,6 +189,8 @@ class CampaignMemory(BaseModel):
     delivery_system: str = ""
     analytics_framework: str = ""
     treasury_plan: str = ""
+    tax_playbook: str = ""
+    wealth_strategy: str = ""
 
     def entity_rules(self) -> str:
         """Return entity-specific operational rules every agent MUST follow."""
@@ -295,6 +297,8 @@ class CampaignMemory(BaseModel):
             (self.delivery_system, "DELIVERY: system ready"),
             (self.analytics_framework, "ANALYTICS: framework ready"),
             (self.treasury_plan, "TREASURY: plan ready"),
+            (self.tax_playbook, "TAX: optimization playbook ready"),
+            (self.wealth_strategy, "WEALTH: 1% architecture ready"),
         ]
         for val, label in status_map:
             if val:
