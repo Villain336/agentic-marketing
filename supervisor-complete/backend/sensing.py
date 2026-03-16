@@ -176,17 +176,45 @@ class SensingEngine:
         return None
 
     async def _process_payment_event(self, campaign: Campaign, event: PerformanceEvent) -> Optional[dict]:
-        """Track revenue from Stripe payments."""
+        """Track revenue from Stripe payments and billing health."""
         data = event.data
         metrics = _get_or_init(campaign, "revenue_metrics", {
             "total_revenue": 0.0, "mrr": 0.0, "customers": 0,
+            "failed_payments": 0, "collection_rate": 100.0,
+        })
+        billing = _get_or_init(campaign, "billing_metrics", {
+            "invoices_sent": 0, "invoices_paid": 0, "invoices_overdue": 0,
+            "total_collected": 0.0, "total_outstanding": 0.0,
+            "collection_rate": 100.0,
         })
 
         event_type = data.get("type", "")
         if event_type == "payment_intent.succeeded":
-            amount = data.get("amount", 0) / 100  # Stripe uses cents
+            amount = data.get("amount", 0) / 100
             metrics["total_revenue"] += amount
             metrics["customers"] += 1
+            billing["total_collected"] += amount
+        elif event_type == "invoice.paid":
+            billing["invoices_paid"] += 1
+        elif event_type == "invoice.sent":
+            billing["invoices_sent"] += 1
+        elif event_type == "invoice.overdue" or event_type == "invoice.payment_failed":
+            billing["invoices_overdue"] += 1
+            metrics["failed_payments"] += 1
+        elif event_type == "customer.subscription.created":
+            mrr_amount = data.get("amount", 0) / 100
+            metrics["mrr"] += mrr_amount
+
+        # Update collection rate
+        if billing["invoices_sent"] > 0:
+            billing["collection_rate"] = round(
+                billing["invoices_paid"] / billing["invoices_sent"] * 100, 1)
+            metrics["collection_rate"] = billing["collection_rate"]
+
+        # Trigger: collection rate drops below 80% → billing agent re-runs dunning
+        if billing["invoices_sent"] >= 5 and billing["collection_rate"] < 80:
+            return {"trigger": "rerun_agent", "agent_id": "billing",
+                    "reason": f"Collection rate at {billing['collection_rate']}% — {billing['invoices_overdue']} overdue invoices"}
 
         return None
 

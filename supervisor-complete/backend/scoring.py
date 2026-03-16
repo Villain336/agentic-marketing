@@ -54,6 +54,9 @@ class AgentScorer:
             "analytics_agent": self._score_analytics,
             "tax_strategist": self._score_tax,
             "wealth_architect": self._score_wealth,
+            "billing": self._score_billing,
+            "referral": self._score_referral,
+            "portfolio_ops": self._score_portfolio_ops,
         }
 
         for agent_id, scorer in scorers.items():
@@ -431,6 +434,76 @@ class AgentScorer:
             "score": min(100, score),
             "reasoning": f"Wealth strategy active, {structures} structures, {protection_pct}% asset protection" if structures else "Wealth strategy built, awaiting implementation data",
             "metrics": wealth,
+        }
+
+
+    # ── Revenue Multiplier Agents ─────────────────────────────────────
+
+    def _score_billing(self, campaign: Campaign, metrics: dict) -> dict:
+        """Collection rate, DSO, MRR accuracy, dunning effectiveness."""
+        has_system = bool(campaign.memory.billing_system)
+        rev = metrics.get("revenue_metrics", {})
+        billing = metrics.get("billing_metrics", {})
+
+        if not has_system:
+            return {"score": 0, "reasoning": "No billing system yet", "metrics": {}}
+
+        base = 40
+        collection_rate = billing.get("collection_rate", 0) or rev.get("collection_rate", 0)
+        mrr = rev.get("mrr", 0)
+
+        collection_score = min(30, collection_rate * 0.3)  # 100% collection = 30 pts
+        revenue_score = min(30, mrr / 500)  # $15K MRR = 30 pts
+
+        score = base + collection_score + revenue_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Billing active, {collection_rate}% collection rate, ${mrr:,.0f} MRR" if mrr else "Billing system built, awaiting payment data",
+            "metrics": {**rev, **billing},
+        }
+
+    def _score_referral(self, campaign: Campaign, metrics: dict) -> dict:
+        """Active affiliates, referral conversion rate, referral revenue %."""
+        has_program = bool(campaign.memory.referral_program)
+        ref = metrics.get("referral_metrics", {})
+
+        if not has_program:
+            return {"score": 0, "reasoning": "No referral program yet", "metrics": {}}
+
+        base = 35
+        affiliates = ref.get("active_affiliates", 0)
+        referrals = ref.get("total_referrals", 0)
+        revenue = ref.get("total_revenue", 0)
+
+        affiliate_score = min(25, affiliates * 5)  # 5 active = 25 pts
+        referral_score = min(20, referrals * 2)  # 10 referrals = 20 pts
+        revenue_score = min(20, revenue / 500)  # $10K revenue = 20 pts
+
+        score = base + affiliate_score + referral_score + revenue_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Referral program active, {affiliates} affiliates, {referrals} referrals, ${revenue:,.0f} attributed" if affiliates else "Referral program built, recruiting partners",
+            "metrics": ref,
+        }
+
+    def _score_portfolio_ops(self, campaign: Campaign, metrics: dict) -> dict:
+        """Portfolio health, cross-campaign learning utilization, template coverage."""
+        # Portfolio ops is scored on genome utilization + campaign count
+        has_genome = bool(campaign.memory.genome_intel)
+        portfolio = metrics.get("portfolio_metrics", {})
+
+        base = 40 if has_genome else 20
+        campaigns_managed = portfolio.get("total_campaigns", 1)
+        templates_used = portfolio.get("templates_used", 0)
+
+        campaign_score = min(30, campaigns_managed * 10)  # 3 campaigns = 30 pts
+        template_score = min(30, templates_used * 15)  # 2 templates = 30 pts
+
+        score = base + campaign_score + template_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Managing {campaigns_managed} campaigns, genome intelligence active" if has_genome else "Portfolio ops initialized, awaiting multi-campaign data",
+            "metrics": portfolio,
         }
 
 

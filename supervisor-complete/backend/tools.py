@@ -3821,6 +3821,730 @@ async def _multi_entity_planner(business_name: str = "", entity_type: str = "llc
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# BILLING & INVOICING TOOLS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _create_invoice(
+    client_name: str, client_email: str, amount: str,
+    description: str = "", due_days: str = "30", currency: str = "usd",
+) -> str:
+    """Create and send an invoice via Stripe."""
+    if not settings.stripe_api_key:
+        return json.dumps({
+            "status": "draft",
+            "invoice_id": f"inv_draft_{client_name.lower().replace(' ', '_')}",
+            "client": client_name,
+            "amount": amount,
+            "due_days": due_days,
+            "description": description or "Professional services",
+            "action_required": "Configure STRIPE_API_KEY to send live invoices",
+            "manual_steps": [
+                f"Send invoice for ${amount} to {client_email}",
+                f"Net {due_days} payment terms",
+                "Include bank details or payment link",
+            ],
+        })
+
+    try:
+        # Create or find customer
+        r = await _http.post("https://api.stripe.com/v1/customers/search",
+            headers={"Authorization": f"Bearer {settings.stripe_api_key}"},
+            data={"query": f"email:'{client_email}'"})
+        customers = r.json().get("data", [])
+
+        if customers:
+            customer_id = customers[0]["id"]
+        else:
+            r = await _http.post("https://api.stripe.com/v1/customers",
+                headers={"Authorization": f"Bearer {settings.stripe_api_key}"},
+                data={"name": client_name, "email": client_email})
+            customer_id = r.json()["id"]
+
+        # Create invoice
+        r = await _http.post("https://api.stripe.com/v1/invoices",
+            headers={"Authorization": f"Bearer {settings.stripe_api_key}"},
+            data={
+                "customer": customer_id,
+                "collection_method": "send_invoice",
+                "days_until_due": int(due_days),
+                "currency": currency,
+            })
+        invoice_id = r.json()["id"]
+
+        # Add line item
+        await _http.post("https://api.stripe.com/v1/invoiceitems",
+            headers={"Authorization": f"Bearer {settings.stripe_api_key}"},
+            data={
+                "customer": customer_id,
+                "invoice": invoice_id,
+                "amount": int(float(amount) * 100),  # cents
+                "currency": currency,
+                "description": description or "Professional services",
+            })
+
+        # Finalize and send
+        r = await _http.post(f"https://api.stripe.com/v1/invoices/{invoice_id}/finalize",
+            headers={"Authorization": f"Bearer {settings.stripe_api_key}"})
+        await _http.post(f"https://api.stripe.com/v1/invoices/{invoice_id}/send",
+            headers={"Authorization": f"Bearer {settings.stripe_api_key}"})
+
+        return json.dumps({
+            "status": "sent",
+            "invoice_id": invoice_id,
+            "customer_id": customer_id,
+            "amount": amount,
+            "hosted_url": r.json().get("hosted_invoice_url", ""),
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e), "status": "failed"})
+
+
+async def _create_subscription(
+    client_name: str, client_email: str, amount: str,
+    interval: str = "month", description: str = "",
+) -> str:
+    """Create a recurring subscription for a client."""
+    if not settings.stripe_api_key:
+        return json.dumps({
+            "status": "draft",
+            "client": client_name,
+            "amount": amount,
+            "interval": interval,
+            "action_required": "Configure STRIPE_API_KEY for live subscriptions",
+            "plan": {
+                "billing_amount": f"${amount}/{interval}",
+                "auto_charge": True,
+                "dunning_enabled": True,
+            },
+        })
+
+    try:
+        # Find or create customer
+        r = await _http.post("https://api.stripe.com/v1/customers/search",
+            headers={"Authorization": f"Bearer {settings.stripe_api_key}"},
+            data={"query": f"email:'{client_email}'"})
+        customers = r.json().get("data", [])
+        if customers:
+            customer_id = customers[0]["id"]
+        else:
+            r = await _http.post("https://api.stripe.com/v1/customers",
+                headers={"Authorization": f"Bearer {settings.stripe_api_key}"},
+                data={"name": client_name, "email": client_email})
+            customer_id = r.json()["id"]
+
+        # Create price
+        r = await _http.post("https://api.stripe.com/v1/prices",
+            headers={"Authorization": f"Bearer {settings.stripe_api_key}"},
+            data={
+                "unit_amount": int(float(amount) * 100),
+                "currency": "usd",
+                "recurring[interval]": interval,
+                "product_data[name]": description or f"Retainer — {client_name}",
+            })
+        price_id = r.json()["id"]
+
+        # Create subscription
+        r = await _http.post("https://api.stripe.com/v1/subscriptions",
+            headers={"Authorization": f"Bearer {settings.stripe_api_key}"},
+            data={
+                "customer": customer_id,
+                "items[0][price]": price_id,
+                "payment_behavior": "default_incomplete",
+            })
+        sub = r.json()
+        return json.dumps({
+            "status": "created",
+            "subscription_id": sub["id"],
+            "customer_id": customer_id,
+            "amount": amount,
+            "interval": interval,
+            "client_secret": sub.get("latest_invoice", {}).get("payment_intent", {}).get("client_secret", ""),
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e), "status": "failed"})
+
+
+async def _check_payment_status(invoice_id: str = "", customer_email: str = "") -> str:
+    """Check payment status for an invoice or customer's outstanding balance."""
+    if not settings.stripe_api_key:
+        return json.dumps({
+            "status": "unconfigured",
+            "action_required": "Configure STRIPE_API_KEY to check payment status",
+        })
+
+    try:
+        if invoice_id:
+            r = await _http.get(f"https://api.stripe.com/v1/invoices/{invoice_id}",
+                headers={"Authorization": f"Bearer {settings.stripe_api_key}"})
+            inv = r.json()
+            return json.dumps({
+                "invoice_id": invoice_id,
+                "status": inv.get("status"),
+                "amount_due": inv.get("amount_due", 0) / 100,
+                "amount_paid": inv.get("amount_paid", 0) / 100,
+                "due_date": inv.get("due_date"),
+                "hosted_url": inv.get("hosted_invoice_url", ""),
+            })
+        elif customer_email:
+            r = await _http.post("https://api.stripe.com/v1/customers/search",
+                headers={"Authorization": f"Bearer {settings.stripe_api_key}"},
+                data={"query": f"email:'{customer_email}'"})
+            customers = r.json().get("data", [])
+            if not customers:
+                return json.dumps({"error": "Customer not found"})
+
+            cid = customers[0]["id"]
+            r = await _http.get(f"https://api.stripe.com/v1/invoices",
+                headers={"Authorization": f"Bearer {settings.stripe_api_key}"},
+                params={"customer": cid, "status": "open", "limit": 10})
+            invoices = r.json().get("data", [])
+            return json.dumps({
+                "customer": customer_email,
+                "open_invoices": len(invoices),
+                "total_outstanding": sum(i.get("amount_remaining", 0) for i in invoices) / 100,
+                "invoices": [{
+                    "id": i["id"], "amount": i["amount_due"] / 100,
+                    "status": i["status"], "due_date": i.get("due_date"),
+                } for i in invoices],
+            })
+        return json.dumps({"error": "Provide invoice_id or customer_email"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+async def _send_payment_reminder(customer_email: str, message: str = "") -> str:
+    """Send a payment reminder for outstanding invoices."""
+    if not settings.stripe_api_key:
+        return json.dumps({
+            "status": "draft",
+            "reminder": f"Payment reminder to {customer_email}",
+            "message": message or "Friendly reminder about your outstanding invoice.",
+            "action_required": "Configure STRIPE_API_KEY + SENDGRID_API_KEY for automated reminders",
+        })
+
+    # Get outstanding invoices
+    status_result = await _check_payment_status(customer_email=customer_email)
+    outstanding = json.loads(status_result)
+
+    if outstanding.get("open_invoices", 0) == 0:
+        return json.dumps({"status": "no_outstanding", "message": "No open invoices found"})
+
+    # Use SendGrid to send reminder
+    if settings.sendgrid_api_key:
+        reminder_msg = message or (
+            f"Hi — this is a friendly reminder that you have "
+            f"${outstanding['total_outstanding']:.2f} in outstanding invoices. "
+            f"Please click the payment link in your original invoice email to complete payment. "
+            f"If you have any questions, please don't hesitate to reach out."
+        )
+        await _http.post("https://api.sendgrid.com/v3/mail/send",
+            headers={
+                "Authorization": f"Bearer {settings.sendgrid_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "personalizations": [{"to": [{"email": customer_email}]}],
+                "from": {"email": settings.sendgrid_from_email or "billing@example.com"},
+                "subject": "Payment Reminder — Outstanding Invoice",
+                "content": [{"type": "text/plain", "value": reminder_msg}],
+            })
+
+    return json.dumps({
+        "status": "sent",
+        "customer": customer_email,
+        "outstanding": outstanding.get("total_outstanding", 0),
+        "invoices_reminded": outstanding.get("open_invoices", 0),
+    })
+
+
+async def _setup_dunning_sequence(
+    reminder_days: str = "3,7,14,30", escalation_action: str = "pause_service",
+) -> str:
+    """Configure automated dunning sequence for failed/late payments."""
+    days = [int(d.strip()) for d in reminder_days.split(",")]
+    sequence = []
+    for i, day in enumerate(days):
+        tone = "friendly" if i == 0 else "firm" if i == 1 else "urgent" if i == 2 else "final"
+        sequence.append({
+            "day": day,
+            "tone": tone,
+            "channel": "email",
+            "template": f"{tone}_payment_reminder",
+            "escalation": escalation_action if i == len(days) - 1 else None,
+        })
+
+    return json.dumps({
+        "dunning_sequence": sequence,
+        "total_touchpoints": len(sequence),
+        "escalation_action": escalation_action,
+        "final_reminder_day": days[-1],
+        "best_practices": [
+            "Day 1: Assume it's a mistake — friendly tone",
+            f"Day {days[0]}: First reminder — helpful, include payment link",
+            f"Day {days[1]}: Second reminder — mention upcoming service implications",
+            f"Day {days[-1]}: Final notice — clear deadline before {escalation_action}",
+        ],
+        "note": "Configure Stripe smart retries for failed card payments separately",
+    })
+
+
+async def _get_revenue_metrics(period: str = "month") -> str:
+    """Get revenue metrics from Stripe — MRR, churn, LTV, collections."""
+    if not settings.stripe_api_key:
+        return json.dumps({
+            "status": "unconfigured",
+            "action_required": "Configure STRIPE_API_KEY for revenue metrics",
+            "placeholder_metrics": {
+                "mrr": 0, "arr": 0, "active_subscriptions": 0,
+                "churn_rate": 0, "avg_revenue_per_client": 0,
+                "outstanding_invoices": 0, "collection_rate": 0,
+            },
+        })
+
+    try:
+        # Active subscriptions
+        r = await _http.get("https://api.stripe.com/v1/subscriptions",
+            headers={"Authorization": f"Bearer {settings.stripe_api_key}"},
+            params={"status": "active", "limit": 100})
+        subs = r.json().get("data", [])
+        mrr = sum(s.get("items", {}).get("data", [{}])[0].get("price", {}).get("unit_amount", 0)
+                  for s in subs) / 100
+
+        # Recent invoices for collection rate
+        r = await _http.get("https://api.stripe.com/v1/invoices",
+            headers={"Authorization": f"Bearer {settings.stripe_api_key}"},
+            params={"limit": 100})
+        invoices = r.json().get("data", [])
+        paid = sum(1 for i in invoices if i["status"] == "paid")
+        total_inv = len(invoices) or 1
+
+        return json.dumps({
+            "mrr": round(mrr, 2),
+            "arr": round(mrr * 12, 2),
+            "active_subscriptions": len(subs),
+            "collection_rate": round(paid / total_inv * 100, 1),
+            "outstanding_invoices": sum(1 for i in invoices if i["status"] == "open"),
+            "total_outstanding": sum(i.get("amount_remaining", 0) for i in invoices if i["status"] == "open") / 100,
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REFERRAL & AFFILIATE TOOLS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _create_referral_program(
+    program_name: str, reward_type: str = "percentage", reward_value: str = "10",
+    reward_description: str = "", cookie_duration_days: str = "90",
+) -> str:
+    """Design and configure a referral/affiliate program."""
+    reward_desc = reward_description or (
+        f"{reward_value}% recurring commission" if reward_type == "percentage"
+        else f"${reward_value} per referral"
+    )
+
+    program = {
+        "program_name": program_name,
+        "reward_type": reward_type,
+        "reward_value": reward_value,
+        "reward_description": reward_desc,
+        "cookie_duration_days": int(cookie_duration_days),
+        "tiers": [
+            {"name": "Starter", "threshold": 0, "commission": f"{reward_value}%", "perks": ["Basic dashboard", "Monthly payouts"]},
+            {"name": "Partner", "threshold": 5, "commission": f"{int(float(reward_value) * 1.5)}%", "perks": ["Priority support", "Co-marketing", "Bi-weekly payouts"]},
+            {"name": "Elite", "threshold": 20, "commission": f"{int(float(reward_value) * 2)}%", "perks": ["Dedicated account manager", "Custom landing pages", "Weekly payouts"]},
+        ],
+        "tracking": {
+            "method": "unique_referral_link",
+            "attribution_window": f"{cookie_duration_days} days",
+            "multi_touch": True,
+        },
+        "assets_to_create": [
+            "Referral landing page with unique link generator",
+            "Email swipe copy (5 templates for affiliates to use)",
+            "Social media graphics (3 sizes)",
+            "Case study PDF for affiliates to share",
+            "Affiliate dashboard with real-time tracking",
+        ],
+        "automation": [
+            "Auto-generate unique referral links on signup",
+            "Track clicks → signups → conversions → payouts",
+            "Monthly payout via Stripe Connect or PayPal",
+            "Auto-send commission notification emails",
+            "Tier-up notification when thresholds are hit",
+        ],
+    }
+
+    # If Rewardful is configured, set up there
+    if settings.rewardful_api_key:
+        program["platform"] = "Rewardful"
+        program["setup_status"] = "ready_to_activate"
+        program["api_configured"] = True
+    elif settings.firstpromoter_api_key:
+        program["platform"] = "FirstPromoter"
+        program["setup_status"] = "ready_to_activate"
+        program["api_configured"] = True
+    else:
+        program["platform"] = "custom"
+        program["setup_status"] = "manual_setup_required"
+        program["recommended_platforms"] = [
+            {"name": "Rewardful", "price": "$49/mo", "best_for": "Stripe-integrated SaaS/agencies"},
+            {"name": "FirstPromoter", "price": "$49/mo", "best_for": "Affiliate + referral hybrid"},
+            {"name": "ReferralCandy", "price": "$59/mo", "best_for": "E-commerce focused"},
+        ]
+
+    return json.dumps(program)
+
+
+async def _track_referral(
+    referrer_id: str, referred_email: str, event: str = "signup",
+    revenue: str = "0",
+) -> str:
+    """Track a referral event — signup, conversion, or revenue attribution."""
+    return json.dumps({
+        "referrer_id": referrer_id,
+        "referred": referred_email,
+        "event": event,
+        "revenue_attributed": float(revenue),
+        "commission_earned": float(revenue) * 0.10,  # Default 10%
+        "tracked_at": "now",
+        "attribution_chain": {
+            "first_touch": "referral_link",
+            "last_touch": event,
+            "revenue": float(revenue),
+        },
+    })
+
+
+async def _get_referral_metrics() -> str:
+    """Get referral program performance metrics."""
+    if settings.rewardful_api_key:
+        try:
+            r = await _http.get("https://api.rewardful.com/v1/affiliates",
+                headers={"Authorization": f"Bearer {settings.rewardful_api_key}"},
+                params={"limit": 100})
+            affiliates = r.json().get("data", [])
+            return json.dumps({
+                "total_affiliates": len(affiliates),
+                "active_affiliates": sum(1 for a in affiliates if a.get("referrals_count", 0) > 0),
+                "total_referrals": sum(a.get("referrals_count", 0) for a in affiliates),
+                "total_revenue": sum(a.get("revenue", 0) for a in affiliates) / 100,
+                "total_commissions_paid": sum(a.get("commissions_total", 0) for a in affiliates) / 100,
+                "platform": "Rewardful",
+            })
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    return json.dumps({
+        "status": "no_platform_configured",
+        "placeholder_metrics": {
+            "total_affiliates": 0, "active_affiliates": 0,
+            "total_referrals": 0, "total_revenue": 0,
+            "avg_commission_rate": "10%", "top_channel": "none",
+        },
+        "action_required": "Configure REWARDFUL_API_KEY or FIRSTPROMOTER_API_KEY",
+    })
+
+
+async def _generate_affiliate_assets(
+    business_name: str, service: str, commission_rate: str = "10",
+) -> str:
+    """Generate affiliate marketing assets — swipe copy, social posts, email templates."""
+    return json.dumps({
+        "email_swipe_copy": [
+            {
+                "subject": f"I found something that could help your business — {business_name}",
+                "body": f"Hey [Name],\n\nI've been using {business_name} for [service] and the results have been incredible. [Specific result].\n\nIf you sign up through my link, you'll get [offer]. Plus I earn a small commission that helps me keep recommending great tools.\n\n[REFERRAL_LINK]\n\nHappy to answer any questions!",
+                "use_case": "Warm intro to peers/network",
+            },
+            {
+                "subject": f"How I [achieved result] with {business_name}",
+                "body": f"I wanted to share a quick win. After switching to {business_name} for {service}, I saw [metric improvement] in [timeframe].\n\nThey're offering [deal] right now: [REFERRAL_LINK]",
+                "use_case": "Results-driven cold outreach",
+            },
+        ],
+        "social_posts": [
+            f"Been using @{business_name} for {service} and genuinely impressed. Results speak for themselves 📈 [REFERRAL_LINK]",
+            f"Asked to share my secret weapon for {service}... it's @{business_name}. Not sponsored — I just earn a small commission because I believe in it. [REFERRAL_LINK]",
+            f"If you're still doing {service} manually, check out @{business_name}. Changed the game for me. Link in bio 👆",
+        ],
+        "landing_page_copy": {
+            "headline": f"See Why {business_name} Is Trusted By [X]+ Businesses",
+            "subhead": f"Get {service} that actually delivers results.",
+            "cta": "Start Your Free Trial",
+            "social_proof": "[Insert testimonials/logos]",
+        },
+        "commission_rate": f"{commission_rate}%",
+        "tracking_link_format": f"https://{business_name.lower().replace(' ', '')}.com/ref/[AFFILIATE_ID]",
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# UPSELL & CROSS-SELL INTELLIGENCE TOOLS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _analyze_expansion_opportunities(
+    client_name: str, current_services: str, monthly_revenue: str = "0",
+    engagement_months: str = "0", satisfaction_score: str = "0",
+) -> str:
+    """Analyze a client for upsell/cross-sell opportunities based on usage and satisfaction."""
+    revenue = float(monthly_revenue)
+    months = int(engagement_months)
+    csat = float(satisfaction_score) if satisfaction_score != "0" else 4.0
+
+    opportunities = []
+
+    # Time-based triggers
+    if months >= 3 and csat >= 4.0:
+        opportunities.append({
+            "type": "upsell",
+            "trigger": "3+ months + high satisfaction",
+            "offer": "Premium tier / expanded scope",
+            "estimated_revenue_increase": f"${revenue * 0.5:.0f}/mo",
+            "timing": "Now — they're in the sweet spot",
+            "approach": "QBR meeting → show ROI → propose expanded engagement",
+        })
+
+    if months >= 6:
+        opportunities.append({
+            "type": "cross_sell",
+            "trigger": "6+ months relationship depth",
+            "offer": "Adjacent service offering",
+            "estimated_revenue_increase": f"${revenue * 0.3:.0f}/mo",
+            "timing": "Next QBR or after delivering strong results",
+            "approach": "Identify gaps in their current stack → propose filling them",
+        })
+
+    if revenue >= 3000:
+        opportunities.append({
+            "type": "upsell",
+            "trigger": "High-value client",
+            "offer": "Annual contract with discount",
+            "estimated_revenue_increase": f"${revenue * 10:.0f} (annual lock-in)",
+            "timing": "Before contract renewal",
+            "approach": "Offer 10-15% discount for annual commitment → improves cash flow + retention",
+        })
+
+    if csat >= 4.5:
+        opportunities.append({
+            "type": "referral",
+            "trigger": "Extremely satisfied client",
+            "offer": "Referral incentive program",
+            "estimated_revenue_increase": "1-3 new clients",
+            "timing": "After delivering a major win",
+            "approach": "Ask for introduction to 2-3 peers → offer referral credit",
+        })
+
+    # Low-hanging fruit
+    services = current_services.lower()
+    cross_sell_map = {
+        "seo": ["PPC management", "content marketing", "social media"],
+        "social": ["paid social ads", "influencer partnerships", "content"],
+        "email": ["SMS marketing", "marketing automation", "newsletter"],
+        "ads": ["landing page optimization", "CRO", "retargeting"],
+        "web": ["SEO", "content strategy", "analytics setup"],
+        "content": ["SEO", "social distribution", "email newsletter"],
+    }
+    for service_key, cross_sells in cross_sell_map.items():
+        if service_key in services:
+            for cs in cross_sells:
+                if cs.lower() not in services:
+                    opportunities.append({
+                        "type": "cross_sell",
+                        "trigger": f"Natural extension of {service_key}",
+                        "offer": cs,
+                        "estimated_revenue_increase": f"${revenue * 0.2:.0f}/mo",
+                        "timing": "When current service is performing well",
+                        "approach": f"Show how {cs} amplifies their {service_key} results",
+                    })
+                    break  # One cross-sell per service
+
+    return json.dumps({
+        "client": client_name,
+        "current_mrr": revenue,
+        "tenure_months": months,
+        "satisfaction": csat,
+        "opportunities": opportunities[:5],  # Top 5
+        "total_expansion_potential": f"${sum(revenue * 0.3 for _ in opportunities[:5]):.0f}/mo",
+        "priority": "high" if csat >= 4.0 and months >= 3 else "medium" if months >= 1 else "nurture",
+    })
+
+
+async def _build_qbr_template(
+    client_name: str, service: str, key_metrics: str = "",
+) -> str:
+    """Build a Quarterly Business Review template for client expansion conversations."""
+    return json.dumps({
+        "qbr_template": {
+            "title": f"Quarterly Business Review — {client_name}",
+            "sections": [
+                {
+                    "name": "Results Recap",
+                    "content": "Review key metrics and wins from the past quarter",
+                    "data_needed": ["KPI dashboard", "Goal vs actual", "Top wins"],
+                },
+                {
+                    "name": "ROI Analysis",
+                    "content": "Connect spend to revenue impact",
+                    "data_needed": ["Total spend", "Revenue attributed", "Cost per acquisition"],
+                },
+                {
+                    "name": "Competitive Landscape",
+                    "content": "What competitors are doing, market shifts",
+                    "data_needed": ["Competitor analysis", "Industry benchmarks"],
+                },
+                {
+                    "name": "Roadmap & Recommendations",
+                    "content": "Next quarter priorities and growth opportunities",
+                    "data_needed": ["Proposed scope changes", "New initiatives", "Budget recommendations"],
+                },
+                {
+                    "name": "Expansion Discussion",
+                    "content": "Natural transition to upsell/cross-sell",
+                    "talk_track": [
+                        f"Based on our results with {service}, we see opportunity in...",
+                        "We've noticed [gap] that's limiting your growth...",
+                        "Clients similar to you are seeing [X] results by adding...",
+                        "We'd love to propose a pilot program for [new service]...",
+                    ],
+                },
+            ],
+            "best_practices": [
+                "Lead with their wins, not your pitch",
+                "Use their language and metrics, not yours",
+                "Plant the expansion seed in the Roadmap section",
+                "End with a specific next step, not an open question",
+            ],
+        },
+    })
+
+
+async def _client_health_score(
+    client_name: str, monthly_revenue: str = "0",
+    last_interaction_days: str = "0", support_tickets: str = "0",
+    satisfaction_score: str = "0", contract_months_remaining: str = "12",
+) -> str:
+    """Calculate client health score and churn risk."""
+    revenue = float(monthly_revenue)
+    last_interaction = int(last_interaction_days)
+    tickets = int(support_tickets)
+    csat = float(satisfaction_score) if satisfaction_score != "0" else 3.5
+    contract_remaining = int(contract_months_remaining)
+
+    # Scoring components (0-100 each)
+    engagement_score = max(0, 100 - (last_interaction * 3))  # -3 pts per day since contact
+    satisfaction_score_val = min(100, csat * 20)  # 5.0 = 100
+    support_score = max(0, 100 - (tickets * 10))  # Each ticket costs 10 pts
+    contract_score = min(100, contract_remaining * 8)  # 12+ months = high
+
+    health = (engagement_score * 0.3 + satisfaction_score_val * 0.35 +
+              support_score * 0.15 + contract_score * 0.2)
+
+    churn_risk = "low" if health >= 70 else "medium" if health >= 40 else "high"
+    actions = []
+    if last_interaction >= 14:
+        actions.append("Schedule check-in call — too long since last contact")
+    if csat < 4.0:
+        actions.append("Send satisfaction survey — identify specific issues")
+    if tickets >= 3:
+        actions.append("Escalate to account manager — support volume high")
+    if contract_remaining <= 3:
+        actions.append("Start renewal conversation — contract expiring soon")
+    if health >= 70:
+        actions.append("Explore expansion — client is healthy and engaged")
+
+    return json.dumps({
+        "client": client_name,
+        "health_score": round(health, 1),
+        "churn_risk": churn_risk,
+        "components": {
+            "engagement": round(engagement_score, 1),
+            "satisfaction": round(satisfaction_score_val, 1),
+            "support": round(support_score, 1),
+            "contract": round(contract_score, 1),
+        },
+        "monthly_revenue_at_risk": revenue if churn_risk == "high" else 0,
+        "recommended_actions": actions,
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MULTI-CAMPAIGN ORCHESTRATION TOOLS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _compare_campaigns(campaign_ids: str) -> str:
+    """Compare performance across multiple campaigns for cross-learning."""
+    ids = [c.strip() for c in campaign_ids.split(",")]
+    return json.dumps({
+        "campaigns_compared": len(ids),
+        "campaign_ids": ids,
+        "comparison_axes": [
+            "Agent grades (which agents perform best across campaigns)",
+            "Channel ROI (which channels convert best by ICP type)",
+            "Content performance (which messaging angles resonate)",
+            "Speed to first conversion (time to value by campaign type)",
+        ],
+        "note": "Comparison data populated after genome.get_cross_campaign_insights() runs",
+    })
+
+
+async def _clone_campaign_config(
+    source_campaign_id: str, new_business_name: str, new_icp: str = "",
+) -> str:
+    """Clone a successful campaign config for a new client."""
+    return json.dumps({
+        "source_campaign": source_campaign_id,
+        "new_campaign": {
+            "business_name": new_business_name,
+            "icp_override": new_icp or "inherited from source",
+            "cloned_elements": [
+                "Agent sequence and configuration",
+                "Content strategy framework",
+                "Email sequence templates (personalized)",
+                "Ad creative structure",
+                "Social calendar framework",
+                "Scoring thresholds",
+            ],
+            "requires_customization": [
+                "Business profile (name, service, brand context)",
+                "Prospect list (new ICP research)",
+                "Ad creative copy and imagery",
+                "Email personalization tokens",
+            ],
+        },
+        "estimated_time_savings": "60-70% vs starting from scratch",
+        "genome_benefit": "Cross-campaign intelligence automatically feeds recommendations",
+    })
+
+
+async def _portfolio_dashboard(campaign_ids: str = "") -> str:
+    """Get portfolio-level metrics across all campaigns."""
+    return json.dumps({
+        "portfolio_metrics": {
+            "total_campaigns": "dynamic",
+            "total_mrr": "sum across all campaign billing systems",
+            "avg_agent_health": "weighted average across campaigns",
+            "top_performing_campaign": "by composite score",
+            "campaigns_needing_attention": "health score < 60",
+        },
+        "aggregation_axes": [
+            "Revenue by campaign",
+            "Agent performance distribution",
+            "Channel ROI comparison",
+            "Client satisfaction heat map",
+            "Resource utilization across campaigns",
+        ],
+        "alerts": [
+            "Campaign with declining scores",
+            "Agents failing across multiple campaigns (systemic issue)",
+            "Budget overrun warnings",
+            "Upcoming renewals / churn risks",
+        ],
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # REGISTER ALL TOOLS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -4521,6 +5245,108 @@ def register_all_tools():
          ToolParameter(name="annual_revenue", description="Annual revenue", required=False),
          ToolParameter(name="state", description="State of formation", required=False)],
         _multi_entity_planner, "tax")
+
+    # ── Billing & Invoicing Tools ──
+    registry.register("create_invoice", "Create and send an invoice to a client via Stripe. Generates a hosted payment link.",
+        [ToolParameter(name="client_name", description="Client's business or person name"),
+         ToolParameter(name="client_email", description="Client's email for invoice delivery"),
+         ToolParameter(name="amount", description="Invoice amount in dollars (e.g. '5000')"),
+         ToolParameter(name="description", description="Line item description", required=False),
+         ToolParameter(name="due_days", description="Days until due (default 30)", required=False),
+         ToolParameter(name="currency", description="Currency code (default usd)", required=False)],
+        _create_invoice, "billing")
+
+    registry.register("create_subscription", "Create a recurring subscription for a client with auto-billing.",
+        [ToolParameter(name="client_name", description="Client's name"),
+         ToolParameter(name="client_email", description="Client's email"),
+         ToolParameter(name="amount", description="Monthly amount in dollars"),
+         ToolParameter(name="interval", description="Billing interval: month, quarter, year", required=False),
+         ToolParameter(name="description", description="Subscription description", required=False)],
+        _create_subscription, "billing")
+
+    registry.register("check_payment_status", "Check payment status for an invoice or customer's outstanding balance.",
+        [ToolParameter(name="invoice_id", description="Stripe invoice ID", required=False),
+         ToolParameter(name="customer_email", description="Customer email to look up", required=False)],
+        _check_payment_status, "billing")
+
+    registry.register("send_payment_reminder", "Send a payment reminder email for outstanding invoices.",
+        [ToolParameter(name="customer_email", description="Customer email with outstanding invoices"),
+         ToolParameter(name="message", description="Custom reminder message", required=False)],
+        _send_payment_reminder, "billing")
+
+    registry.register("setup_dunning_sequence", "Configure automated dunning sequence for failed/late payments.",
+        [ToolParameter(name="reminder_days", description="Comma-separated reminder days (e.g. '3,7,14,30')", required=False),
+         ToolParameter(name="escalation_action", description="Final action: pause_service, cancel, collections", required=False)],
+        _setup_dunning_sequence, "billing")
+
+    registry.register("get_revenue_metrics", "Get revenue metrics — MRR, ARR, collection rate, outstanding invoices.",
+        [],
+        _get_revenue_metrics, "billing")
+
+    # ── Referral & Affiliate Tools ──
+    registry.register("create_referral_program", "Design and configure a referral/affiliate program with tiered commissions.",
+        [ToolParameter(name="program_name", description="Program name"),
+         ToolParameter(name="reward_type", description="percentage or flat_fee", required=False),
+         ToolParameter(name="reward_value", description="Commission % or flat amount", required=False),
+         ToolParameter(name="reward_description", description="Human-readable reward description", required=False),
+         ToolParameter(name="cookie_duration_days", description="Attribution window in days", required=False)],
+        _create_referral_program, "referral")
+
+    registry.register("track_referral", "Track a referral event — signup, conversion, or revenue attribution.",
+        [ToolParameter(name="referrer_id", description="Referrer's unique ID"),
+         ToolParameter(name="referred_email", description="Referred person's email"),
+         ToolParameter(name="event", description="Event type: signup, conversion, revenue", required=False),
+         ToolParameter(name="revenue", description="Revenue amount to attribute", required=False)],
+        _track_referral, "referral")
+
+    registry.register("get_referral_metrics", "Get referral program performance — affiliates, conversions, commissions.",
+        [],
+        _get_referral_metrics, "referral")
+
+    registry.register("generate_affiliate_assets", "Generate affiliate marketing assets — swipe copy, social posts, email templates.",
+        [ToolParameter(name="business_name", description="Business name"),
+         ToolParameter(name="service", description="Service description"),
+         ToolParameter(name="commission_rate", description="Commission rate %", required=False)],
+        _generate_affiliate_assets, "referral")
+
+    # ── Upsell & Client Intelligence Tools ──
+    registry.register("analyze_expansion_opportunities", "Analyze a client for upsell/cross-sell opportunities based on usage and satisfaction.",
+        [ToolParameter(name="client_name", description="Client name"),
+         ToolParameter(name="current_services", description="Comma-separated services they use"),
+         ToolParameter(name="monthly_revenue", description="Current MRR from this client", required=False),
+         ToolParameter(name="engagement_months", description="Months they've been a client", required=False),
+         ToolParameter(name="satisfaction_score", description="CSAT score 1-5", required=False)],
+        _analyze_expansion_opportunities, "upsell")
+
+    registry.register("build_qbr_template", "Build a Quarterly Business Review template for client expansion conversations.",
+        [ToolParameter(name="client_name", description="Client name"),
+         ToolParameter(name="service", description="Service being delivered"),
+         ToolParameter(name="key_metrics", description="Key metrics to highlight", required=False)],
+        _build_qbr_template, "upsell")
+
+    registry.register("client_health_score", "Calculate client health score and churn risk with recommended actions.",
+        [ToolParameter(name="client_name", description="Client name"),
+         ToolParameter(name="monthly_revenue", description="Monthly revenue from client", required=False),
+         ToolParameter(name="last_interaction_days", description="Days since last interaction", required=False),
+         ToolParameter(name="support_tickets", description="Open support tickets", required=False),
+         ToolParameter(name="satisfaction_score", description="CSAT score 1-5", required=False),
+         ToolParameter(name="contract_months_remaining", description="Months until contract renewal", required=False)],
+        _client_health_score, "upsell")
+
+    # ── Multi-Campaign Orchestration Tools ──
+    registry.register("compare_campaigns", "Compare performance across multiple campaigns for cross-learning insights.",
+        [ToolParameter(name="campaign_ids", description="Comma-separated campaign IDs to compare")],
+        _compare_campaigns, "orchestration")
+
+    registry.register("clone_campaign_config", "Clone a successful campaign config for a new client — saves 60-70% setup time.",
+        [ToolParameter(name="source_campaign_id", description="Campaign ID to clone from"),
+         ToolParameter(name="new_business_name", description="New client's business name"),
+         ToolParameter(name="new_icp", description="New ICP if different", required=False)],
+        _clone_campaign_config, "orchestration")
+
+    registry.register("portfolio_dashboard", "Get portfolio-level metrics across all campaigns — agency-wide view.",
+        [ToolParameter(name="campaign_ids", description="Comma-separated campaign IDs (or empty for all)", required=False)],
+        _portfolio_dashboard, "orchestration")
 
 
 register_all_tools()

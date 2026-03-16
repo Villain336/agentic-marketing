@@ -191,6 +191,10 @@ class CampaignMemory(BaseModel):
     treasury_plan: str = ""
     tax_playbook: str = ""
     wealth_strategy: str = ""
+    # Revenue multiplier outputs
+    billing_system: str = ""
+    referral_program: str = ""
+    upsell_playbook: str = ""
     # Cross-campaign intelligence (injected by genome engine at campaign start)
     genome_intel: str = ""
 
@@ -301,6 +305,9 @@ class CampaignMemory(BaseModel):
             (self.treasury_plan, "TREASURY: plan ready"),
             (self.tax_playbook, "TAX: optimization playbook ready"),
             (self.wealth_strategy, "WEALTH: 1% architecture ready"),
+            (self.billing_system, "BILLING: automated invoicing & collection active"),
+            (self.referral_program, "REFERRAL: affiliate/referral program active"),
+            (self.upsell_playbook, "UPSELL: expansion revenue playbook ready"),
         ]
         for val, label in status_map:
             if val:

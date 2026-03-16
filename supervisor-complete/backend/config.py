@@ -159,6 +159,14 @@ class Settings:
     stripe_atlas_key: str = ""
     firstbase_api_key: str = ""
 
+    # Stripe Billing
+    stripe_api_key: str = ""
+    stripe_webhook_secret: str = ""
+
+    # Referral & Affiliate
+    rewardful_api_key: str = ""
+    firstpromoter_api_key: str = ""
+
     @classmethod
     def from_env(cls) -> "Settings":
         providers = []
@@ -300,6 +308,12 @@ class Settings:
             # Business Formation
             stripe_atlas_key=os.getenv("STRIPE_ATLAS_KEY", ""),
             firstbase_api_key=os.getenv("FIRSTBASE_API_KEY", ""),
+            # Stripe Billing
+            stripe_api_key=os.getenv("STRIPE_API_KEY", ""),
+            stripe_webhook_secret=os.getenv("STRIPE_WEBHOOK_SECRET", ""),
+            # Referral & Affiliate
+            rewardful_api_key=os.getenv("REWARDFUL_API_KEY", ""),
+            firstpromoter_api_key=os.getenv("FIRSTPROMOTER_API_KEY", ""),
         )
 
     @property
