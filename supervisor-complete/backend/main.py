@@ -22,7 +22,7 @@ from models import (
 )
 from providers import router as model_router
 from engine import engine
-from agents import AGENTS, AGENT_MAP, AGENT_ORDER, get_agent
+from agents import AGENTS, AGENT_MAP, AGENT_ORDER, BACKOFFICE_LAYER, get_agent
 from scoring import scorer
 from sensing import sensing
 from wallet import wallet
@@ -53,6 +53,9 @@ def _serialize_memory(m: CampaignMemory) -> dict:
         "has_site": bool(m.site_launch_brief), "has_legal": bool(m.legal_playbook),
         "has_gtm": bool(m.gtm_strategy), "has_tools": bool(m.tool_stack),
         "has_newsletter": bool(m.newsletter_system), "has_ppc": bool(m.ppc_playbook),
+        "has_finance": bool(m.financial_plan), "has_hr": bool(m.hr_playbook),
+        "has_sales": bool(m.sales_playbook), "has_delivery": bool(m.delivery_system),
+        "has_analytics": bool(m.analytics_framework),
         "cs_complete": m.cs_complete, "campaign_complete": m.campaign_complete,
     }
 

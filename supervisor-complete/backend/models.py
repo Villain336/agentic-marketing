@@ -190,6 +190,72 @@ class CampaignMemory(BaseModel):
     analytics_framework: str = ""
     treasury_plan: str = ""
 
+    def entity_rules(self) -> str:
+        """Return entity-specific operational rules every agent MUST follow."""
+        b = self.business
+        et = (b.entity_type or "").lower().replace("-", "_")
+        title = b.founder_title or "Owner"
+        state = b.state_of_formation or "TBD"
+
+        if not et:
+            return ""
+
+        # Base rules every entity gets
+        lines = [
+            f"\n── ENTITY RULES ({et.upper().replace('_', '-')} · {state}) ──",
+            f"Address the founder as \"{title}\". Use that title in all documents, contracts, and communications.",
+        ]
+
+        if et == "sole_prop":
+            lines += [
+                "LEGAL: No corporate veil — owner is personally liable. Emphasize insurance & liability shields.",
+                "TAX: All income flows to Schedule C. Self-employment tax applies (15.3%). Recommend quarterly estimated payments.",
+                "CONTRACTS: The individual signs, not a company. Use 'DBA' name where applicable.",
+                "HIRING: 1099 contractors preferred until revenue justifies payroll burden.",
+                "FINANCE: Separate personal/business bank accounts even though not legally required.",
+                "COMPLIANCE: Simpler formation but more personal risk. Flag anything that exposes personal assets.",
+            ]
+        elif et == "llc":
+            lines += [
+                "LEGAL: Single-member LLC = disregarded entity for tax. Multi-member = partnership. Protect the corporate veil.",
+                "TAX: Default pass-through. If profit > $60K, recommend evaluating S-Corp election for SE tax savings.",
+                "CONTRACTS: Sign as '[Name], Managing Member of [Company] LLC' — never personal capacity.",
+                "HIRING: Can hire W-2 or 1099. Must get EIN before hiring. State-specific employment regs apply.",
+                "FINANCE: Operating Agreement is mandatory even for single-member. Separate bank account required.",
+                f"COMPLIANCE: Annual report required in {state}. Maintain registered agent. Document all member votes.",
+            ]
+        elif et == "s_corp":
+            lines += [
+                "LEGAL: Corp formalities required — minutes, resolutions, officer appointments. Piercing the veil risk if ignored.",
+                "TAX: Pass-through but owner MUST take reasonable salary. Remaining profit avoids SE tax. File 1120-S.",
+                "CONTRACTS: Sign as '[Name], [Officer Title] of [Company] Inc.' Corporate capacity only.",
+                "HIRING: Owner is a W-2 employee. Must run payroll. State payroll tax regs apply.",
+                "FINANCE: Reasonable compensation is IRS audit trigger #1. Document salary justification.",
+                f"COMPLIANCE: Board minutes, annual report in {state}, S-election maintenance (≤100 shareholders, one class of stock).",
+            ]
+        elif et == "c_corp":
+            lines += [
+                "LEGAL: Full corporate formalities — board, officers, minutes, bylaws. Strongest liability protection.",
+                "TAX: Double taxation (corp rate 21% + personal on dividends). Justify with reinvestment or investor plans.",
+                "CONTRACTS: Sign as officer. Board resolution may be needed for major contracts.",
+                "HIRING: Standard W-2 employment. Full benefits deductible at corp level. Owner is employee.",
+                "FINANCE: Retained earnings stay in corp. Avoid accumulated earnings tax (>$250K without business purpose).",
+                f"COMPLIANCE: Strictest requirements. Annual report in {state}, board meetings, stock ledger, bylaws.",
+            ]
+        elif et == "partnership":
+            lines += [
+                "LEGAL: Partners share liability unless LP/LLP. Partnership agreement is CRITICAL.",
+                "TAX: Pass-through via K-1s. Self-employment tax on general partner shares. File 1065.",
+                "CONTRACTS: Specify which partner(s) have signing authority in partnership agreement.",
+                "HIRING: Must have EIN. Partners are not employees — they take guaranteed payments or distributions.",
+                "FINANCE: Capital accounts must be tracked. Profit-sharing per agreement, not automatically 50/50.",
+                f"COMPLIANCE: Partnership agreement governs. Annual report in {state} if registered as LLP.",
+            ]
+        else:
+            lines.append(f"Entity type '{et}' recognized. Apply general best practices for this structure.")
+
+        return "\n".join(lines)
+
     def to_context_string(self) -> str:
         b = self.business
         parts = [
@@ -205,6 +271,10 @@ class CampaignMemory(BaseModel):
             parts.append(f"FOUNDER TITLE: {title_label}")
         if b.industry:
             parts.append(f"INDUSTRY: {b.industry}")
+        # Inject entity-specific rules so every agent adapts
+        entity_block = self.entity_rules()
+        if entity_block:
+            parts.append(entity_block)
         if b.brand_context:
             parts.append(f"BRAND CONTEXT: {b.brand_context}")
         status_map = [
