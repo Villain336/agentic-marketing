@@ -113,8 +113,9 @@ class Settings:
     cloudflare_r2_access_key: str = ""
     cloudflare_r2_secret_key: str = ""
     cloudflare_r2_bucket: str = ""
-    godaddy_api_key: str = ""
-    godaddy_api_secret: str = ""
+    namecheap_api_user: str = ""
+    namecheap_api_key: str = ""
+    namecheap_client_ip: str = ""
 
     # Analytics & Monitoring
     plausible_api_key: str = ""
@@ -152,6 +153,10 @@ class Settings:
     telegram_owner_chat_id: str = ""
     slack_bot_token: str = ""
     owner_email: str = ""
+
+    # Business Formation
+    stripe_atlas_key: str = ""
+    firstbase_api_key: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -257,8 +262,9 @@ class Settings:
             cloudflare_r2_access_key=os.getenv("CLOUDFLARE_R2_ACCESS_KEY", ""),
             cloudflare_r2_secret_key=os.getenv("CLOUDFLARE_R2_SECRET_KEY", ""),
             cloudflare_r2_bucket=os.getenv("CLOUDFLARE_R2_BUCKET", ""),
-            godaddy_api_key=os.getenv("GODADDY_API_KEY", ""),
-            godaddy_api_secret=os.getenv("GODADDY_API_SECRET", ""),
+            namecheap_api_user=os.getenv("NAMECHEAP_API_USER", ""),
+            namecheap_api_key=os.getenv("NAMECHEAP_API_KEY", ""),
+            namecheap_client_ip=os.getenv("NAMECHEAP_CLIENT_IP", ""),
             # Analytics & Monitoring
             plausible_api_key=os.getenv("PLAUSIBLE_API_KEY", ""),
             google_analytics_api_key=os.getenv("GOOGLE_ANALYTICS_API_KEY", ""),
@@ -289,6 +295,9 @@ class Settings:
             telegram_owner_chat_id=os.getenv("TELEGRAM_OWNER_CHAT_ID", ""),
             slack_bot_token=os.getenv("SLACK_BOT_TOKEN", ""),
             owner_email=os.getenv("OWNER_EMAIL", ""),
+            # Business Formation
+            stripe_atlas_key=os.getenv("STRIPE_ATLAS_KEY", ""),
+            firstbase_api_key=os.getenv("FIRSTBASE_API_KEY", ""),
         )
 
     @property

@@ -1382,20 +1382,28 @@ async def _deploy_to_cloudflare(project_name: str, files: str, domain: str = "")
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _check_domain_availability(domain: str) -> str:
-    """Check domain name availability via GoDaddy or Namecheap API."""
-    godaddy_key = getattr(settings, 'godaddy_api_key', '') or ""
-    godaddy_secret = getattr(settings, 'godaddy_api_secret', '') or ""
-    if godaddy_key and godaddy_secret:
+    """Check domain name availability via Namecheap API."""
+    nc_user = getattr(settings, 'namecheap_api_user', '') or ""
+    nc_key = getattr(settings, 'namecheap_api_key', '') or ""
+    if nc_user and nc_key:
         try:
-            resp = await _http.get(f"https://api.godaddy.com/v1/domains/available",
-                params={"domain": domain},
-                headers={"Authorization": f"sso-key {godaddy_key}:{godaddy_secret}"})
+            resp = await _http.get("https://api.namecheap.com/xml.response",
+                params={
+                    "ApiUser": nc_user, "ApiKey": nc_key, "UserName": nc_user,
+                    "Command": "namecheap.domains.check",
+                    "ClientIp": getattr(settings, 'namecheap_client_ip', '127.0.0.1'),
+                    "DomainList": domain,
+                })
             if resp.status_code == 200:
-                data = resp.json()
+                text = resp.text
+                available = "Available=\"true\"" in text
+                import re as _re
+                price_match = _re.search(r'Price="([\d.]+)"', text)
+                price = float(price_match.group(1)) if price_match else None
                 return json.dumps({
-                    "domain": domain, "available": data.get("available", False),
-                    "price": data.get("price", 0) / 1000000 if data.get("price") else None,
-                    "currency": data.get("currency", "USD"),
+                    "domain": domain, "available": available,
+                    "price": price, "currency": "USD",
+                    "provider": "namecheap",
                 })
         except Exception as e:
             return json.dumps({"domain": domain, "error": str(e)})
@@ -1403,15 +1411,20 @@ async def _check_domain_availability(domain: str) -> str:
 
 
 async def _register_domain(domain: str, contact_info: str = "") -> str:
-    """Register a domain name via GoDaddy API."""
-    godaddy_key = getattr(settings, 'godaddy_api_key', '') or ""
-    godaddy_secret = getattr(settings, 'godaddy_api_secret', '') or ""
-    if not godaddy_key or not godaddy_secret:
-        return json.dumps({"error": "Domain registration not configured. Set GODADDY_API_KEY.",
+    """Register a domain name via Namecheap API. Requires human approval."""
+    nc_user = getattr(settings, 'namecheap_api_user', '') or ""
+    nc_key = getattr(settings, 'namecheap_api_key', '') or ""
+    if not nc_user or not nc_key:
+        return json.dumps({"error": "Domain registration not configured. Set NAMECHEAP_API_USER and NAMECHEAP_API_KEY.",
                            "draft": {"domain": domain, "action": "register"}})
+    avail = await _check_domain_availability(domain)
+    avail_data = json.loads(avail)
+    if not avail_data.get("available"):
+        return json.dumps({"domain": domain, "error": "Domain is not available.",
+                           "suggestion": "Try variations or a different TLD."})
     return json.dumps({"domain": domain, "status": "pending_approval",
-                       "note": "Domain registration requires human approval before purchase.",
-                       "estimated_cost": "$12-15/year"})
+                       "provider": "namecheap", "price": avail_data.get("price"),
+                       "note": "Domain registration queued for human approval before purchase."})
 
 
 async def _manage_dns(domain: str, action: str, record_type: str = "A",
@@ -1570,7 +1583,7 @@ async def _check_page_speed(url: str, strategy: str = "mobile") -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LEGAL — Document Generation, Compliance, E-Signatures
+# LEGAL — Full Business Legal (Contracts, IP, Employment, Tax, Regulatory, Liability)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def _generate_document(template_type: str, variables: str, format: str = "html") -> str:
@@ -2265,6 +2278,908 @@ async def _get_agent_performance_history(agent_id: str, campaign_id: str) -> str
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# BUSINESS FORMATION — Entity Filing, EIN, Registered Agent, Banking, Insurance
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _research_entity_types(state: str, business_type: str = "") -> str:
+    """Research best entity type (LLC, S-Corp, C-Corp) for a state and business type."""
+    queries = [
+        f"best business entity type {business_type} {state} LLC vs S-Corp 2026",
+        f"{state} LLC formation requirements fees annual report",
+    ]
+    results = []
+    for q in queries:
+        data = json.loads(await _web_search(q, 3))
+        results.extend(data.get("results", []))
+    entity_comparison = {
+        "llc": {
+            "pros": ["Pass-through taxation", "Flexible management", "Limited liability", "Less paperwork"],
+            "cons": ["Self-employment tax on all profits", "Varies by state"],
+            "best_for": "Solo founders, small agencies, consulting",
+            "typical_cost": "$50-500 state filing fee",
+        },
+        "s_corp": {
+            "pros": ["Save on self-employment tax above reasonable salary", "Pass-through taxation", "Credibility"],
+            "cons": ["Must pay yourself reasonable salary", "Payroll requirements", "More compliance"],
+            "best_for": "Agencies earning $50k+ profit, want tax savings",
+            "typical_cost": "$100-800 state filing fee + payroll setup",
+        },
+        "c_corp": {
+            "pros": ["Raise VC funding", "Stock options", "Unlimited shareholders"],
+            "cons": ["Double taxation", "Complex compliance", "Expensive to maintain"],
+            "best_for": "Tech startups seeking VC, planning IPO",
+            "typical_cost": "$100-800 state filing fee + ongoing compliance",
+        },
+    }
+    return json.dumps({
+        "state": state, "business_type": business_type,
+        "entity_comparison": entity_comparison,
+        "research": results[:6],
+        "recommendation": "LLC for most service businesses; S-Corp election once profits exceed $50k/year",
+    })
+
+
+async def _file_business_entity(entity_type: str, state: str, business_name: str,
+                                  registered_agent: str = "", members: str = "") -> str:
+    """Initiate business entity formation via state filing service (Stripe Atlas, Firstbase, or manual)."""
+    stripe_atlas_key = getattr(settings, 'stripe_atlas_key', '') or ""
+    if stripe_atlas_key:
+        return json.dumps({
+            "provider": "stripe_atlas", "status": "ready_to_file",
+            "entity_type": entity_type, "state": state, "name": business_name,
+            "includes": ["Formation filing", "EIN application", "Registered agent 1yr",
+                         "Operating agreement", "Stripe account", "Mercury bank account"],
+            "cost": "$500 one-time",
+            "next_step": "Requires human approval to submit payment and filing.",
+        })
+    firstbase_key = getattr(settings, 'firstbase_api_key', '') or ""
+    if firstbase_key:
+        return json.dumps({
+            "provider": "firstbase", "status": "ready_to_file",
+            "entity_type": entity_type, "state": state, "name": business_name,
+            "includes": ["Formation filing", "EIN", "Registered agent", "Operating agreement",
+                         "Business address", "Mail forwarding"],
+            "cost": "$399 one-time + $149/yr",
+            "next_step": "Requires human approval to submit.",
+        })
+    filing_links = {
+        "delaware": "https://icis.corp.delaware.gov/Ecorp/EntitySearch/NameSearch.aspx",
+        "wyoming": "https://wyobiz.wyo.gov/Business/FilingSearch.aspx",
+        "florida": "https://dos.fl.gov/sunbiz/",
+        "texas": "https://www.sos.state.tx.us/corp/forms_702.shtml",
+        "california": "https://bizfileext.sos.ca.gov/",
+    }
+    state_link = filing_links.get(state.lower(), f"https://www.google.com/search?q={state}+LLC+filing")
+    return json.dumps({
+        "status": "manual_filing_required",
+        "entity_type": entity_type, "state": state, "name": business_name,
+        "checklist": [
+            f"1. Check name availability at {state_link}",
+            "2. Prepare Articles of Organization/Incorporation",
+            f"3. Designate registered agent: {registered_agent or 'Need to select one'}",
+            "4. File with Secretary of State",
+            "5. Apply for EIN at irs.gov/ein",
+            "6. Draft Operating Agreement",
+            "7. Open business bank account",
+            "8. Get required business licenses",
+        ],
+        "recommended_services": [
+            {"name": "Stripe Atlas", "url": "https://stripe.com/atlas", "cost": "$500"},
+            {"name": "Firstbase", "url": "https://firstbase.io", "cost": "$399"},
+            {"name": "Northwest Registered Agent", "url": "https://www.northwestregisteredagent.com", "cost": "$39+state fee"},
+        ],
+        "note": "Set STRIPE_ATLAS_KEY or FIRSTBASE_API_KEY for automated filing.",
+    })
+
+
+async def _apply_for_ein() -> str:
+    """Guide through EIN application process."""
+    return json.dumps({
+        "status": "manual_required",
+        "url": "https://www.irs.gov/businesses/small-businesses-self-employed/apply-for-an-employer-identification-number-ein-online",
+        "process": [
+            "1. Go to IRS EIN Assistant (link above)",
+            "2. Select entity type (LLC, Corporation, etc.)",
+            "3. Provide responsible party info (SSN required)",
+            "4. Receive EIN immediately upon completion",
+            "5. Download and save CP575 confirmation letter",
+        ],
+        "requirements": ["Must have SSN or ITIN", "Entity must already be formed with state",
+                         "Only one EIN per responsible party per day"],
+        "time": "Immediate if done online during business hours (7am-10pm ET M-F)",
+        "cost": "Free",
+    })
+
+
+async def _research_registered_agents(state: str) -> str:
+    """Research and compare registered agent services for a state."""
+    search_result = await _web_search(f"best registered agent service {state} 2026 pricing comparison", 5)
+    agents_data = json.loads(search_result)
+    recommended = [
+        {"name": "Northwest Registered Agent", "cost": "$125/yr", "url": "https://www.northwestregisteredagent.com",
+         "notes": "Privacy-focused, includes business address"},
+        {"name": "Incfile", "cost": "$119/yr (free first year with formation)", "url": "https://www.incfile.com",
+         "notes": "Budget-friendly, includes compliance alerts"},
+        {"name": "Stripe Atlas", "cost": "Included in $500 formation", "url": "https://stripe.com/atlas",
+         "notes": "Best for tech/SaaS, includes banking"},
+    ]
+    return json.dumps({
+        "state": state, "recommended_agents": recommended,
+        "search_results": agents_data.get("results", [])[:5],
+        "note": "Registered agent receives legal documents on behalf of your business.",
+    })
+
+
+async def _research_business_banking(business_type: str = "agency", state: str = "") -> str:
+    """Research and compare business banking options."""
+    search_result = await _web_search(f"best business bank account {business_type} {state} 2026 no fees", 5)
+    return json.dumps({
+        "recommended_banks": [
+            {"name": "Mercury", "url": "https://mercury.com", "type": "Online",
+             "fees": "No monthly fees", "best_for": "Tech/SaaS, startups",
+             "perks": "Free wires, API access, treasury, integrations"},
+            {"name": "Relay", "url": "https://relay.com", "type": "Online",
+             "fees": "Free plan available", "best_for": "Agencies, freelancers",
+             "perks": "Sub-accounts for profit allocation, no minimums"},
+            {"name": "Bluevine", "url": "https://bluevine.com", "type": "Online",
+             "fees": "No monthly fees", "best_for": "Small businesses",
+             "perks": "2% interest on balances, checks, bill pay"},
+            {"name": "Chase Business Complete", "url": "https://chase.com/business", "type": "Traditional",
+             "fees": "$15/mo (waivable)", "best_for": "Need in-person banking",
+             "perks": "Branch access, credit building, merchant services"},
+        ],
+        "checklist": [
+            "1. Have EIN ready",
+            "2. Have formation documents (Articles + Operating Agreement)",
+            "3. Have government-issued ID for all signers",
+            "4. Initial deposit (varies: $0-$100)",
+        ],
+        "search_results": json.loads(search_result).get("results", [])[:3],
+    })
+
+
+async def _research_business_insurance(business_type: str, state: str = "",
+                                         revenue_estimate: str = "") -> str:
+    """Research required and recommended business insurance."""
+    search_result = await _web_search(f"{business_type} business insurance requirements {state} 2026", 5)
+    return json.dumps({
+        "required_insurance": [
+            {"type": "General Liability", "typical_cost": "$400-800/yr",
+             "covers": "Third-party bodily injury, property damage, advertising injury",
+             "required_by": "Most clients, landlords, and contracts"},
+            {"type": "Professional Liability (E&O)", "typical_cost": "$500-2000/yr",
+             "covers": "Errors, omissions, negligence in professional services",
+             "required_by": "Client contracts, especially enterprise deals"},
+        ],
+        "recommended_insurance": [
+            {"type": "Cyber Liability", "typical_cost": "$500-1500/yr",
+             "covers": "Data breaches, cyber attacks, client data loss",
+             "critical_for": "Anyone handling client data, ad accounts, websites"},
+            {"type": "Business Owner's Policy (BOP)", "typical_cost": "$500-1000/yr",
+             "covers": "Bundles general liability + property + business interruption",
+             "best_for": "Agencies with office space or equipment"},
+            {"type": "Workers Compensation", "typical_cost": "Varies by state/payroll",
+             "covers": "Employee injuries",
+             "required_by": "Most states if you have employees (even 1)"},
+        ],
+        "providers": [
+            {"name": "Next Insurance", "url": "https://nextinsurance.com", "notes": "Online, fast quotes, agency-friendly"},
+            {"name": "Hiscox", "url": "https://hiscox.com", "notes": "Professional liability specialist"},
+            {"name": "Hartford", "url": "https://thehartford.com", "notes": "BOP bundles, established"},
+        ],
+        "search_results": json.loads(search_result).get("results", [])[:3],
+    })
+
+
+async def _research_business_licenses(business_type: str, state: str, city: str = "") -> str:
+    """Research required business licenses and permits."""
+    query = f"{business_type} business license requirements {state} {city} 2026"
+    search_result = await _web_search(query, 5)
+    return json.dumps({
+        "state": state, "city": city, "business_type": business_type,
+        "common_requirements": [
+            {"license": "State Business License", "where": f"{state} Secretary of State or Revenue Dept",
+             "cost": "$25-500 depending on state", "renewal": "Annual"},
+            {"license": "City/County Business License", "where": f"{city or 'Local'} city clerk or business licensing",
+             "cost": "$50-300", "renewal": "Annual"},
+            {"license": "Sales Tax Permit", "where": f"{state} Department of Revenue",
+             "cost": "Usually free", "needed_if": "Selling taxable goods/services",
+             "note": "Most pure services are exempt in most states"},
+            {"license": "Home Occupation Permit", "where": "Local zoning office",
+             "cost": "$0-100", "needed_if": "Running business from home"},
+        ],
+        "lookup_tools": [
+            {"name": "SBA License & Permit Lookup", "url": "https://www.sba.gov/business-guide/launch-your-business/apply-for-licenses-and-permits"},
+            {"name": f"{state} Business One Stop", "url": f"https://www.google.com/search?q={state}+business+license+portal"},
+        ],
+        "search_results": json.loads(search_result).get("results", [])[:5],
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BUSINESS ADVISOR — Financial Planning, Tax Strategy, Pricing, Cash Flow, Growth
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _build_financial_model(service: str, pricing_model: str, price_point: str,
+                                   target_clients: str, monthly_expenses: str = "0") -> str:
+    """Build a financial projection model for the business."""
+    try:
+        price = float(price_point.replace("$", "").replace(",", "").split("/")[0].split("-")[-1])
+        clients_target = int(target_clients.replace(",", ""))
+        expenses = float(monthly_expenses.replace("$", "").replace(",", ""))
+    except (ValueError, IndexError):
+        price, clients_target, expenses = 2000, 10, 500
+    monthly_revenue = price * clients_target
+    gross_margin = 0.80 if "service" in service.lower() or "agency" in service.lower() else 0.60
+    projections = []
+    for month in range(1, 13):
+        ramp = min(1.0, month / 6)
+        rev = monthly_revenue * ramp
+        cogs = rev * (1 - gross_margin)
+        operating = expenses + (month * 50)
+        net = rev - cogs - operating
+        projections.append({
+            "month": month, "revenue": round(rev), "cogs": round(cogs),
+            "gross_profit": round(rev - cogs), "operating_expenses": round(operating),
+            "net_profit": round(net), "clients": round(clients_target * ramp),
+        })
+    return json.dumps({
+        "service": service, "pricing_model": pricing_model,
+        "unit_economics": {
+            "price_per_client": price,
+            "gross_margin": f"{gross_margin*100}%",
+            "ltv_estimate": price * 8,
+            "target_cac": price * 0.3,
+            "payback_period": "1 month",
+        },
+        "year_1_projections": projections,
+        "year_1_summary": {
+            "total_revenue": sum(p["revenue"] for p in projections),
+            "total_profit": sum(p["net_profit"] for p in projections),
+            "break_even_month": next((p["month"] for p in projections if p["net_profit"] > 0), "N/A"),
+            "year_end_mrr": projections[-1]["revenue"],
+        },
+        "key_assumptions": [
+            "6-month linear ramp to full client capacity",
+            f"{gross_margin*100}% gross margin (typical for services)",
+            "Operating expenses grow $50/mo (tools, subscriptions)",
+            "No client churn in year 1 (optimistic — plan for 5-10%)",
+        ],
+    })
+
+
+async def _tax_strategy_research(entity_type: str, estimated_revenue: str,
+                                    state: str, filing_status: str = "single") -> str:
+    """Research tax optimization strategies for the business."""
+    search_result = await _web_search(f"{entity_type} tax strategy {state} {estimated_revenue} revenue 2026", 5)
+    try:
+        revenue = float(estimated_revenue.replace("$", "").replace(",", "").replace("k", "000").replace("K", "000"))
+    except ValueError:
+        revenue = 100000
+    strategies: list[dict[str, Any]] = []
+    if entity_type.lower() in ("llc", "sole_prop"):
+        se_tax = revenue * 0.9235 * 0.153
+        strategies.append({
+            "strategy": "S-Corp Election",
+            "savings": f"${round(se_tax * 0.3)}/yr estimated",
+            "how": f"Elect S-Corp status with IRS Form 2553. Pay yourself a reasonable salary (~60% of profits), save SE tax on the rest.",
+            "threshold": "Consider when profits exceed $50k/year",
+            "deadline": "March 15 for current year (or within 75 days of formation)",
+        })
+    strategies.extend([
+        {"strategy": "Quarterly Estimated Taxes",
+         "how": "Pay quarterly via IRS EFTPS to avoid underpayment penalties. Due: Apr 15, Jun 15, Sep 15, Jan 15.",
+         "critical": True},
+        {"strategy": "Home Office Deduction",
+         "savings": "$1,500-5,000/yr",
+         "how": "Simplified method: $5/sq ft up to 300 sq ft ($1,500). Or actual expenses pro-rated by square footage."},
+        {"strategy": "Retirement Contributions",
+         "savings": f"Up to ${min(round(revenue * 0.25), 69000)} tax deferred",
+         "how": "Solo 401(k): up to $23,500 employee + 25% employer match. SEP IRA: up to 25% of net SE income."},
+        {"strategy": "Health Insurance Deduction",
+         "savings": "100% of premiums if self-employed",
+         "how": "Deduct health, dental, vision premiums for you, spouse, and dependents above the line."},
+        {"strategy": "Business Expense Tracking",
+         "how": "Track all: software subscriptions, equipment, travel, meals (50%), education, marketing spend.",
+         "tools": ["QuickBooks Self-Employed", "FreshBooks", "Wave (free)"]},
+    ])
+    return json.dumps({
+        "entity_type": entity_type, "estimated_revenue": estimated_revenue, "state": state,
+        "estimated_federal_rate": "22-32%" if revenue > 50000 else "10-22%",
+        "estimated_se_tax": "15.3% on net SE income" if entity_type.lower() != "s_corp" else "On salary portion only",
+        "strategies": strategies,
+        "critical_dates": [
+            "Jan 15 — Q4 estimated tax due",
+            "Mar 15 — S-Corp/partnership returns due (Form 1120-S/1065)",
+            "Apr 15 — Individual returns + Q1 estimated tax due",
+            "Jun 15 — Q2 estimated tax due",
+            "Sep 15 — Q3 estimated tax due + S-Corp election deadline (late)",
+        ],
+        "search_results": json.loads(search_result).get("results", [])[:3],
+        "disclaimer": "This is guidance only. Consult a CPA for your specific situation.",
+    })
+
+
+async def _pricing_strategy(service: str, icp: str, competitors: str = "",
+                               current_price: str = "") -> str:
+    """Develop pricing strategy with market research."""
+    comp_research = await _web_search(f"{service} agency pricing 2026 {icp}", 5)
+    comp_data = json.loads(comp_research)
+    models = [
+        {"model": "Retainer", "range": "$1,500-10,000/mo",
+         "pros": "Predictable revenue, deeper relationships, better results",
+         "cons": "Harder initial sale, scope creep risk",
+         "best_for": "Ongoing services (marketing, dev, design)"},
+        {"model": "Project-Based", "range": "$2,000-50,000/project",
+         "pros": "Clear scope, easy to sell, premium pricing possible",
+         "cons": "Revenue gaps between projects, feast/famine",
+         "best_for": "Websites, launches, campaigns, audits"},
+        {"model": "Performance/Revenue Share", "range": "10-30% of results",
+         "pros": "Unlimited upside, aligned incentives",
+         "cons": "Income uncertainty, attribution arguments",
+         "best_for": "Lead gen, e-commerce, PPC management"},
+        {"model": "Productized Service", "range": "$500-5,000/mo per tier",
+         "pros": "Scalable, easy to sell, clear deliverables",
+         "cons": "Commoditization risk, needs systems",
+         "best_for": "Standardized offerings (content packages, SEO audits)"},
+    ]
+    return json.dumps({
+        "service": service, "icp": icp,
+        "pricing_models": models,
+        "pricing_psychology": [
+            "Price in 3 tiers (Good/Better/Best) — middle tier gets 60% of sales",
+            "Anchor high: show premium tier first",
+            "Use annual pricing with monthly option (+20%) to incentivize commitment",
+            "Never compete on price — compete on outcomes and specialization",
+            "Raise prices 10-15% for every new client until close rate drops below 30%",
+        ],
+        "competitor_research": comp_data.get("results", [])[:5],
+        "recommended_approach": {
+            "start_with": "Retainer or Productized Service",
+            "pricing_rule": "10x the value you deliver. If you generate $20k/mo in leads, charge $2k/mo.",
+            "test_price": "Start 20% higher than you think — you can always add a lower tier later.",
+        },
+    })
+
+
+async def _cash_flow_analysis(monthly_revenue: str, monthly_expenses: str,
+                                payment_terms: str = "net_30", runway_months: str = "0") -> str:
+    """Analyze cash flow and provide recommendations."""
+    try:
+        rev = float(monthly_revenue.replace("$", "").replace(",", ""))
+        exp = float(monthly_expenses.replace("$", "").replace(",", ""))
+        runway = float(runway_months) if runway_months != "0" else 0
+    except ValueError:
+        rev, exp, runway = 5000, 3000, 0
+    net = rev - exp
+    burn_rate = exp - rev if rev < exp else 0
+    months_runway = runway / exp if exp > 0 and runway > 0 else 0
+    return json.dumps({
+        "monthly_revenue": rev, "monthly_expenses": exp,
+        "net_cash_flow": net, "annual_net": net * 12,
+        "burn_rate": burn_rate if burn_rate > 0 else 0,
+        "runway_months": round(months_runway, 1) if months_runway > 0 else "N/A",
+        "health": "healthy" if net > 0 else "burning" if runway > 0 else "critical",
+        "cash_reserves_target": exp * 3,
+        "profit_allocation": {
+            "owners_pay": f"{round(net * 0.50)}/mo (50%)",
+            "tax_reserve": f"{round(net * 0.30)}/mo (30%)",
+            "operating_reserve": f"{round(net * 0.15)}/mo (15%)",
+            "growth_fund": f"{round(net * 0.05)}/mo (5%)",
+        } if net > 0 else {"action": "Cut expenses or increase revenue before allocating"},
+        "recommendations": [
+            "Collect payment upfront or net-15 (not net-30) to improve cash flow",
+            "Bill retainers on the 1st, not after delivery",
+            f"Build 3-month reserve: ${round(exp * 3)} target",
+            "Separate tax money into a dedicated account immediately",
+            "Review subscriptions monthly — cancel anything unused for 30+ days",
+        ] + ([f"WARNING: At current burn rate, you have {round(months_runway, 1)} months of runway."] if burn_rate > 0 else []),
+    })
+
+
+async def _growth_playbook(current_revenue: str, target_revenue: str,
+                              service: str, channels: str = "") -> str:
+    """Build a growth strategy playbook with specific tactics."""
+    try:
+        current = float(current_revenue.replace("$", "").replace(",", "").replace("k", "000").replace("K", "000"))
+        target = float(target_revenue.replace("$", "").replace(",", "").replace("k", "000").replace("K", "000"))
+    except ValueError:
+        current, target = 5000, 20000
+    growth_needed = target / max(current, 1)
+    research = await _web_search(f"{service} agency growth strategy {current_revenue} to {target_revenue} 2026", 5)
+    stages = []
+    if current < 10000:
+        stages.append({
+            "stage": "Foundation ($0-10k/mo)",
+            "focus": "Get first 3-5 paying clients through direct outreach",
+            "tactics": [
+                "1. Cold email 50 prospects/week with personalized research",
+                "2. Post daily on LinkedIn (thought leadership, not pitches)",
+                "3. Offer free audits to generate qualified conversations",
+                "4. Ask every happy client for 2 referrals",
+                "5. Speak at 1 virtual event/month in your niche",
+            ],
+            "kpis": ["5 discovery calls/week", "30% close rate", "0% client churn"],
+        })
+    if current < 50000:
+        stages.append({
+            "stage": "Scale ($10k-50k/mo)",
+            "focus": "Systematize delivery, build repeatable sales process",
+            "tactics": [
+                "1. Productize your service into 2-3 clear packages",
+                "2. Hire first contractor/VA for delivery ($15-25/hr)",
+                "3. Build case studies with measurable results",
+                "4. Launch paid ads targeting your ICP",
+                "5. Create a referral program (10-15% commission)",
+                "6. Build an email list with weekly newsletter",
+            ],
+            "kpis": ["10 discovery calls/week", "40% close rate", "<5% monthly churn"],
+        })
+    if target > 50000:
+        stages.append({
+            "stage": "Leverage ($50k-100k+/mo)",
+            "focus": "Remove yourself from delivery, build the machine",
+            "tactics": [
+                "1. Hire account managers — you do sales and strategy only",
+                "2. Build SOPs for every deliverable",
+                "3. Launch a signature methodology/framework",
+                "4. Create content engine (podcast, YouTube, or newsletter)",
+                "5. Strategic partnerships with complementary agencies",
+                "6. Consider white-label or licensing model",
+            ],
+            "kpis": ["<10% of time in delivery", "90%+ client retention", "20%+ net margin"],
+        })
+    return json.dumps({
+        "current_revenue": current, "target_revenue": target,
+        "growth_multiple": f"{growth_needed:.1f}x",
+        "growth_stages": stages,
+        "universal_principles": [
+            "Niche down harder — the riches are in the niches",
+            "Raise prices before adding clients",
+            "Referrals are the highest-converting channel (track them)",
+            "Document everything you do — SOPs enable delegation",
+            "Revenue is vanity, profit is sanity, cash flow is king",
+        ],
+        "research": json.loads(research).get("results", [])[:3],
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# EXPANDED LEGAL — IP, Employment, Tax Compliance, Regulatory, Liability
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _research_ip_protection(business_name: str, service: str, state: str = "") -> str:
+    """Research intellectual property protection — trademarks, copyrights, trade secrets."""
+    tm_search = await _web_search(f'"{business_name}" trademark TESS USPTO', 3)
+    return json.dumps({
+        "business_name": business_name,
+        "trademark": {
+            "status": "research_complete",
+            "search_url": f"https://tmsearch.uspto.gov/search/search-information",
+            "search_results": json.loads(tm_search).get("results", [])[:3],
+            "process": [
+                "1. Search USPTO TESS database for conflicts",
+                "2. File trademark application ($250-350 per class via TEAS Plus)",
+                "3. Examination period: 3-4 months",
+                "4. Publication for opposition: 30 days",
+                "5. Registration: ~8-12 months total",
+            ],
+            "classes_likely_needed": [
+                "Class 35: Advertising/marketing services",
+                "Class 42: Computer/technology services",
+            ],
+            "cost": "$250-350/class (TEAS Plus) or $350-450/class (TEAS Standard)",
+            "diy_vs_attorney": "Can file yourself for simple marks; hire attorney for complex or contested marks ($1,000-2,500)",
+        },
+        "copyright": {
+            "automatic": True,
+            "note": "Copyright is automatic upon creation. Registration ($35-65 online) adds enforcement power.",
+            "what_to_register": ["Website content", "Original frameworks/methodologies", "Training materials", "Software code"],
+        },
+        "trade_secrets": {
+            "protect_via": ["NDAs with all contractors and employees", "Confidentiality clauses in client contracts",
+                           "Limit access to proprietary processes", "Document what constitutes trade secrets"],
+        },
+        "domain_protection": {
+            "register_variations": [f"{business_name.lower().replace(' ', '')}.com/net/org/io",
+                                    f"{business_name.lower().replace(' ', '')}.co"],
+            "social_handles": "Claim consistent handles on all platforms immediately",
+        },
+    })
+
+
+async def _employment_law_research(state: str, worker_type: str = "contractor",
+                                      num_workers: str = "0") -> str:
+    """Research employment law requirements — contractor vs employee, compliance."""
+    search_result = await _web_search(f"{state} independent contractor vs employee rules 2026 {worker_type}", 5)
+    return json.dumps({
+        "state": state, "worker_type": worker_type,
+        "contractor_vs_employee": {
+            "irs_test": "Behavioral control, financial control, relationship type",
+            "key_factors": [
+                "Contractors set own hours and use own tools",
+                "Contractors can work for other clients",
+                "Contractors invoice for work, no benefits provided",
+                "Employees have set schedules and provided tools",
+            ],
+            "misclassification_risk": "High fines + back taxes + penalties if misclassified",
+            "safe_harbor": "Use written contractor agreements, 1099 at year end, no benefits",
+        },
+        "contractor_requirements": [
+            "Written Independent Contractor Agreement",
+            "W-9 form before first payment",
+            "1099-NEC if paid $600+ in a year",
+            "No withholding taxes — contractor pays own",
+            "No benefits, no equipment, no set hours",
+        ],
+        "employee_requirements": [
+            "W-4 and I-9 forms",
+            "Payroll withholding (federal, state, FICA)",
+            "Workers compensation insurance",
+            f"State unemployment insurance ({state})",
+            "Compliance with minimum wage and overtime laws",
+            "Required posters and notices",
+        ],
+        "when_to_hire_employees": [
+            "Full-time dedicated team members",
+            "When you need to control how work is done (not just results)",
+            "When worker is integral to business operations",
+            "When you want to offer equity/benefits",
+        ],
+        "payroll_services": [
+            {"name": "Gusto", "cost": "$40/mo + $6/person", "best_for": "Small teams, easy setup"},
+            {"name": "Rippling", "cost": "$8/person/mo", "best_for": "Growing teams, IT + HR"},
+            {"name": "ADP Run", "cost": "From $59/mo", "best_for": "Established businesses"},
+        ],
+        "search_results": json.loads(search_result).get("results", [])[:3],
+    })
+
+
+async def _compliance_checklist(business_type: str, state: str, has_employees: str = "no",
+                                   handles_data: str = "yes") -> str:
+    """Generate comprehensive regulatory compliance checklist."""
+    checklist: list[dict[str, Any]] = [
+        {"category": "Formation", "items": [
+            "Articles of Organization/Incorporation filed with state",
+            "Operating Agreement (LLC) or Bylaws (Corp) in place",
+            "EIN obtained from IRS",
+            "Registered agent designated",
+            "State annual report/franchise tax scheduled",
+        ]},
+        {"category": "Tax Compliance", "items": [
+            "Quarterly estimated tax payments scheduled (1040-ES)",
+            "Bookkeeping system set up (QuickBooks, FreshBooks, Wave)",
+            "Business vs personal expenses separated",
+            "Receipts saved for all deductions",
+            "Sales tax collection if applicable",
+        ]},
+        {"category": "Contracts & Legal", "items": [
+            "Client service agreement template reviewed by attorney",
+            "Independent contractor agreement for all contractors",
+            "NDA template for sensitive work",
+            "Terms of Service for website/platform",
+            "Privacy Policy compliant with applicable laws",
+        ]},
+    ]
+    if handles_data.lower() == "yes":
+        checklist.append({"category": "Data Privacy & Security", "items": [
+            "Privacy Policy on website (GDPR, CCPA, CAN-SPAM compliant)",
+            "Data Processing Agreement (DPA) for client data",
+            "SSL certificate on all web properties",
+            "Password manager for team credentials",
+            "Two-factor auth on all business accounts",
+            "Incident response plan documented",
+            "Client data handling procedures documented",
+        ]})
+    if has_employees.lower() == "yes":
+        checklist.append({"category": "Employment Compliance", "items": [
+            "Workers compensation insurance obtained",
+            "State unemployment insurance registered",
+            "Federal and state labor posters displayed",
+            "Employee handbook created",
+            "I-9 forms completed for all employees",
+            "Payroll system set up with proper withholdings",
+            "Anti-harassment policy in place",
+        ]})
+    checklist.append({"category": "Insurance", "items": [
+        "General liability insurance ($1M minimum)",
+        "Professional liability / E&O insurance",
+        "Cyber liability insurance (if handling client data)",
+        "Business property insurance (if applicable)",
+    ]})
+    checklist.append({"category": "Marketing Compliance", "items": [
+        "CAN-SPAM compliant email practices (unsubscribe link, physical address)",
+        "FTC endorsement guidelines followed (disclose paid partnerships)",
+        "TCPA compliance for calls/texts (consent records)",
+        "Ad platform terms of service followed",
+        "Testimonials are real and not misleading",
+    ]})
+    return json.dumps({
+        "business_type": business_type, "state": state,
+        "compliance_checklist": checklist,
+        "total_items": sum(len(c["items"]) for c in checklist),
+        "critical_deadlines": [
+            "Annual: State annual report/franchise tax",
+            "Quarterly: Estimated tax payments (Apr 15, Jun 15, Sep 15, Jan 15)",
+            "Monthly: Payroll tax deposits (if employees)",
+            "Ongoing: Contractor 1099s by Jan 31",
+        ],
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# WEBSITE BUILDER — Full Multi-Page Site Generation & Deployment
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _build_full_website(business_name: str, service: str, pages: str = "home,about,services,contact",
+                                brand_colors: str = "", brand_fonts: str = "",
+                                cta_text: str = "Book a Call", cta_url: str = "#contact") -> str:
+    """Generate a complete multi-page business website with responsive design and deploy to Vercel."""
+    page_list = [p.strip().lower() for p in pages.split(",")]
+    primary = "#6366f1"
+    secondary = "#1e1b4b"
+    accent = "#f59e0b"
+    if brand_colors:
+        try:
+            colors = json.loads(brand_colors) if brand_colors.startswith("{") else {}
+            primary = colors.get("primary", primary)
+            secondary = colors.get("secondary", secondary)
+            accent = colors.get("accent", accent)
+        except json.JSONDecodeError:
+            if brand_colors.startswith("#"):
+                primary = brand_colors
+
+    display_font = "Inter"
+    body_font = "Inter"
+    if brand_fonts:
+        try:
+            fonts = json.loads(brand_fonts) if brand_fonts.startswith("{") else {}
+            display_font = fonts.get("display", display_font)
+            body_font = fonts.get("body", body_font)
+        except json.JSONDecodeError:
+            pass
+
+    css = f"""/* {business_name} — Generated Styles */
+*{{margin:0;padding:0;box-sizing:border-box}}
+:root{{
+  --primary:{primary};--secondary:{secondary};--accent:{accent};
+  --bg:#ffffff;--bg-alt:#f8fafc;--text:#1e293b;--text-light:#64748b;
+  --radius:12px;--shadow:0 1px 3px rgba(0,0,0,0.1);
+  --font-display:'{display_font}',system-ui,sans-serif;
+  --font-body:'{body_font}',system-ui,sans-serif;
+}}
+@import url('https://fonts.googleapis.com/css2?family={display_font.replace(' ','+')}:wght@400;500;600;700;800&display=swap');
+body{{font-family:var(--font-body);color:var(--text);line-height:1.6;font-size:16px}}
+a{{color:var(--primary);text-decoration:none}}
+img{{max-width:100%;height:auto}}
+.container{{max-width:1200px;margin:0 auto;padding:0 24px}}
+
+/* Navigation */
+nav{{background:var(--bg);border-bottom:1px solid #e2e8f0;position:sticky;top:0;z-index:100;backdrop-filter:blur(12px)}}
+nav .container{{display:flex;justify-content:space-between;align-items:center;height:72px}}
+nav .logo{{font-family:var(--font-display);font-weight:800;font-size:1.5rem;color:var(--secondary)}}
+nav ul{{display:flex;gap:32px;list-style:none}}
+nav a{{color:var(--text);font-weight:500;transition:color 0.2s}}
+nav a:hover{{color:var(--primary)}}
+nav .cta-nav{{background:var(--primary);color:#fff!important;padding:10px 24px;border-radius:var(--radius);font-weight:600}}
+nav .cta-nav:hover{{opacity:0.9}}
+
+/* Hero */
+.hero{{min-height:85vh;display:flex;align-items:center;background:linear-gradient(135deg,{secondary} 0%,{primary} 100%);color:#fff;text-align:center}}
+.hero h1{{font-family:var(--font-display);font-size:clamp(2.5rem,5vw,4rem);font-weight:800;max-width:800px;margin:0 auto 1.5rem;line-height:1.1}}
+.hero p{{font-size:1.25rem;max-width:600px;margin:0 auto 2rem;opacity:0.9}}
+.btn{{display:inline-block;padding:14px 32px;border-radius:var(--radius);font-weight:700;font-size:1rem;transition:all 0.2s;cursor:pointer;border:none}}
+.btn-primary{{background:var(--accent);color:var(--secondary)}}
+.btn-primary:hover{{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.2)}}
+.btn-secondary{{background:rgba(255,255,255,0.15);color:#fff;border:2px solid rgba(255,255,255,0.3)}}
+.btn-secondary:hover{{background:rgba(255,255,255,0.25)}}
+
+/* Sections */
+section{{padding:96px 0}}
+section:nth-child(even){{background:var(--bg-alt)}}
+.section-header{{text-align:center;margin-bottom:64px}}
+.section-header h2{{font-family:var(--font-display);font-size:2.5rem;font-weight:800;color:var(--secondary);margin-bottom:16px}}
+.section-header p{{font-size:1.125rem;color:var(--text-light);max-width:600px;margin:0 auto}}
+
+/* Grid */
+.grid{{display:grid;gap:32px}}
+.grid-2{{grid-template-columns:repeat(auto-fit,minmax(400px,1fr))}}
+.grid-3{{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}}
+.grid-4{{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}}
+
+/* Cards */
+.card{{background:var(--bg);border:1px solid #e2e8f0;border-radius:var(--radius);padding:32px;transition:all 0.2s}}
+.card:hover{{box-shadow:0 8px 24px rgba(0,0,0,0.08);transform:translateY(-4px)}}
+.card h3{{font-size:1.25rem;font-weight:700;margin-bottom:12px;color:var(--secondary)}}
+.card p{{color:var(--text-light)}}
+.card .icon{{font-size:2rem;margin-bottom:16px}}
+
+/* Contact */
+.contact-form{{max-width:600px;margin:0 auto}}
+.contact-form input,.contact-form textarea,.contact-form select{{width:100%;padding:14px 16px;border:1px solid #e2e8f0;border-radius:8px;font-size:1rem;margin-bottom:16px;font-family:inherit}}
+.contact-form textarea{{min-height:150px;resize:vertical}}
+.contact-form button{{width:100%}}
+
+/* Footer */
+footer{{background:var(--secondary);color:rgba(255,255,255,0.7);padding:48px 0 24px}}
+footer .container{{display:flex;justify-content:space-between;flex-wrap:wrap;gap:24px}}
+footer h4{{color:#fff;margin-bottom:12px}}
+footer a{{color:rgba(255,255,255,0.7)}}footer a:hover{{color:#fff}}
+footer .bottom{{border-top:1px solid rgba(255,255,255,0.1);margin-top:32px;padding-top:24px;text-align:center;font-size:0.875rem}}
+
+/* Mobile */
+@media(max-width:768px){{
+  nav ul{{display:none}}
+  .hero h1{{font-size:2rem}}
+  .grid-2,.grid-3,.grid-4{{grid-template-columns:1fr}}
+  section{{padding:64px 0}}
+}}"""
+
+    nav_links = []
+    for p in page_list:
+        label = p.replace("-", " ").replace("_", " ").title()
+        href = f"{p}.html" if p != "home" else "index.html"
+        nav_links.append(f'<li><a href="{href}">{label}</a></li>')
+    nav_html = f"""<nav><div class="container">
+<a href="index.html" class="logo">{business_name}</a>
+<ul>{" ".join(nav_links)}</ul>
+<a href="{cta_url}" class="cta-nav">{cta_text}</a>
+</div></nav>"""
+
+    footer_html = f"""<footer><div class="container">
+<div><h4>{business_name}</h4><p>Professional {service.lower()} that delivers results.</p></div>
+<div><h4>Quick Links</h4>{''.join(f'<p><a href="{p}.html" >{p.title()}</a></p>' for p in page_list if p != "home")}</div>
+<div><h4>Contact</h4><p>Email: hello@{business_name.lower().replace(' ','')}.com</p></div>
+<div class="bottom"><p>&copy; 2026 {business_name}. All rights reserved.</p></div>
+</div></footer>"""
+
+    def _make_page(title: str, body: str) -> str:
+        return f"""<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title} — {business_name}</title>
+<meta name="description" content="{business_name} — Professional {service}">
+<link rel="stylesheet" href="styles.css">
+</head><body>{nav_html}{body}{footer_html}</body></html>"""
+
+    files = [{"file": "styles.css", "data": css}]
+
+    if "home" in page_list or "index" in page_list:
+        home_body = f"""
+<section class="hero"><div class="container">
+<h1>We Help Businesses Grow With Expert {service}</h1>
+<p>Results-driven {service.lower()} for companies that demand excellence. No fluff, no excuses — just outcomes.</p>
+<a href="{cta_url}" class="btn btn-primary">{cta_text}</a>
+<a href="services.html" class="btn btn-secondary" style="margin-left:12px">Our Services</a>
+</div></section>
+<section><div class="container">
+<div class="section-header"><h2>Why Choose {business_name}</h2><p>We combine deep expertise with proven systems to deliver measurable results.</p></div>
+<div class="grid grid-3">
+<div class="card"><div class="icon">&#9733;</div><h3>Proven Results</h3><p>Track record of delivering measurable outcomes for every client.</p></div>
+<div class="card"><div class="icon">&#9881;</div><h3>Systematic Approach</h3><p>Battle-tested frameworks that remove guesswork and accelerate growth.</p></div>
+<div class="card"><div class="icon">&#9829;</div><h3>Dedicated Partnership</h3><p>We become an extension of your team, not just another vendor.</p></div>
+</div></div></section>
+<section><div class="container" style="text-align:center">
+<h2>Ready to Get Started?</h2><p style="margin:16px auto 32px;max-width:500px;color:var(--text-light)">Book a free strategy call and let's discuss how we can help grow your business.</p>
+<a href="{cta_url}" class="btn btn-primary">{cta_text}</a>
+</div></section>"""
+        files.append({"file": "index.html", "data": _make_page("Home", home_body)})
+
+    if "about" in page_list:
+        about_body = f"""
+<section style="padding-top:120px"><div class="container">
+<div class="section-header"><h2>About {business_name}</h2><p>The story behind our mission to transform how businesses grow.</p></div>
+<div class="grid grid-2" style="align-items:center">
+<div><h3 style="font-size:1.5rem;margin-bottom:16px">Built on Expertise, Driven by Results</h3>
+<p style="margin-bottom:16px">We started {business_name} because we saw too many businesses wasting money on {service.lower()} that didn't deliver. Our approach is different — we combine deep industry expertise with data-driven strategies that actually move the needle.</p>
+<p>Every engagement starts with understanding your business, your market, and your goals. Then we build a custom strategy designed to deliver measurable results.</p></div>
+<div class="card" style="background:var(--bg-alt)"><h3>Our Values</h3>
+<p style="margin-bottom:12px"><strong>Transparency</strong> — No hidden fees, no vanity metrics. You see exactly what we do and why.</p>
+<p style="margin-bottom:12px"><strong>Accountability</strong> — We tie our success to your outcomes, not our hours.</p>
+<p><strong>Excellence</strong> — Good enough isn't in our vocabulary. We push for exceptional.</p></div>
+</div></div></section>"""
+        files.append({"file": "about.html", "data": _make_page("About", about_body)})
+
+    if "services" in page_list:
+        services_body = f"""
+<section style="padding-top:120px"><div class="container">
+<div class="section-header"><h2>Our Services</h2><p>Comprehensive {service.lower()} solutions tailored to your business goals.</p></div>
+<div class="grid grid-2">
+<div class="card"><h3>Strategy & Planning</h3><p>Deep-dive market research, competitive analysis, and custom roadmaps that align with your business objectives.</p></div>
+<div class="card"><h3>Execution & Implementation</h3><p>We don't just plan — we execute. Full implementation of strategies with measurable milestones.</p></div>
+<div class="card"><h3>Optimization & Growth</h3><p>Continuous improvement through data analysis, A/B testing, and performance optimization.</p></div>
+<div class="card"><h3>Reporting & Analytics</h3><p>Transparent reporting with actionable insights. Know exactly what's working and what's next.</p></div>
+</div></div></section>
+<section><div class="container" style="text-align:center">
+<h2>Let's Talk About Your Goals</h2><p style="margin:16px auto 32px;max-width:500px;color:var(--text-light)">Every business is different. Let's find the right approach for yours.</p>
+<a href="{cta_url}" class="btn btn-primary">{cta_text}</a>
+</div></section>"""
+        files.append({"file": "services.html", "data": _make_page("Services", services_body)})
+
+    if "contact" in page_list:
+        contact_body = f"""
+<section style="padding-top:120px"><div class="container">
+<div class="section-header"><h2>Get in Touch</h2><p>Ready to grow? Let's start a conversation.</p></div>
+<div class="contact-form" id="contact">
+<form action="https://formspree.io/f/YOUR_FORM_ID" method="POST">
+<input type="text" name="name" placeholder="Your Name" required>
+<input type="email" name="email" placeholder="Your Email" required>
+<input type="text" name="company" placeholder="Company Name">
+<select name="budget"><option value="">Budget Range</option><option>$1,000-$3,000/mo</option><option>$3,000-$5,000/mo</option><option>$5,000-$10,000/mo</option><option>$10,000+/mo</option></select>
+<textarea name="message" placeholder="Tell us about your project and goals..." required></textarea>
+<button type="submit" class="btn btn-primary">{cta_text}</button>
+</form></div></div></section>"""
+        files.append({"file": "contact.html", "data": _make_page("Contact", contact_body)})
+
+    for p in page_list:
+        if p not in ("home", "index", "about", "services", "contact"):
+            generic_body = f"""
+<section style="padding-top:120px"><div class="container">
+<div class="section-header"><h2>{p.replace('-',' ').replace('_',' ').title()}</h2><p>Content for this page.</p></div>
+</div></section>"""
+            files.append({"file": f"{p}.html", "data": _make_page(p.title(), generic_body)})
+
+    result: dict[str, Any] = {
+        "pages_generated": len(files) - 1,
+        "files": [f["file"] for f in files],
+        "features": ["Responsive design", "Mobile-first", "SEO meta tags", "Contact form",
+                      "Sticky navigation", "Custom brand colors", "Google Fonts", "CSS Grid layout"],
+    }
+
+    token = getattr(settings, 'vercel_token', '') or ""
+    if token:
+        deploy_result = await _deploy_to_vercel(
+            project_name=re.sub(r'[^a-z0-9-]', '', business_name.lower().replace(' ', '-'))[:40],
+            files=json.dumps(files))
+        deploy_data = json.loads(deploy_result)
+        result["deployed_url"] = deploy_data.get("url", "")
+        result["deployment_id"] = deploy_data.get("deployment_id", "")
+        result["status"] = "deployed"
+    else:
+        result["status"] = "generated"
+        result["note"] = "Set VERCEL_TOKEN to auto-deploy. Files ready for manual deployment."
+    return json.dumps(result)
+
+
+async def _generate_page(page_type: str, business_name: str, content: str,
+                           brand_colors: str = "", style: str = "modern") -> str:
+    """Generate a single page with specific content — pricing, case studies, FAQ, blog, etc."""
+    primary = "#6366f1"
+    if brand_colors:
+        try:
+            colors = json.loads(brand_colors) if brand_colors.startswith("{") else {}
+            primary = colors.get("primary", primary)
+        except json.JSONDecodeError:
+            if brand_colors.startswith("#"):
+                primary = brand_colors
+    templates: dict[str, str] = {
+        "pricing": f"""<section style="padding:120px 0 96px"><div style="max-width:1200px;margin:0 auto;padding:0 24px;text-align:center">
+<h2 style="font-size:2.5rem;font-weight:800;margin-bottom:16px">Simple, Transparent Pricing</h2>
+<p style="color:#64748b;margin-bottom:48px">No hidden fees. No long-term contracts. Cancel anytime.</p>
+{content}
+</div></section>""",
+        "case_study": f"""<section style="padding:120px 0 96px"><div style="max-width:800px;margin:0 auto;padding:0 24px">
+<h2 style="font-size:2.5rem;font-weight:800;margin-bottom:32px">Case Study</h2>
+{content}
+</div></section>""",
+        "faq": f"""<section style="padding:120px 0 96px"><div style="max-width:800px;margin:0 auto;padding:0 24px">
+<h2 style="font-size:2.5rem;font-weight:800;text-align:center;margin-bottom:48px">Frequently Asked Questions</h2>
+{content}
+</div></section>""",
+        "blog": f"""<section style="padding:120px 0 96px"><div style="max-width:800px;margin:0 auto;padding:0 24px">
+{content}
+</div></section>""",
+    }
+    body = templates.get(page_type, f"<section style='padding:120px 0 96px'><div style='max-width:1200px;margin:0 auto;padding:0 24px'>{content}</div></section>")
+    html = f"""<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{page_type.title()} — {business_name}</title>
+<link rel="stylesheet" href="styles.css">
+</head><body>{body}</body></html>"""
+    return json.dumps({"page_type": page_type, "html_length": len(html),
+                       "html": html[:5000], "generated": True})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # REGISTER ALL TOOLS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2754,6 +3669,120 @@ def register_all_tools():
         [ToolParameter(name="agent_id", description="Agent ID"),
          ToolParameter(name="campaign_id", description="Campaign ID")],
         _get_agent_performance_history, "supervisor")
+
+    # ── Business Formation Tools ──
+    registry.register("research_entity_types", "Compare LLC vs S-Corp vs C-Corp for a specific state and business type.",
+        [ToolParameter(name="state", description="State of formation"),
+         ToolParameter(name="business_type", description="Type of business (agency, SaaS, consulting)", required=False)],
+        _research_entity_types, "formation")
+
+    registry.register("file_business_entity", "Initiate business entity formation (LLC/Corp) via filing service or manual guide.",
+        [ToolParameter(name="entity_type", description="Entity type: llc, s_corp, c_corp"),
+         ToolParameter(name="state", description="State of formation"),
+         ToolParameter(name="business_name", description="Legal business name"),
+         ToolParameter(name="registered_agent", description="Registered agent service name", required=False),
+         ToolParameter(name="members", description="Comma-separated member names", required=False)],
+        _file_business_entity, "formation")
+
+    registry.register("apply_for_ein", "Guide through IRS EIN application process.",
+        [], _apply_for_ein, "formation")
+
+    registry.register("research_registered_agents", "Compare registered agent services for a state.",
+        [ToolParameter(name="state", description="State to find agents for")],
+        _research_registered_agents, "formation")
+
+    registry.register("research_business_banking", "Compare business bank accounts and requirements.",
+        [ToolParameter(name="business_type", description="Type of business", required=False),
+         ToolParameter(name="state", description="State", required=False)],
+        _research_business_banking, "formation")
+
+    registry.register("research_business_insurance", "Research required and recommended business insurance.",
+        [ToolParameter(name="business_type", description="Type of business"),
+         ToolParameter(name="state", description="State", required=False),
+         ToolParameter(name="revenue_estimate", description="Estimated annual revenue", required=False)],
+        _research_business_insurance, "formation")
+
+    registry.register("research_business_licenses", "Research required business licenses and permits.",
+        [ToolParameter(name="business_type", description="Type of business"),
+         ToolParameter(name="state", description="State"),
+         ToolParameter(name="city", description="City", required=False)],
+        _research_business_licenses, "formation")
+
+    # ── Business Advisor Tools ──
+    registry.register("build_financial_model", "Build a 12-month financial projection model.",
+        [ToolParameter(name="service", description="Service/product offered"),
+         ToolParameter(name="pricing_model", description="Pricing model: retainer, project, hourly, productized"),
+         ToolParameter(name="price_point", description="Price point (e.g. $2000/mo)"),
+         ToolParameter(name="target_clients", description="Target number of clients"),
+         ToolParameter(name="monthly_expenses", description="Monthly operating expenses", required=False)],
+        _build_financial_model, "advisor")
+
+    registry.register("tax_strategy_research", "Research tax optimization strategies for the business.",
+        [ToolParameter(name="entity_type", description="Entity type: llc, s_corp, c_corp, sole_prop"),
+         ToolParameter(name="estimated_revenue", description="Estimated annual revenue"),
+         ToolParameter(name="state", description="State of operation"),
+         ToolParameter(name="filing_status", description="Tax filing status: single, married_joint, married_separate", required=False)],
+        _tax_strategy_research, "advisor")
+
+    registry.register("pricing_strategy", "Develop pricing strategy with market research and psychology.",
+        [ToolParameter(name="service", description="Service being priced"),
+         ToolParameter(name="icp", description="Ideal customer profile"),
+         ToolParameter(name="competitors", description="Known competitors", required=False),
+         ToolParameter(name="current_price", description="Current price if any", required=False)],
+        _pricing_strategy, "advisor")
+
+    registry.register("cash_flow_analysis", "Analyze cash flow health and provide recommendations.",
+        [ToolParameter(name="monthly_revenue", description="Monthly revenue"),
+         ToolParameter(name="monthly_expenses", description="Monthly expenses"),
+         ToolParameter(name="payment_terms", description="Payment terms: net_15, net_30, upfront", required=False),
+         ToolParameter(name="runway_months", description="Cash reserves in months of expenses", required=False)],
+        _cash_flow_analysis, "advisor")
+
+    registry.register("growth_playbook", "Build a stage-appropriate growth strategy playbook.",
+        [ToolParameter(name="current_revenue", description="Current monthly revenue"),
+         ToolParameter(name="target_revenue", description="Target monthly revenue"),
+         ToolParameter(name="service", description="Service/product offered"),
+         ToolParameter(name="channels", description="Current marketing channels", required=False)],
+        _growth_playbook, "advisor")
+
+    # ── Expanded Legal Tools ──
+    registry.register("research_ip_protection", "Research IP protection — trademarks, copyrights, trade secrets.",
+        [ToolParameter(name="business_name", description="Business name to protect"),
+         ToolParameter(name="service", description="Type of service/product"),
+         ToolParameter(name="state", description="State of operation", required=False)],
+        _research_ip_protection, "legal")
+
+    registry.register("employment_law_research", "Research employment law — contractor vs employee, compliance.",
+        [ToolParameter(name="state", description="State of operation"),
+         ToolParameter(name="worker_type", description="Worker type: contractor, employee, both", required=False),
+         ToolParameter(name="num_workers", description="Number of workers", required=False)],
+        _employment_law_research, "legal")
+
+    registry.register("compliance_checklist", "Generate comprehensive regulatory compliance checklist.",
+        [ToolParameter(name="business_type", description="Type of business"),
+         ToolParameter(name="state", description="State of operation"),
+         ToolParameter(name="has_employees", description="Has employees: yes or no", required=False),
+         ToolParameter(name="handles_data", description="Handles client data: yes or no", required=False)],
+        _compliance_checklist, "legal")
+
+    # ── Website Builder Tools ──
+    registry.register("build_full_website", "Generate a complete multi-page business website with responsive design and deploy.",
+        [ToolParameter(name="business_name", description="Business name"),
+         ToolParameter(name="service", description="Service/product description"),
+         ToolParameter(name="pages", description="Comma-separated pages: home,about,services,contact,pricing,faq,blog", required=False),
+         ToolParameter(name="brand_colors", description="JSON: {primary, secondary, accent} hex colors", required=False),
+         ToolParameter(name="brand_fonts", description="JSON: {display, body} Google Font names", required=False),
+         ToolParameter(name="cta_text", description="Call-to-action button text", required=False),
+         ToolParameter(name="cta_url", description="CTA link URL", required=False)],
+        _build_full_website, "website")
+
+    registry.register("generate_page", "Generate a single page — pricing, case study, FAQ, blog post, etc.",
+        [ToolParameter(name="page_type", description="Page type: pricing, case_study, faq, blog, landing"),
+         ToolParameter(name="business_name", description="Business name"),
+         ToolParameter(name="content", description="HTML content for the page body"),
+         ToolParameter(name="brand_colors", description="JSON or hex color", required=False),
+         ToolParameter(name="style", description="Visual style: modern, bold, minimal", required=False)],
+        _generate_page, "website")
 
 
 register_all_tools()
