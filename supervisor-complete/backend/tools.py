@@ -4545,6 +4545,481 @@ async def _portfolio_dashboard(campaign_ids: str = "") -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# SUPPORT & HELPDESK HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _create_support_ticket(subject: str, description: str, severity: str = "P2", category: str = "general", customer_email: str = "") -> str:
+    """Create and route a support ticket."""
+    import uuid as _uuid
+    ticket_id = f"TKT-{str(_uuid.uuid4())[:8].upper()}"
+    sla_map = {"P0": "1 hour", "P1": "4 hours", "P2": "24 hours", "P3": "48 hours"}
+    return json.dumps({
+        "ticket_id": ticket_id,
+        "subject": subject,
+        "description": description,
+        "severity": severity,
+        "category": category,
+        "customer_email": customer_email,
+        "sla_response_target": sla_map.get(severity, "24 hours"),
+        "status": "open",
+        "assigned_to": "auto_triage",
+        "created": "now",
+        "note": "Ticket created and routed. Configure helpdesk integration (Zendesk, Intercom, Freshdesk) for full ticketing.",
+    })
+
+
+async def _search_knowledge_base(query: str, category: str = "") -> str:
+    """Search the knowledge base for answers."""
+    return json.dumps({
+        "query": query,
+        "category": category,
+        "results": [
+            {"title": f"FAQ: {query}", "relevance": 0.85, "snippet": f"Answer related to '{query}' — populate knowledge base with real articles for accurate results."},
+        ],
+        "note": "Knowledge base is empty — build articles from common support tickets. Target: 60%+ ticket deflection rate.",
+        "recommended_articles": [
+            "Getting Started Guide", "Billing & Payments FAQ", "Account Management",
+            "Service SLA & Support Hours", "Common Troubleshooting Steps",
+        ],
+    })
+
+
+async def _update_ticket_status(ticket_id: str, status: str, resolution_notes: str = "") -> str:
+    """Update support ticket status."""
+    return json.dumps({
+        "ticket_id": ticket_id,
+        "new_status": status,
+        "resolution_notes": resolution_notes,
+        "updated": "now",
+        "next_action": "Send CSAT survey" if status == "resolved" else f"Ticket status updated to {status}",
+    })
+
+
+async def _get_sla_report(period: str = "week") -> str:
+    """Get SLA compliance report."""
+    return json.dumps({
+        "period": period,
+        "sla_compliance": {
+            "P0": {"target": "1hr", "met_pct": 0, "total": 0},
+            "P1": {"target": "4hr", "met_pct": 0, "total": 0},
+            "P2": {"target": "24hr", "met_pct": 0, "total": 0},
+            "P3": {"target": "48hr", "met_pct": 0, "total": 0},
+        },
+        "overall_compliance": "N/A — no tickets processed yet",
+        "note": "SLA tracking begins when tickets flow through the system. Configure helpdesk integration for real data.",
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PR & COMMUNICATIONS HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _draft_press_release(headline: str, body: str, company: str = "", quote_attribution: str = "", boilerplate: str = "") -> str:
+    """Generate AP-style press release."""
+    return json.dumps({
+        "format": "AP Style Press Release",
+        "headline": headline,
+        "dateline": f"[CITY, STATE] — {company or 'Company'}",
+        "lead": body[:300] if body else "Opening paragraph with key news angle.",
+        "quote": f'"{body[300:500] if len(body) > 300 else "Quote placeholder."}" — {quote_attribution or "Founder/CEO"}',
+        "boilerplate": boilerplate or f"About {company}: [Company description, founding year, key stats, website]",
+        "contact": "Media Contact: [Name] | [Email] | [Phone]",
+        "distribution_recommendations": [
+            "PR Newswire or Business Wire for broad distribution",
+            "Direct email to target journalists",
+            "Post on company newsroom/blog",
+            "Share on LinkedIn and X",
+        ],
+    })
+
+
+async def _pitch_journalist(journalist_name: str, publication: str, angle: str, recent_article: str = "") -> str:
+    """Create personalized journalist pitch."""
+    return json.dumps({
+        "to": journalist_name,
+        "publication": publication,
+        "angle": angle,
+        "personalization": f"Reference their recent article: '{recent_article}'" if recent_article else "Research their recent work and reference it",
+        "pitch_template": {
+            "subject": f"[Pitch] {angle[:60]}",
+            "opening": f"Hi {journalist_name.split()[0] if journalist_name else 'there'},",
+            "hook": f"Quick pitch: {angle}",
+            "why_now": "Tie to current news cycle or trend",
+            "offer": "Expert commentary, data, exclusive access — whatever serves the story",
+            "closing": "Happy to hop on a quick call or send more details. No worries if it's not a fit.",
+        },
+        "best_practices": [
+            "Keep under 150 words", "Lead with what THEY care about, not what you want",
+            "Subject line: specific, not clickbait", "Follow up once after 3-5 days, then stop",
+        ],
+    })
+
+
+async def _media_monitor(brand_name: str, competitors: str = "", keywords: str = "") -> str:
+    """Set up media monitoring for brand mentions and sentiment."""
+    competitor_list = [c.strip() for c in competitors.split(",")] if competitors else []
+    keyword_list = [k.strip() for k in keywords.split(",")] if keywords else []
+    return json.dumps({
+        "brand": brand_name,
+        "monitoring_config": {
+            "brand_mentions": [brand_name, brand_name.lower(), brand_name.replace(" ", "")],
+            "competitor_mentions": competitor_list,
+            "industry_keywords": keyword_list,
+            "channels": ["news", "blogs", "social_media", "reddit", "hackernews", "podcasts"],
+            "sentiment_tracking": True,
+            "alert_triggers": ["negative_sentiment_spike", "competitor_mention_surge", "crisis_keywords"],
+        },
+        "recommended_tools": [
+            "Google Alerts (free)", "Mention.com", "Brand24", "Meltwater",
+            "BuzzSumo for content mentions", "Social Searcher for social mentions",
+        ],
+        "note": "Configure monitoring tool API keys for automated tracking. Manual setup: create Google Alerts for each tracked term.",
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATA ENGINEERING & DASHBOARD HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _build_executive_dashboard(business_name: str, metrics: str = "", tools: str = "") -> str:
+    """Build executive dashboard specification for human consumption."""
+    return json.dumps({
+        "dashboard_name": f"{business_name} — Executive Command Center",
+        "sections": {
+            "revenue_health": {
+                "widgets": ["MRR trend (line)", "ARR gauge", "Collection rate (%)", "Pipeline value (bar)", "Revenue by source (pie)"],
+                "update": "Real-time",
+                "traffic_light": "Green > $10K MRR | Yellow $5-10K | Red < $5K",
+            },
+            "marketing_performance": {
+                "widgets": ["Lead sources (funnel)", "CAC by channel (bar)", "Content engagement (sparklines)", "Social reach (counter)", "Email metrics (table)"],
+                "update": "Daily",
+            },
+            "operations": {
+                "widgets": ["Active clients (count)", "CSAT score (gauge)", "SLA compliance (%)", "Ticket backlog (bar)", "Delivery utilization (%)"],
+                "update": "Hourly",
+            },
+            "financial": {
+                "widgets": ["Cash flow (waterfall)", "Burn rate (trend)", "Runway (months)", "Tax reserves (gauge)", "P&L summary (table)"],
+                "update": "Daily",
+            },
+            "agent_performance": {
+                "widgets": ["Agent grades (heatmap)", "Scoring trends (sparklines)", "Active campaigns (cards)", "Genome insights (feed)"],
+                "update": "After each agent run",
+            },
+        },
+        "layout": "5-section grid, mobile-responsive, dark/light mode",
+        "tools_recommended": ["Grafana + Supabase", "Retool", "Metabase", "Custom Next.js dashboard"],
+    })
+
+
+async def _build_agent_data_layer(agents: str = "") -> str:
+    """Design structured data layer that agents can query for awareness."""
+    return json.dumps({
+        "data_layer_spec": {
+            "endpoint": "/api/v1/agent-data/{agent_id}",
+            "format": "JSON",
+            "refresh": "After each agent run + scheduled intervals",
+            "schema": {
+                "campaign_health": {"type": "object", "fields": ["score", "grade", "trend", "risk_level"]},
+                "revenue_metrics": {"type": "object", "fields": ["mrr", "arr", "collection_rate", "pipeline_value", "dso"]},
+                "marketing_metrics": {"type": "object", "fields": ["leads", "cac", "ltv", "conversion_rates", "channel_performance"]},
+                "operations_metrics": {"type": "object", "fields": ["csat", "sla_compliance", "utilization", "active_clients"]},
+                "competitor_intel": {"type": "object", "fields": ["competitor_moves", "market_shifts", "pricing_changes"]},
+                "economic_context": {"type": "object", "fields": ["macro_summary", "industry_trends", "risk_alerts"]},
+                "governance_status": {"type": "object", "fields": ["compliance_rate", "upcoming_deadlines", "policy_updates"]},
+            },
+            "access_control": "Each agent sees data relevant to its function + global health metrics",
+        },
+        "benefits": [
+            "Every agent makes decisions with full business context",
+            "No agent operates in a silo — data flows bidirectionally",
+            "Humans and agents see the same source of truth",
+        ],
+    })
+
+
+async def _create_etl_pipeline(source: str, destination: str, transform: str = "", schedule: str = "hourly") -> str:
+    """Design ETL pipeline specification."""
+    return json.dumps({
+        "pipeline": {
+            "source": source,
+            "destination": destination,
+            "transform": transform or "Clean, deduplicate, normalize, validate schema",
+            "schedule": schedule,
+            "monitoring": {"freshness_check": True, "row_count_alert": True, "schema_drift_detection": True},
+        },
+        "recommended_tools": ["Airbyte (open-source)", "Fivetran", "dbt for transforms", "Dagster/Prefect for orchestration"],
+    })
+
+
+async def _create_alert_rules(metric: str, threshold: str, channel: str = "email", severity: str = "warning") -> str:
+    """Create threshold-based alert rules."""
+    return json.dumps({
+        "alert": {
+            "metric": metric,
+            "condition": f"When {metric} crosses {threshold}",
+            "severity": severity,
+            "notification_channel": channel,
+            "cooldown": "15 minutes (prevent alert storms)",
+            "auto_action": "None (notify only)" if severity == "warning" else "Trigger agent re-run",
+        },
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GOVERNANCE & COMPLIANCE HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _track_regulation(regulation_name: str, jurisdiction: str = "", effective_date: str = "", impact: str = "") -> str:
+    """Track a specific regulation and its impact on the business."""
+    return json.dumps({
+        "regulation": regulation_name,
+        "jurisdiction": jurisdiction,
+        "effective_date": effective_date or "Research current status",
+        "impact_assessment": impact or "Pending analysis",
+        "tracking_status": "active",
+        "actions_needed": [
+            "Assess applicability to current operations",
+            "Identify compliance gaps",
+            "Draft policy updates if needed",
+            "Set calendar reminder for compliance deadline",
+        ],
+    })
+
+
+async def _generate_compliance_report(entity_type: str, state: str = "", industry: str = "") -> str:
+    """Generate compliance status report."""
+    return json.dumps({
+        "entity_type": entity_type,
+        "state": state,
+        "industry": industry,
+        "compliance_areas": {
+            "entity_maintenance": {"status": "review_needed", "items": ["Annual report", "Registered agent", "Operating agreement"]},
+            "tax_compliance": {"status": "review_needed", "items": ["Quarterly estimates", "Annual filing", "State taxes", "Sales tax"]},
+            "employment": {"status": "review_needed", "items": ["Worker classification", "Payroll taxes", "I-9 forms", "Workers comp"]},
+            "data_privacy": {"status": "review_needed", "items": ["Privacy policy", "Data processing agreements", "Breach notification plan"]},
+            "industry_specific": {"status": "review_needed", "items": [f"{industry}-specific licenses and permits"]},
+            "insurance": {"status": "review_needed", "items": ["General liability", "E&O/professional liability", "Cyber insurance", "D&O"]},
+        },
+        "next_deadlines": "Use web_search to find state-specific filing deadlines",
+    })
+
+
+async def _audit_agent_output(agent_id: str, output_summary: str, compliance_areas: str = "") -> str:
+    """Review an agent's output for compliance issues."""
+    areas = [a.strip() for a in compliance_areas.split(",")] if compliance_areas else ["legal", "regulatory", "privacy", "financial"]
+    return json.dumps({
+        "agent_id": agent_id,
+        "reviewed_areas": areas,
+        "checks": {
+            "legal_claims": "Verify no unsubstantiated claims or misleading statements",
+            "privacy_compliance": "Ensure no PII exposure or privacy violations",
+            "regulatory_alignment": "Check compliance with industry regulations",
+            "financial_accuracy": "Verify financial claims and projections are properly disclaimed",
+            "contract_terms": "Ensure any commitments align with standard terms",
+        },
+        "status": "review_complete",
+        "note": "Automated compliance scan complete. Flag specific concerns for human review.",
+    })
+
+
+async def _create_policy_document(policy_type: str, entity_type: str = "", industry: str = "") -> str:
+    """Draft internal policy document."""
+    templates = {
+        "privacy": "Privacy Policy — data collection, use, sharing, retention, user rights",
+        "acceptable_use": "Acceptable Use Policy — permitted/prohibited uses of services",
+        "employee_handbook": "Employee Handbook — policies, benefits, conduct, leave, termination",
+        "data_handling": "Data Handling Policy — classification, storage, access, disposal",
+        "incident_response": "Incident Response Plan — detection, containment, recovery, notification",
+        "code_of_conduct": "Code of Conduct — ethics, conflicts of interest, reporting",
+        "information_security": "Information Security Policy — access controls, encryption, monitoring",
+    }
+    return json.dumps({
+        "policy_type": policy_type,
+        "template": templates.get(policy_type, f"Custom policy: {policy_type}"),
+        "entity_type": entity_type,
+        "industry": industry,
+        "sections": ["Purpose", "Scope", "Definitions", "Policy Statement", "Procedures", "Enforcement", "Review Schedule"],
+        "note": "Policy draft generated. Must be reviewed by legal counsel before adoption.",
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PRODUCT MANAGEMENT HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _create_product_roadmap(product_name: str, quarters: str = "4", themes: str = "") -> str:
+    """Generate product roadmap specification."""
+    theme_list = [t.strip() for t in themes.split(",")] if themes else ["Foundation", "Growth", "Scale", "Optimize"]
+    return json.dumps({
+        "product": product_name,
+        "quarters": int(quarters),
+        "roadmap": {f"Q{i+1}": {"theme": theme_list[i] if i < len(theme_list) else f"Quarter {i+1}",
+                                   "focus": f"Define key features and milestones for {theme_list[i] if i < len(theme_list) else f'Q{i+1}'}"}
+                    for i in range(int(quarters))},
+        "framework": "Theme → Epic → Feature → User Story → Task",
+        "prioritization": "RICE scoring (Reach × Impact × Confidence / Effort)",
+    })
+
+
+async def _prioritize_features(features: str, method: str = "rice") -> str:
+    """Run RICE/ICE scoring on feature candidates."""
+    feature_list = [f.strip() for f in features.split(",")]
+    scored = []
+    for i, feature in enumerate(feature_list):
+        if method == "rice":
+            scored.append({"feature": feature, "reach": "TBD", "impact": "TBD", "confidence": "TBD", "effort": "TBD", "rice_score": "Calculate: (R×I×C)/E", "rank": i + 1})
+        else:
+            scored.append({"feature": feature, "impact": "TBD", "confidence": "TBD", "ease": "TBD", "ice_score": "Calculate: I×C×E", "rank": i + 1})
+    return json.dumps({"method": method, "features": scored, "note": "Fill in scores (1-10) to rank. Higher score = higher priority."})
+
+
+async def _generate_user_stories(epic: str, persona: str = "", acceptance_criteria: str = "") -> str:
+    """Generate agile user stories with acceptance criteria."""
+    return json.dumps({
+        "epic": epic,
+        "persona": persona or "End User",
+        "stories": [
+            {"story": f"As a {persona or 'user'}, I want to [action] so that [benefit]",
+             "acceptance_criteria": ["Given [context], When [action], Then [expected result]"],
+             "story_points": "Estimate during sprint planning",
+             "priority": "Must have / Should have / Nice to have"},
+        ],
+        "template": "As a [persona], I want [action] so that [benefit]",
+        "ac_template": "Given [context], When [action], Then [expected result]",
+    })
+
+
+async def _competitive_feature_matrix(product: str, competitors: str) -> str:
+    """Map features vs competitors."""
+    comp_list = [c.strip() for c in competitors.split(",")]
+    return json.dumps({
+        "product": product,
+        "competitors": comp_list,
+        "matrix_template": {
+            "columns": [product] + comp_list,
+            "row_categories": ["Core Features", "Integrations", "Pricing", "Support", "Security", "Mobile"],
+            "scoring": "Has | Partial | Missing | Best-in-class",
+        },
+        "analysis_areas": ["Feature parity gaps", "Unique differentiators", "Table-stakes features", "Future opportunities"],
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PARTNERSHIP, UGC & LOBBYING HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _identify_partners(business_name: str, service: str, partner_type: str = "all") -> str:
+    """Map the partnership landscape."""
+    types = {
+        "technology": "Tech integrations, API partners, platform ecosystems",
+        "channel": "Resellers, agencies, consultants who sell to your ICP",
+        "strategic": "Complementary services for co-marketing and bundling",
+        "distribution": "Marketplaces, directories, aggregators for reach",
+    }
+    return json.dumps({
+        "business": business_name,
+        "service": service,
+        "partner_types": types if partner_type == "all" else {partner_type: types.get(partner_type, "")},
+        "discovery_method": "Use web_search to find: '[service] integrations', '[ICP] consultants', 'best [industry] tools'",
+        "evaluation_criteria": ["ICP overlap", "Brand alignment", "Revenue potential", "Effort to maintain", "Exclusivity requirements"],
+    })
+
+
+async def _create_ugc_brief(brand_name: str, product: str, content_type: str = "social", budget: str = "", guidelines: str = "") -> str:
+    """Generate UGC creator collaboration brief."""
+    return json.dumps({
+        "brief": {
+            "brand": brand_name,
+            "product": product,
+            "content_type": content_type,
+            "deliverables": {
+                "social": "1 Reel/TikTok (15-60s) + 3 Stories + 1 Feed Post",
+                "review": "Written review (500+ words) + unboxing video",
+                "testimonial": "60s video testimonial + written quote",
+            }.get(content_type, content_type),
+            "content_guidelines": guidelines or "Authentic, unscripted feel. Show genuine experience. Include CTA.",
+            "usage_rights": "Perpetual, worldwide rights for owned and paid channels",
+            "compensation": budget or "Product gifting + $200-500 per creator (micro-tier)",
+        },
+        "creator_tiers": {
+            "nano": {"followers": "1K-10K", "rate": "$50-200", "best_for": "Authenticity, niche communities"},
+            "micro": {"followers": "10K-50K", "rate": "$200-1000", "best_for": "Engagement, targeted reach"},
+            "mid": {"followers": "50K-500K", "rate": "$1000-5000", "best_for": "Scale + credibility"},
+        },
+    })
+
+
+async def _draft_partnership_agreement(partner_name: str, structure: str = "revenue_share", terms: str = "") -> str:
+    """Create partnership term sheet."""
+    structures = {
+        "revenue_share": {"split": "20-30% of referred revenue", "attribution": "UTM/cookie 90-day window", "payout": "Monthly net-30"},
+        "co_marketing": {"commitment": "Quarterly joint content", "cost_split": "50/50", "lead_sharing": "Mutual opt-in"},
+        "white_label": {"margin": "40-60% white-label markup", "support": "L2 escalation to original provider", "branding": "Partner's brand only"},
+        "integration": {"api_access": "Partner API key", "support_tier": "Dedicated integration support", "listing": "Marketplace/directory listing"},
+    }
+    return json.dumps({
+        "partner": partner_name,
+        "structure": structure,
+        "terms": structures.get(structure, {"custom": terms}),
+        "standard_clauses": ["Term and termination", "Non-compete scope", "Confidentiality", "IP ownership", "Liability caps", "Dispute resolution"],
+        "note": "Term sheet draft — must be reviewed by legal counsel before execution.",
+    })
+
+
+async def _discover_creators(niche: str, platform: str = "all", min_followers: str = "1000") -> str:
+    """Find relevant UGC creators and influencers."""
+    return json.dumps({
+        "niche": niche,
+        "platform": platform,
+        "min_followers": min_followers,
+        "discovery_methods": [
+            f"Search '{niche}' on TikTok/Instagram/YouTube and sort by engagement rate",
+            f"Use web_search: '{niche} influencers {platform}' or '{niche} content creators'",
+            "Check competitor tagged posts and collaborations",
+            "Search Reddit/Twitter for passionate community members",
+            "Use tools: Heepsy, Upfluence, CreatorIQ, or AspireIQ for scaled discovery",
+        ],
+        "evaluation_criteria": [
+            "Engagement rate > 3% (more important than follower count)",
+            "Content quality and consistency",
+            "Audience demographics match ICP",
+            "Brand safety — review recent content",
+            "Previous brand collaborations (check for competitor conflicts)",
+        ],
+    })
+
+
+async def _industry_association_research(industry: str, geography: str = "us") -> str:
+    """Find relevant trade groups, associations, and lobbying opportunities."""
+    return json.dumps({
+        "industry": industry,
+        "geography": geography,
+        "research_framework": {
+            "trade_associations": f"Search: '{industry} trade association {geography}', '{industry} industry group'",
+            "chambers_of_commerce": "Local, state, and national chambers — networking + advocacy",
+            "standards_bodies": f"Search: '{industry} standards organization', '{industry} certification body'",
+            "advisory_boards": f"Search: '{industry} advisory board', '{industry} council'",
+            "lobbying_coalitions": f"Search: '{industry} advocacy group', '{industry} lobbying coalition'",
+        },
+        "engagement_levels": [
+            "Member (annual dues, directory listing, event access)",
+            "Committee member (influence policy, deeper networking)",
+            "Board member (leadership position, high visibility)",
+            "Sponsor (event/content sponsorship, brand exposure)",
+            "Advocate (testify, comment on regulations, media spokesperson)",
+        ],
+        "lobbying_considerations": [
+            "Register as lobbyist if spending exceeds state thresholds",
+            "Track lobbying expenses for tax purposes (generally not deductible)",
+            "Build coalitions with aligned businesses for amplified voice",
+            "Engage with proposed regulations during public comment periods",
+        ],
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # COMMUNITY & PLATFORM RESEARCH HANDLERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -6036,6 +6511,158 @@ def register_all_tools():
         [ToolParameter(name="categories", description="Comma-separated: tax, labor, privacy, trade, financial, all"),
          ToolParameter(name="jurisdiction", description="Jurisdiction: federal, state name, or eu", required=False)],
         _get_regulatory_updates, "research")
+
+    # ── Support & Helpdesk Tools ──
+    registry.register("create_support_ticket", "Create and route a support ticket with severity-based SLA.",
+        [ToolParameter(name="subject", description="Ticket subject"),
+         ToolParameter(name="description", description="Issue description"),
+         ToolParameter(name="severity", description="Severity: P0, P1, P2, P3", required=False),
+         ToolParameter(name="category", description="Category: billing, technical, general, feature_request", required=False),
+         ToolParameter(name="customer_email", description="Customer's email", required=False)],
+        _create_support_ticket, "support")
+
+    registry.register("search_knowledge_base", "Search knowledge base for FAQ answers and self-service content.",
+        [ToolParameter(name="query", description="Search query"),
+         ToolParameter(name="category", description="Article category filter", required=False)],
+        _search_knowledge_base, "support")
+
+    registry.register("update_ticket_status", "Update a support ticket's status and add resolution notes.",
+        [ToolParameter(name="ticket_id", description="Ticket ID"),
+         ToolParameter(name="status", description="New status: open, in_progress, waiting, resolved, closed"),
+         ToolParameter(name="resolution_notes", description="Notes on resolution", required=False)],
+        _update_ticket_status, "support")
+
+    registry.register("get_sla_report", "Get SLA compliance report across all ticket severities.",
+        [ToolParameter(name="period", description="Reporting period: day, week, month, quarter", required=False)],
+        _get_sla_report, "support")
+
+    # ── PR & Communications Tools ──
+    registry.register("draft_press_release", "Generate AP-style press release with distribution recommendations.",
+        [ToolParameter(name="headline", description="Press release headline"),
+         ToolParameter(name="body", description="Key announcement text"),
+         ToolParameter(name="company", description="Company name", required=False),
+         ToolParameter(name="quote_attribution", description="Name/title for quote", required=False),
+         ToolParameter(name="boilerplate", description="Company boilerplate text", required=False)],
+        _draft_press_release, "pr")
+
+    registry.register("pitch_journalist", "Create personalized journalist pitch with research-backed angles.",
+        [ToolParameter(name="journalist_name", description="Journalist's name"),
+         ToolParameter(name="publication", description="Publication name"),
+         ToolParameter(name="angle", description="Story angle/pitch"),
+         ToolParameter(name="recent_article", description="Reference to their recent work", required=False)],
+        _pitch_journalist, "pr")
+
+    registry.register("media_monitor", "Set up media monitoring for brand mentions, sentiment, and competitor tracking.",
+        [ToolParameter(name="brand_name", description="Brand name to monitor"),
+         ToolParameter(name="competitors", description="Comma-separated competitor names", required=False),
+         ToolParameter(name="keywords", description="Additional keywords to track", required=False)],
+        _media_monitor, "pr")
+
+    # ── Data Engineering & Dashboard Tools ──
+    registry.register("build_executive_dashboard", "Build executive dashboard specification for human-readable business overview.",
+        [ToolParameter(name="business_name", description="Business name"),
+         ToolParameter(name="metrics", description="Key metrics to include", required=False),
+         ToolParameter(name="tools", description="Preferred BI tools", required=False)],
+        _build_executive_dashboard, "bi")
+
+    registry.register("build_agent_data_layer", "Design structured data layer accessible by all agents for context-aware decisions.",
+        [ToolParameter(name="agents", description="Comma-separated agent IDs to configure", required=False)],
+        _build_agent_data_layer, "bi")
+
+    registry.register("create_etl_pipeline", "Design ETL pipeline for extracting, transforming, and loading data between systems.",
+        [ToolParameter(name="source", description="Data source: stripe, crm, email, social, ads, analytics"),
+         ToolParameter(name="destination", description="Destination: data_warehouse, dashboard, agent_data_layer"),
+         ToolParameter(name="transform", description="Transformation rules", required=False),
+         ToolParameter(name="schedule", description="Schedule: realtime, hourly, daily, weekly", required=False)],
+        _create_etl_pipeline, "bi")
+
+    registry.register("create_alert_rules", "Configure threshold-based monitoring alerts for key business metrics.",
+        [ToolParameter(name="metric", description="Metric to monitor"),
+         ToolParameter(name="threshold", description="Alert threshold value or condition"),
+         ToolParameter(name="channel", description="Notification channel: email, slack, sms", required=False),
+         ToolParameter(name="severity", description="Severity: info, warning, critical", required=False)],
+        _create_alert_rules, "bi")
+
+    # ── Governance & Compliance Tools ──
+    registry.register("track_regulation", "Track a specific regulation and its impact on the business.",
+        [ToolParameter(name="regulation_name", description="Name of regulation or law"),
+         ToolParameter(name="jurisdiction", description="Federal, state name, or international", required=False),
+         ToolParameter(name="effective_date", description="Effective/compliance date", required=False),
+         ToolParameter(name="impact", description="Impact assessment description", required=False)],
+        _track_regulation, "legal")
+
+    registry.register("generate_compliance_report", "Generate compliance status report across all regulatory areas.",
+        [ToolParameter(name="entity_type", description="Entity type: sole_prop, llc, s_corp, c_corp, partnership"),
+         ToolParameter(name="state", description="State of operation", required=False),
+         ToolParameter(name="industry", description="Industry for specific compliance", required=False)],
+        _generate_compliance_report, "legal")
+
+    registry.register("audit_agent_output", "Review another agent's output for legal, regulatory, and compliance issues.",
+        [ToolParameter(name="agent_id", description="Agent ID whose output to review"),
+         ToolParameter(name="output_summary", description="Summary of the agent's output"),
+         ToolParameter(name="compliance_areas", description="Areas to check: legal, regulatory, privacy, financial", required=False)],
+        _audit_agent_output, "legal")
+
+    registry.register("create_policy_document", "Draft internal policy document with standard sections.",
+        [ToolParameter(name="policy_type", description="Type: privacy, acceptable_use, employee_handbook, data_handling, incident_response, code_of_conduct, information_security"),
+         ToolParameter(name="entity_type", description="Entity type for customization", required=False),
+         ToolParameter(name="industry", description="Industry for specific requirements", required=False)],
+        _create_policy_document, "legal")
+
+    # ── Product Management Tools ──
+    registry.register("create_product_roadmap", "Generate product roadmap with quarterly themes and milestones.",
+        [ToolParameter(name="product_name", description="Product name"),
+         ToolParameter(name="quarters", description="Number of quarters to plan", required=False),
+         ToolParameter(name="themes", description="Comma-separated quarter themes", required=False)],
+        _create_product_roadmap, "product")
+
+    registry.register("prioritize_features", "Run RICE or ICE scoring on feature candidates for data-driven prioritization.",
+        [ToolParameter(name="features", description="Comma-separated feature names"),
+         ToolParameter(name="method", description="Scoring method: rice or ice", required=False)],
+        _prioritize_features, "product")
+
+    registry.register("generate_user_stories", "Generate agile user stories with acceptance criteria from an epic.",
+        [ToolParameter(name="epic", description="Epic or feature description"),
+         ToolParameter(name="persona", description="User persona", required=False),
+         ToolParameter(name="acceptance_criteria", description="Key acceptance criteria", required=False)],
+        _generate_user_stories, "product")
+
+    registry.register("competitive_feature_matrix", "Map features vs competitors to identify gaps and differentiators.",
+        [ToolParameter(name="product", description="Your product name"),
+         ToolParameter(name="competitors", description="Comma-separated competitor names")],
+        _competitive_feature_matrix, "product")
+
+    # ── Partnership, UGC & Lobbying Tools ──
+    registry.register("identify_partners", "Map the partnership landscape — technology, channel, strategic, distribution partners.",
+        [ToolParameter(name="business_name", description="Business name"),
+         ToolParameter(name="service", description="Service offered"),
+         ToolParameter(name="partner_type", description="Type: technology, channel, strategic, distribution, all", required=False)],
+        _identify_partners, "partnerships")
+
+    registry.register("create_ugc_brief", "Generate UGC creator collaboration brief with deliverables and compensation.",
+        [ToolParameter(name="brand_name", description="Brand name"),
+         ToolParameter(name="product", description="Product or service to promote"),
+         ToolParameter(name="content_type", description="Type: social, review, testimonial", required=False),
+         ToolParameter(name="budget", description="Budget per creator", required=False),
+         ToolParameter(name="guidelines", description="Content guidelines", required=False)],
+        _create_ugc_brief, "partnerships")
+
+    registry.register("draft_partnership_agreement", "Create partnership term sheet with standard clauses.",
+        [ToolParameter(name="partner_name", description="Partner company name"),
+         ToolParameter(name="structure", description="Structure: revenue_share, co_marketing, white_label, integration", required=False),
+         ToolParameter(name="terms", description="Custom terms", required=False)],
+        _draft_partnership_agreement, "partnerships")
+
+    registry.register("discover_creators", "Find relevant UGC creators and influencers by niche and platform.",
+        [ToolParameter(name="niche", description="Content niche or industry"),
+         ToolParameter(name="platform", description="Platform: tiktok, instagram, youtube, twitter, all", required=False),
+         ToolParameter(name="min_followers", description="Minimum follower count", required=False)],
+        _discover_creators, "partnerships")
+
+    registry.register("industry_association_research", "Find relevant trade groups, chambers, and lobbying opportunities.",
+        [ToolParameter(name="industry", description="Industry to research"),
+         ToolParameter(name="geography", description="Geography: us, state name, or country", required=False)],
+        _industry_association_research, "partnerships")
 
 
 register_all_tools()

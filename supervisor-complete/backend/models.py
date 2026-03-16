@@ -202,6 +202,11 @@ class CampaignMemory(BaseModel):
     # New expansion outputs
     fullstack_dev_output: str = ""
     economist_briefing: str = ""
+    pr_communications: str = ""
+    data_dashboards: str = ""
+    governance_brief: str = ""
+    product_roadmap: str = ""
+    partnerships_playbook: str = ""
     # Cross-campaign intelligence (injected by genome engine at campaign start)
     genome_intel: str = ""
 
@@ -320,6 +325,11 @@ class CampaignMemory(BaseModel):
             (self.voice_receptionist, "VOICE AI: receptionist system ready"),
             (self.fullstack_dev_output, "FULL-STACK DEV: app/SaaS blueprint ready"),
             (self.economist_briefing, "ECONOMIST: market & macro intelligence ready"),
+            (self.pr_communications, "PR & COMMS: media strategy & crisis playbook ready"),
+            (self.data_dashboards, "DATA: executive dashboards & agent data layer active"),
+            (self.governance_brief, "GOVERNANCE: compliance framework & regulatory monitoring active"),
+            (self.product_roadmap, "PRODUCT: roadmap & prioritized backlog ready"),
+            (self.partnerships_playbook, "PARTNERSHIPS: BD, UGC & lobbying strategy ready"),
         ]
         for val, label in status_map:
             if val:
