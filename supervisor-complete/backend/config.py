@@ -79,6 +79,10 @@ class Settings:
     instagram_business_id: str = ""
     buffer_api_key: str = ""
     producthunt_token: str = ""
+    reddit_client_id: str = ""
+    reddit_client_secret: str = ""
+    youtube_api_key: str = ""
+    tiktok_business_api_key: str = ""
 
     # SEO & Content
     dataforseo_login: str = ""
@@ -135,9 +139,19 @@ class Settings:
     # Legal & Documents
     docusign_api_key: str = ""
     pandadoc_api_key: str = ""
+    harvey_api_key: str = ""
+
+    # Design
+    figma_api_key: str = ""
+    figma_team_id: str = ""
 
     # Surveys
     typeform_api_key: str = ""
+
+    # Economic Intelligence
+    alpha_vantage_api_key: str = ""
+    fred_api_key: str = ""
+    polygon_api_key: str = ""
 
     # Research
     similarweb_api_key: str = ""
@@ -242,6 +256,10 @@ class Settings:
             instagram_business_id=os.getenv("INSTAGRAM_BUSINESS_ID", ""),
             buffer_api_key=os.getenv("BUFFER_API_KEY", ""),
             producthunt_token=os.getenv("PRODUCTHUNT_TOKEN", ""),
+            reddit_client_id=os.getenv("REDDIT_CLIENT_ID", ""),
+            reddit_client_secret=os.getenv("REDDIT_CLIENT_SECRET", ""),
+            youtube_api_key=os.getenv("YOUTUBE_API_KEY", ""),
+            tiktok_business_api_key=os.getenv("TIKTOK_BUSINESS_API_KEY", ""),
             # SEO & Content
             dataforseo_login=os.getenv("DATAFORSEO_LOGIN", ""),
             dataforseo_password=os.getenv("DATAFORSEO_PASSWORD", ""),
@@ -287,11 +305,19 @@ class Settings:
             # CRM & Calendar
             hubspot_api_key=os.getenv("HUBSPOT_API_KEY", ""),
             calcom_api_key=os.getenv("CALCOM_API_KEY", ""),
-            # Legal
+            # Legal & Documents
             docusign_api_key=os.getenv("DOCUSIGN_API_KEY", ""),
             pandadoc_api_key=os.getenv("PANDADOC_API_KEY", ""),
+            harvey_api_key=os.getenv("HARVEY_API_KEY", ""),
+            # Design
+            figma_api_key=os.getenv("FIGMA_API_KEY", ""),
+            figma_team_id=os.getenv("FIGMA_TEAM_ID", ""),
             # Surveys
             typeform_api_key=os.getenv("TYPEFORM_API_KEY", ""),
+            # Economic Intelligence
+            alpha_vantage_api_key=os.getenv("ALPHA_VANTAGE_API_KEY", ""),
+            fred_api_key=os.getenv("FRED_API_KEY", ""),
+            polygon_api_key=os.getenv("POLYGON_API_KEY", ""),
             # Research
             similarweb_api_key=os.getenv("SIMILARWEB_API_KEY", ""),
             builtwith_api_key=os.getenv("BUILTWITH_API_KEY", ""),
