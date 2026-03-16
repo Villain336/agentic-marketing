@@ -199,6 +199,9 @@ class CampaignMemory(BaseModel):
     competitive_intel: str = ""
     client_portal: str = ""
     voice_receptionist: str = ""
+    # New expansion outputs
+    fullstack_dev_output: str = ""
+    economist_briefing: str = ""
     # Cross-campaign intelligence (injected by genome engine at campaign start)
     genome_intel: str = ""
 
@@ -315,6 +318,8 @@ class CampaignMemory(BaseModel):
             (self.competitive_intel, "COMPETITIVE INTEL: monitoring active"),
             (self.client_portal, "CLIENT PORTAL: dashboard spec ready"),
             (self.voice_receptionist, "VOICE AI: receptionist system ready"),
+            (self.fullstack_dev_output, "FULL-STACK DEV: app/SaaS blueprint ready"),
+            (self.economist_briefing, "ECONOMIST: market & macro intelligence ready"),
         ]
         for val, label in status_map:
             if val:

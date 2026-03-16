@@ -91,6 +91,8 @@ def _serialize_memory(m: CampaignMemory) -> dict:
         "has_competitive_intel": bool(m.competitive_intel),
         "has_client_portal": bool(m.client_portal),
         "has_voice_receptionist": bool(m.voice_receptionist),
+        "has_fullstack_dev": bool(m.fullstack_dev_output),
+        "has_economist": bool(m.economist_briefing),
         "cs_complete": m.cs_complete, "campaign_complete": m.campaign_complete,
     }
 
