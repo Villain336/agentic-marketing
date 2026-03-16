@@ -24,7 +24,8 @@ logger = logging.getLogger("supervisor.engine")
 class AgentConfig:
     """Configuration for a single agent."""
     def __init__(self, id, label, role, icon, system_prompt_builder, goal_prompt_builder,
-                 memory_extractor, tool_categories, tier=Tier.STANDARD, max_iterations=15):
+                 memory_extractor, tool_categories, tier=Tier.STANDARD, max_iterations=15,
+                 model=None):
         self.id = id
         self.label = label
         self.role = role
@@ -35,6 +36,7 @@ class AgentConfig:
         self.tool_categories = tool_categories
         self.tier = tier
         self.max_iterations = max_iterations
+        self.model = model  # OpenRouter model override e.g. "anthropic/claude-sonnet-4-20250514"
 
     def get_tools(self):
         return registry.get_definitions(categories=self.tool_categories)
@@ -87,6 +89,7 @@ class AgentEngine:
                     messages=messages, system=system,
                     tools=tools if tools else None,
                     tier=tier, max_tokens=settings.default_max_tokens,
+                    model_override=agent.model,
                 ):
                     if chunk["type"] == "text":
                         text_buffer += chunk["text"]

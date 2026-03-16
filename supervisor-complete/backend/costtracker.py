@@ -12,16 +12,24 @@ logger = logging.getLogger("supervisor.costs")
 
 # Approximate pricing per 1K tokens (as of 2025)
 TOKEN_PRICING = {
-    # Anthropic
+    # Direct model names (for direct provider fallback)
     "claude-sonnet-4-20250514": {"input": 0.003, "output": 0.015},
     "claude-haiku-4-5-20251001": {"input": 0.001, "output": 0.005},
     "claude-opus-4-20250514": {"input": 0.015, "output": 0.075},
-    # OpenAI
     "gpt-4o": {"input": 0.0025, "output": 0.01},
     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
-    # Google
     "gemini-2.0-flash": {"input": 0.0001, "output": 0.0004},
     "gemini-2.0-flash-lite": {"input": 0.00005, "output": 0.0002},
+    # OpenRouter vendor-prefixed names (primary path)
+    "anthropic/claude-sonnet-4-20250514": {"input": 0.003, "output": 0.015},
+    "anthropic/claude-haiku-4-5-20251001": {"input": 0.001, "output": 0.005},
+    "anthropic/claude-opus-4-20250514": {"input": 0.015, "output": 0.075},
+    "openai/gpt-4o": {"input": 0.0025, "output": 0.01},
+    "openai/gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
+    "google/gemini-2.0-flash": {"input": 0.0001, "output": 0.0004},
+    "google/gemini-2.0-flash-lite": {"input": 0.00005, "output": 0.0002},
+    "mistralai/mistral-large-latest": {"input": 0.002, "output": 0.006},
+    "meta-llama/llama-3.1-405b-instruct": {"input": 0.003, "output": 0.003},
 }
 
 # Fallback pricing for unknown models

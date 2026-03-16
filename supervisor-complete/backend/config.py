@@ -13,6 +13,7 @@ class ProviderConfig:
     name: str
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    strong_model: str = ""
     default_model: str = ""
     fast_model: str = ""
     enabled: bool = False
@@ -185,10 +186,25 @@ class Settings:
     def from_env(cls) -> "Settings":
         providers = []
 
+        # OpenRouter — unified gateway, priority 0 (primary)
+        # One key gives access to all models: Anthropic, OpenAI, Google, Mistral, etc.
+        providers.append(ProviderConfig(
+            name="openrouter",
+            api_key=os.getenv("OPENROUTER_API_KEY", ""),
+            base_url="https://openrouter.ai/api",
+            strong_model=os.getenv("OPENROUTER_STRONG_MODEL", "anthropic/claude-sonnet-4-20250514"),
+            default_model=os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4-20250514"),
+            fast_model=os.getenv("OPENROUTER_FAST_MODEL", "anthropic/claude-haiku-4-5-20251001"),
+            priority=0,
+            timeout=int(os.getenv("OPENROUTER_TIMEOUT", "120")),
+        ))
+
+        # Direct provider fallbacks (if user has their own keys)
         providers.append(ProviderConfig(
             name="anthropic",
             api_key=os.getenv("ANTHROPIC_API_KEY", ""),
             base_url="https://api.anthropic.com",
+            strong_model=os.getenv("ANTHROPIC_STRONG_MODEL", "claude-sonnet-4-20250514"),
             default_model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
             fast_model=os.getenv("ANTHROPIC_FAST_MODEL", "claude-haiku-4-5-20251001"),
             priority=1,

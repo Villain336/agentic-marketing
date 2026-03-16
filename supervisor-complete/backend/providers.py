@@ -58,13 +58,19 @@ class ProviderAdapter:
         self._last_error = None
         self._cooldown_until = 0.0
 
-    def get_model(self, tier: Tier) -> str:
-        return self.config.fast_model if tier == Tier.FAST else self.config.default_model
+    def get_model(self, tier: Tier, model_override: str = None) -> str:
+        if model_override:
+            return model_override
+        if tier == Tier.FAST:
+            return self.config.fast_model
+        if tier == Tier.STRONG and self.config.strong_model:
+            return self.config.strong_model
+        return self.config.default_model
 
-    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096) -> dict:
+    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None) -> dict:
         raise NotImplementedError
 
-    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096) -> AsyncGenerator[dict, None]:
+    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None) -> AsyncGenerator[dict, None]:
         raise NotImplementedError
         yield  # pragma: no cover
 
@@ -83,8 +89,8 @@ class ProviderAdapter:
 
 class AnthropicAdapter(ProviderAdapter):
 
-    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096):
-        model = self.get_model(tier)
+    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        model = self.get_model(tier, model_override)
         body: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "messages": messages}
         if system:
             body["system"] = system
@@ -113,8 +119,8 @@ class AnthropicAdapter(ProviderAdapter):
             self._mark_error(str(e))
             raise ProviderError(str(e), self.config.name)
 
-    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096):
-        model = self.get_model(tier)
+    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        model = self.get_model(tier, model_override)
         body: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "messages": messages, "stream": True}
         if system:
             body["system"] = system
@@ -186,6 +192,12 @@ class AnthropicAdapter(ProviderAdapter):
 
 class OpenAIAdapter(ProviderAdapter):
 
+    def _get_headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self.config.api_key}",
+            "Content-Type": "application/json",
+        }
+
     def _convert_msgs(self, messages: list[dict], system: str) -> list[dict]:
         out = []
         if system:
@@ -219,8 +231,8 @@ class OpenAIAdapter(ProviderAdapter):
                 out.append({"role": role, "content": content})
         return out
 
-    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096):
-        model = self.get_model(tier)
+    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        model = self.get_model(tier, model_override)
         converted = self._convert_msgs(messages, system)
         body: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "messages": converted}
         if tools:
@@ -228,7 +240,7 @@ class OpenAIAdapter(ProviderAdapter):
         try:
             resp = await self.client.post(
                 f"{self.config.base_url}/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"},
+                headers=self._get_headers(),
                 json=body,
             )
             if resp.status_code == 429:
@@ -255,8 +267,8 @@ class OpenAIAdapter(ProviderAdapter):
             self._mark_error("timeout")
             raise ProviderError("timeout", self.config.name)
 
-    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096):
-        model = self.get_model(tier)
+    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        model = self.get_model(tier, model_override)
         converted = self._convert_msgs(messages, system)
         body: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "messages": converted, "stream": True}
         if tools:
@@ -264,7 +276,7 @@ class OpenAIAdapter(ProviderAdapter):
         try:
             async with self.client.stream(
                 "POST", f"{self.config.base_url}/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"},
+                headers=self._get_headers(),
                 json=body,
             ) as resp:
                 if resp.status_code == 429:
@@ -349,8 +361,8 @@ class GoogleAdapter(ProviderAdapter):
                     contents.append({"role": role, "parts": parts})
         return contents, sys_inst
 
-    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096):
-        model = self.get_model(tier)
+    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        model = self.get_model(tier, model_override)
         contents, sys_inst = self._convert_msgs(messages, system)
         body: dict[str, Any] = {"contents": contents, "generationConfig": {"maxOutputTokens": max_tokens}}
         if sys_inst:
@@ -387,8 +399,8 @@ class GoogleAdapter(ProviderAdapter):
             self._mark_error("timeout")
             raise ProviderError("timeout", self.config.name)
 
-    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096):
-        model = self.get_model(tier)
+    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        model = self.get_model(tier, model_override)
         contents, sys_inst = self._convert_msgs(messages, system)
         body: dict[str, Any] = {"contents": contents, "generationConfig": {"maxOutputTokens": max_tokens}}
         if sys_inst:
@@ -427,15 +439,36 @@ class GoogleAdapter(ProviderAdapter):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# OPENROUTER ADAPTER (unified gateway — all models via OpenAI-compatible API)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class OpenRouterAdapter(OpenAIAdapter):
+    """OpenRouter — one API key for all LLM providers (Anthropic, OpenAI, Google, etc.)."""
+
+    def _get_headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self.config.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://supervisor.ai",
+            "X-Title": "Supervisor",
+        }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MODEL ROUTER
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class ModelRouter:
-    """Routes LLM requests with automatic failover: Anthropic → OpenAI → Google."""
+    """Routes LLM requests with automatic failover. OpenRouter → Anthropic → OpenAI → Google."""
 
     def __init__(self):
         self.adapters: list[ProviderAdapter] = []
-        adapter_map = {"anthropic": AnthropicAdapter, "openai": OpenAIAdapter, "google": GoogleAdapter}
+        adapter_map = {
+            "openrouter": OpenRouterAdapter,
+            "anthropic": AnthropicAdapter,
+            "openai": OpenAIAdapter,
+            "google": GoogleAdapter,
+        }
         for pc in settings.providers:
             cls = adapter_map.get(pc.name)
             if cls and pc.enabled:
@@ -444,14 +477,14 @@ class ModelRouter:
         if not self.adapters:
             logger.warning("No LLM providers configured!")
 
-    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096) -> dict:
+    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None) -> dict:
         available = [a for a in self.adapters if a.is_available]
         if not available:
             raise AllProvidersFailedError([ProviderError("all_in_cooldown", a.config.name) for a in self.adapters])
         errors = []
         for adapter in available:
             try:
-                result = await adapter.complete(messages, system, tools, tier, max_tokens)
+                result = await adapter.complete(messages, system, tools, tier, max_tokens, model_override)
                 logger.info(f"Completed via {adapter.config.name} ({result.get('model')})")
                 return result
             except ProviderError as e:
@@ -459,14 +492,14 @@ class ModelRouter:
                 logger.warning(f"Failover: {adapter.config.name} → next")
         raise AllProvidersFailedError(errors)
 
-    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096) -> AsyncGenerator[dict, None]:
+    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None) -> AsyncGenerator[dict, None]:
         available = [a for a in self.adapters if a.is_available]
         if not available:
             raise AllProvidersFailedError([ProviderError("all_in_cooldown", a.config.name) for a in self.adapters])
         errors = []
         for adapter in available:
             try:
-                async for chunk in adapter.complete_stream(messages, system, tools, tier, max_tokens):
+                async for chunk in adapter.complete_stream(messages, system, tools, tier, max_tokens, model_override):
                     yield chunk
                 return
             except ProviderError as e:
