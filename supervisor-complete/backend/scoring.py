@@ -57,6 +57,9 @@ class AgentScorer:
             "billing": self._score_billing,
             "referral": self._score_referral,
             "portfolio_ops": self._score_portfolio_ops,
+            "competitive_intel": self._score_competitive_intel,
+            "client_portal": self._score_client_portal,
+            "voice_receptionist": self._score_voice_receptionist,
         }
 
         for agent_id, scorer in scorers.items():
@@ -504,6 +507,43 @@ class AgentScorer:
             "score": min(100, score),
             "reasoning": f"Managing {campaigns_managed} campaigns, genome intelligence active" if has_genome else "Portfolio ops initialized, awaiting multi-campaign data",
             "metrics": portfolio,
+        }
+
+
+    # ── Differentiation Agents ──────────────────────────────────────
+
+    def _score_competitive_intel(self, campaign: Campaign, metrics: dict) -> dict:
+        """Competitor coverage, insight freshness, actionable recommendations."""
+        has_intel = bool(campaign.memory.competitive_intel)
+        if not has_intel:
+            return {"score": 0, "reasoning": "No competitive intelligence yet", "metrics": {}}
+        return {"score": 65, "reasoning": "Competitive intelligence briefing complete",
+                "metrics": {}}
+
+    def _score_client_portal(self, campaign: Campaign, metrics: dict) -> dict:
+        """Dashboard completeness, report automation, client satisfaction."""
+        has_portal = bool(campaign.memory.client_portal)
+        if not has_portal:
+            return {"score": 0, "reasoning": "No client portal spec yet", "metrics": {}}
+        return {"score": 60, "reasoning": "Client portal specification complete",
+                "metrics": {}}
+
+    def _score_voice_receptionist(self, campaign: Campaign, metrics: dict) -> dict:
+        """Call handling rate, qualification accuracy, booking conversion."""
+        has_system = bool(campaign.memory.voice_receptionist)
+        voice = metrics.get("voice_metrics", {})
+        if not has_system:
+            return {"score": 0, "reasoning": "No voice receptionist yet", "metrics": {}}
+        calls = voice.get("calls_handled", 0)
+        meetings = voice.get("meetings_booked", 0)
+        base = 45
+        call_score = min(25, calls * 2.5)
+        booking_score = min(30, meetings * 10) if calls > 0 else 0
+        score = base + call_score + booking_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Voice AI active, {calls} calls handled, {meetings} meetings booked" if calls else "Voice receptionist system configured",
+            "metrics": voice,
         }
 
 

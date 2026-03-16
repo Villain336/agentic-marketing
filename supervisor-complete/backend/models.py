@@ -195,6 +195,10 @@ class CampaignMemory(BaseModel):
     billing_system: str = ""
     referral_program: str = ""
     upsell_playbook: str = ""
+    # Differentiation outputs
+    competitive_intel: str = ""
+    client_portal: str = ""
+    voice_receptionist: str = ""
     # Cross-campaign intelligence (injected by genome engine at campaign start)
     genome_intel: str = ""
 
@@ -308,6 +312,9 @@ class CampaignMemory(BaseModel):
             (self.billing_system, "BILLING: automated invoicing & collection active"),
             (self.referral_program, "REFERRAL: affiliate/referral program active"),
             (self.upsell_playbook, "UPSELL: expansion revenue playbook ready"),
+            (self.competitive_intel, "COMPETITIVE INTEL: monitoring active"),
+            (self.client_portal, "CLIENT PORTAL: dashboard spec ready"),
+            (self.voice_receptionist, "VOICE AI: receptionist system ready"),
         ]
         for val, label in status_map:
             if val:
