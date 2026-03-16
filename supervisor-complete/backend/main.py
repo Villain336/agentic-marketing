@@ -56,6 +56,7 @@ def _serialize_memory(m: CampaignMemory) -> dict:
         "has_finance": bool(m.financial_plan), "has_hr": bool(m.hr_playbook),
         "has_sales": bool(m.sales_playbook), "has_delivery": bool(m.delivery_system),
         "has_analytics": bool(m.analytics_framework),
+        "has_tax": bool(m.tax_playbook), "has_wealth": bool(m.wealth_strategy),
         "cs_complete": m.cs_complete, "campaign_complete": m.campaign_complete,
     }
 
