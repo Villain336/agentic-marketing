@@ -67,6 +67,10 @@ class AgentScorer:
             "governance": self._score_governance,
             "product_manager": self._score_product_manager,
             "partnerships": self._score_partnerships,
+            "client_fulfillment": self._score_client_fulfillment,
+            "knowledge_engine": self._score_knowledge_engine,
+            "agent_ops": self._score_agent_ops,
+            "world_model": self._score_world_model,
         }
 
         for agent_id, scorer in scorers.items():
@@ -696,6 +700,78 @@ class AgentScorer:
             "score": min(100, score),
             "reasoning": f"Economic briefing active, {insights_actioned} insights actioned, {risks_flagged} risks flagged" if insights_actioned else "Economic intelligence briefing complete, monitoring active",
             "metrics": econ,
+        }
+
+
+    # ── Client Layer & Cognition Agents ──────────────────────────
+
+    def _score_client_fulfillment(self, campaign: Campaign, metrics: dict) -> dict:
+        """Client activation rate, time-to-value, CSAT, retention."""
+        has_output = bool(campaign.memory.client_fulfillment)
+        ful = metrics.get("fulfillment_metrics", {})
+        if not has_output:
+            return {"score": 0, "reasoning": "No client fulfillment system yet", "metrics": {}}
+        base = 45
+        activation_rate = ful.get("activation_rate_pct", 0)
+        ttv_days = ful.get("time_to_value_days", 0)
+        retention = ful.get("retention_rate_pct", 0)
+        activation_score = min(20, activation_rate * 0.2)
+        ttv_score = min(15, max(0, 15 - ttv_days))  # lower TTv = higher score
+        retention_score = min(20, retention * 0.2)
+        score = base + activation_score + ttv_score + retention_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Fulfillment active, {activation_rate}% activation, {ttv_days}d time-to-value, {retention}% retention" if activation_rate else "Client fulfillment system built, awaiting client data",
+            "metrics": ful,
+        }
+
+    def _score_knowledge_engine(self, campaign: Campaign, metrics: dict) -> dict:
+        """Knowledge coverage, query success rate, self-sufficiency score."""
+        # knowledge_engine doesn't have its own memory field — it enriches the entire system
+        kb = metrics.get("knowledge_metrics", {})
+        coverage = kb.get("knowledge_coverage_pct", 0)
+        queries_internal = kb.get("queries_served_internally_pct", 0)
+        base = 30 if coverage > 0 else 15
+        coverage_score = min(35, coverage * 0.35)
+        internal_score = min(35, queries_internal * 0.35)
+        score = base + coverage_score + internal_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Knowledge engine active, {coverage}% domain coverage, {queries_internal}% queries self-served" if coverage else "Knowledge engine initializing, accumulating data",
+            "metrics": kb,
+        }
+
+    def _score_agent_ops(self, campaign: Campaign, metrics: dict) -> dict:
+        """Workspace uptime, workflow success rate, autonomy level."""
+        has_output = bool(campaign.memory.agent_workspace)
+        ops = metrics.get("agent_ops_metrics", {})
+        if not has_output:
+            return {"score": 0, "reasoning": "No agent workspace configured yet", "metrics": {}}
+        base = 40
+        workflows_active = ops.get("workflows_active", 0)
+        success_rate = ops.get("workflow_success_rate_pct", 0)
+        wf_score = min(30, workflows_active * 6)
+        success_score = min(30, success_rate * 0.3)
+        score = base + wf_score + success_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Agent ops active, {workflows_active} workflows, {success_rate}% success rate" if workflows_active else "Agent workspace architecture configured",
+            "metrics": ops,
+        }
+
+    def _score_world_model(self, campaign: Campaign, metrics: dict) -> dict:
+        """World state freshness, scenario accuracy, social climate coverage."""
+        wm = metrics.get("world_model_metrics", {})
+        freshness = wm.get("world_state_freshness_hours", 999)
+        scenarios = wm.get("scenarios_modeled", 0)
+        base = 35
+        freshness_score = min(30, max(0, 30 - freshness))  # fresher = higher
+        scenario_score = min(35, scenarios * 7)
+        score = base + freshness_score + scenario_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"World model active, {freshness}hr freshness, {scenarios} scenarios modeled" if scenarios else "World model initialized, building spatial/temporal/social awareness",
+            "metrics": wm,
         }
 
 

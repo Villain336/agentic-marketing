@@ -207,6 +207,10 @@ class CampaignMemory(BaseModel):
     governance_brief: str = ""
     product_roadmap: str = ""
     partnerships_playbook: str = ""
+    # Client delivery outputs
+    client_fulfillment: str = ""
+    # Cognition layer outputs
+    agent_workspace: str = ""
     # Cross-campaign intelligence (injected by genome engine at campaign start)
     genome_intel: str = ""
 
@@ -330,6 +334,8 @@ class CampaignMemory(BaseModel):
             (self.governance_brief, "GOVERNANCE: compliance framework & regulatory monitoring active"),
             (self.product_roadmap, "PRODUCT: roadmap & prioritized backlog ready"),
             (self.partnerships_playbook, "PARTNERSHIPS: BD, UGC & lobbying strategy ready"),
+            (self.client_fulfillment, "FULFILLMENT: buyer journey & delivery pipeline active"),
+            (self.agent_workspace, "AGENT OPS: compute environments & workflows configured"),
         ]
         for val, label in status_map:
             if val:

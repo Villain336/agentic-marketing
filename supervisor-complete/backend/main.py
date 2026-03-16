@@ -98,6 +98,8 @@ def _serialize_memory(m: CampaignMemory) -> dict:
         "has_governance": bool(m.governance_brief),
         "has_product_roadmap": bool(m.product_roadmap),
         "has_partnerships": bool(m.partnerships_playbook),
+        "has_fulfillment": bool(m.client_fulfillment),
+        "has_agent_workspace": bool(m.agent_workspace),
         "cs_complete": m.cs_complete, "campaign_complete": m.campaign_complete,
     }
 
