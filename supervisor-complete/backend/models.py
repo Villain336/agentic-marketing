@@ -158,6 +158,11 @@ class BusinessProfile(BaseModel):
     geography: str
     goal: str
     brand_context: str = ""
+    # Entity flow — set during onboarding, flows to every agent
+    entity_type: str = ""          # sole_prop, llc, s_corp, c_corp, partnership
+    state_of_formation: str = ""   # e.g. "Delaware", "Wyoming"
+    founder_title: str = ""        # Managing Member, CEO, Owner, Managing Partner
+    industry: str = ""             # e.g. "marketing agency", "SaaS", "consulting"
 
 
 class CampaignMemory(BaseModel):
@@ -177,17 +182,31 @@ class CampaignMemory(BaseModel):
     tool_stack: str = ""
     newsletter_system: str = ""
     ppc_playbook: str = ""
+    # New department outputs
+    financial_plan: str = ""
+    hr_playbook: str = ""
+    sales_playbook: str = ""
+    delivery_system: str = ""
+    analytics_framework: str = ""
+    treasury_plan: str = ""
 
     def to_context_string(self) -> str:
+        b = self.business
         parts = [
-            f"AGENCY: {self.business.name}",
-            f"SERVICE: {self.business.service}",
-            f"ICP: {self.business.icp}",
-            f"GEOGRAPHY: {self.business.geography}",
-            f"GOAL: {self.business.goal}",
+            f"BUSINESS: {b.name}",
+            f"SERVICE: {b.service}",
+            f"ICP: {b.icp}",
+            f"GEOGRAPHY: {b.geography}",
+            f"GOAL: {b.goal}",
         ]
-        if self.business.brand_context:
-            parts.append(f"BRAND CONTEXT: {self.business.brand_context}")
+        if b.entity_type:
+            title_label = b.founder_title or "Owner"
+            parts.append(f"ENTITY: {b.entity_type.upper().replace('_', '-')} ({b.state_of_formation or 'TBD'})")
+            parts.append(f"FOUNDER TITLE: {title_label}")
+        if b.industry:
+            parts.append(f"INDUSTRY: {b.industry}")
+        if b.brand_context:
+            parts.append(f"BRAND CONTEXT: {b.brand_context}")
         status_map = [
             (self.prospect_count, f"PROSPECTS FOUND: {self.prospect_count}"),
             (self.email_sequence, "OUTREACH: sequence ready"),
@@ -200,6 +219,12 @@ class CampaignMemory(BaseModel):
             (self.tool_stack, "PROCUREMENT: tool stack defined"),
             (self.newsletter_system, "NEWSLETTER: system ready"),
             (self.ppc_playbook, "PPC: optimization playbook ready"),
+            (self.financial_plan, "FINANCE: plan ready"),
+            (self.hr_playbook, "HR: playbook ready"),
+            (self.sales_playbook, "SALES: playbook ready"),
+            (self.delivery_system, "DELIVERY: system ready"),
+            (self.analytics_framework, "ANALYTICS: framework ready"),
+            (self.treasury_plan, "TREASURY: plan ready"),
         ]
         for val, label in status_map:
             if val:
@@ -396,4 +421,59 @@ class PerformanceEvent(BaseModel):
     source: str = ""
     event_type: str = ""
     data: dict[str, Any] = {}
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ── Treasury & Reserve Models ────────────────────────────────────────────────
+
+class ReservePool(BaseModel):
+    """A single reserve pool / financial bucket."""
+    name: str                          # operating, tax, emergency, growth, owner_pay, retirement, insurance
+    target_pct: float = 0.0            # % of revenue allocated here
+    target_amount: float = 0.0         # absolute target (e.g. 6 months expenses)
+    current_amount: float = 0.0
+    account_type: str = ""             # hysa, money_market, t_bill, cd, checking
+    institution: str = ""              # bank / brokerage name
+    apy: float = 0.0                   # current annual % yield
+    auto_sweep: bool = False           # auto-move excess to yield
+    last_contribution: Optional[datetime] = None
+
+    @property
+    def funded_pct(self) -> float:
+        return (self.current_amount / self.target_amount * 100) if self.target_amount else 0.0
+
+
+class TreasuryConfig(BaseModel):
+    """Full treasury configuration for a business."""
+    campaign_id: str = ""
+    allocation_method: str = "profit_first"  # profit_first, percentage, fixed
+    # Profit First buckets (% of revenue)
+    profit_pct: float = 5.0
+    owner_pay_pct: float = 50.0
+    tax_pct: float = 15.0
+    operating_pct: float = 30.0
+    # Additional reserves
+    emergency_target_months: int = 6
+    monthly_operating_cost: float = 0.0
+    retirement_type: str = ""          # sep_ira, solo_401k, simple_ira, none
+    retirement_contribution_pct: float = 0.0
+    insurance_reserve_pct: float = 2.0
+    # Yield strategy
+    yield_strategy: str = "conservative"  # conservative, moderate, aggressive
+    pools: list[ReservePool] = []
+    total_reserves: float = 0.0
+    total_yield_annual: float = 0.0
+    last_sweep: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class TreasuryTransaction(BaseModel):
+    """Record of money movement between pools."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    campaign_id: str = ""
+    from_pool: str = ""                # "revenue", "operating", "growth", etc.
+    to_pool: str = ""
+    amount: float = 0.0
+    reason: str = ""                   # "revenue_allocation", "yield_sweep", "emergency_withdrawal"
+    triggered_by: str = ""             # "auto", "treasury_agent", "owner"
     created_at: datetime = Field(default_factory=datetime.utcnow)
