@@ -34,6 +34,9 @@ from lifecycle import lifecycle
 from ws import ws_manager
 from versioning import versioner
 from templates import get_template, list_templates, TEMPLATES
+from ratelimit import RateLimitMiddleware
+from costtracker import cost_tracker
+from webhook_auth import verify_webhook
 import db
 
 logging.basicConfig(
@@ -45,6 +48,7 @@ logger = logging.getLogger("supervisor.api")
 app = FastAPI(title="Supervisor API", description="Autonomous Agency Platform — Backend Orchestration", version="0.3.0")
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.add_middleware(AuthMiddleware)
+app.add_middleware(RateLimitMiddleware)
 
 
 @app.on_event("startup")
@@ -642,6 +646,13 @@ async def launch_from_template(template_id: str, request: Request):
 @app.post("/webhooks/{source}")
 async def receive_webhook(source: str, request: Request):
     """Universal webhook receiver for external services."""
+    # Verify webhook signature
+    raw_body = await request.body()
+    headers = dict(request.headers)
+    if not verify_webhook(source, raw_body, headers):
+        logger.warning(f"Webhook signature verification failed for {source}")
+        raise HTTPException(401, "Invalid webhook signature")
+
     body = await request.json()
     campaign_id = body.get("campaign_id", "")
 
@@ -848,6 +859,22 @@ async def reallocate_budget(campaign_id: str, request: Request):
     body = await request.json()
     return await wallet.reallocate(
         campaign_id, body["from_agent"], body["to_agent"], body["amount"])
+
+
+@app.get("/campaign/{campaign_id}/inference-costs")
+async def get_inference_costs(campaign_id: str, agent_id: str = ""):
+    """Get LLM inference costs for a campaign."""
+    if campaign_id not in campaigns:
+        raise HTTPException(404, "Campaign not found")
+    if agent_id:
+        return cost_tracker.get_agent_cost(campaign_id, agent_id)
+    return cost_tracker.get_campaign_cost(campaign_id)
+
+
+@app.get("/costs")
+async def global_costs():
+    """Get global LLM inference cost stats."""
+    return cost_tracker.get_global_stats()
 
 
 @app.get("/campaign/{campaign_id}/spend-log")
