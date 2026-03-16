@@ -62,6 +62,11 @@ class AgentScorer:
             "voice_receptionist": self._score_voice_receptionist,
             "fullstack_dev": self._score_fullstack_dev,
             "economist": self._score_economist,
+            "pr_comms": self._score_pr_comms,
+            "data_engineer": self._score_data_engineer,
+            "governance": self._score_governance,
+            "product_manager": self._score_product_manager,
+            "partnerships": self._score_partnerships,
         }
 
         for agent_id, scorer in scorers.items():
@@ -548,6 +553,100 @@ class AgentScorer:
             "metrics": voice,
         }
 
+
+    # ── Communications & Partnerships ────────────────────────────
+
+    def _score_pr_comms(self, campaign: Campaign, metrics: dict) -> dict:
+        """Media placements, share of voice, crisis readiness."""
+        has_output = bool(campaign.memory.pr_communications)
+        pr = metrics.get("pr_metrics", {})
+        if not has_output:
+            return {"score": 0, "reasoning": "No PR/communications strategy yet", "metrics": {}}
+        base = 40
+        placements = pr.get("media_placements", 0)
+        mentions = pr.get("brand_mentions", 0)
+        placement_score = min(30, placements * 6)  # 5 placements = 30 pts
+        mention_score = min(30, mentions * 3)  # 10 mentions = 30 pts
+        score = base + placement_score + mention_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"PR active, {placements} media placements, {mentions} brand mentions" if placements else "PR strategy built, media outreach initiated",
+            "metrics": pr,
+        }
+
+    def _score_data_engineer(self, campaign: Campaign, metrics: dict) -> dict:
+        """Dashboard coverage, data freshness, alert accuracy."""
+        has_output = bool(campaign.memory.data_dashboards)
+        data = metrics.get("data_eng_metrics", {})
+        if not has_output:
+            return {"score": 0, "reasoning": "No data dashboards yet", "metrics": {}}
+        base = 45
+        dashboards = data.get("dashboards_live", 0)
+        pipelines = data.get("etl_pipelines_active", 0)
+        dash_score = min(25, dashboards * 12)  # 2 dashboards = 24 pts
+        pipe_score = min(30, pipelines * 6)  # 5 pipelines = 30 pts
+        score = base + dash_score + pipe_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Data layer active, {dashboards} dashboards, {pipelines} ETL pipelines" if dashboards else "Dashboard specs complete, awaiting deployment",
+            "metrics": data,
+        }
+
+    def _score_governance(self, campaign: Campaign, metrics: dict) -> dict:
+        """Compliance rate, audit readiness, regulatory coverage."""
+        has_output = bool(campaign.memory.governance_brief)
+        gov = metrics.get("governance_metrics", {})
+        if not has_output:
+            return {"score": 0, "reasoning": "No governance framework yet", "metrics": {}}
+        base = 50  # Governance is inherently high-value
+        compliance_pct = gov.get("compliance_rate", 0)
+        filings_on_time = gov.get("filings_on_time_pct", 0)
+        compliance_score = min(25, compliance_pct * 0.25)
+        filing_score = min(25, filings_on_time * 0.25)
+        score = base + compliance_score + filing_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Governance active, {compliance_pct}% compliant, {filings_on_time}% filings on-time" if compliance_pct else "Governance framework established, monitoring active",
+            "metrics": gov,
+        }
+
+    def _score_product_manager(self, campaign: Campaign, metrics: dict) -> dict:
+        """Roadmap coverage, feature delivery rate, backlog health."""
+        has_output = bool(campaign.memory.product_roadmap)
+        pm = metrics.get("product_metrics", {})
+        if not has_output:
+            return {"score": 0, "reasoning": "No product roadmap yet", "metrics": {}}
+        base = 40
+        features_shipped = pm.get("features_shipped", 0)
+        backlog_groomed = pm.get("backlog_groomed_pct", 0)
+        feature_score = min(30, features_shipped * 6)  # 5 features = 30 pts
+        backlog_score = min(30, backlog_groomed * 0.3)  # 100% groomed = 30 pts
+        score = base + feature_score + backlog_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Product active, {features_shipped} features shipped, {backlog_groomed}% backlog groomed" if features_shipped else "Product roadmap built, sprint planning active",
+            "metrics": pm,
+        }
+
+    def _score_partnerships(self, campaign: Campaign, metrics: dict) -> dict:
+        """Active partnerships, UGC volume, industry influence score."""
+        has_output = bool(campaign.memory.partnerships_playbook)
+        bd = metrics.get("partnership_metrics", {})
+        if not has_output:
+            return {"score": 0, "reasoning": "No partnerships strategy yet", "metrics": {}}
+        base = 35
+        active_partners = bd.get("active_partnerships", 0)
+        ugc_pieces = bd.get("ugc_content_pieces", 0)
+        partner_revenue = bd.get("partner_attributed_revenue", 0)
+        partner_score = min(25, active_partners * 5)
+        ugc_score = min(20, ugc_pieces * 2)
+        revenue_score = min(20, partner_revenue / 500)
+        score = base + partner_score + ugc_score + revenue_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"BD active, {active_partners} partners, {ugc_pieces} UGC pieces, ${partner_revenue:,.0f} attributed" if active_partners else "Partnership strategy built, outreach initiated",
+            "metrics": bd,
+        }
 
     # ── Builder & Intelligence Agents ──────────────────────────────
 
