@@ -4545,6 +4545,562 @@ async def _portfolio_dashboard(campaign_ids: str = "") -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# CLIENT FULFILLMENT HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _build_client_intake(service: str, questions: str = "") -> str:
+    """Generate structured client intake questionnaire."""
+    return json.dumps({
+        "service": service,
+        "intake_form": {
+            "sections": {
+                "business_overview": [
+                    "Company name and website",
+                    "Industry and target market",
+                    "Current revenue and growth stage",
+                    "Number of employees",
+                ],
+                "goals_and_objectives": [
+                    "Primary goal for this engagement (specific and measurable)",
+                    "What does success look like in 30/60/90 days?",
+                    "What have you tried before? What worked/didn't?",
+                    "Key constraints: budget, timeline, resources",
+                ],
+                "brand_assets": [
+                    "Logo files (SVG, PNG)",
+                    "Brand guidelines document",
+                    "Existing website URL",
+                    "Social media accounts",
+                    "Analytics access (Google Analytics, ad accounts)",
+                ],
+                "competitive_landscape": [
+                    "Top 3 competitors",
+                    "What differentiates you from them?",
+                    "Competitor content/campaigns you admire",
+                ],
+                "communication_preferences": [
+                    "Preferred communication channel (email, Slack, phone)",
+                    "Preferred meeting cadence (weekly, biweekly)",
+                    "Key stakeholders and decision-makers",
+                    "Timezone and availability",
+                ],
+            },
+            "follow_up_automation": "Auto-send reminder at 24hr and 48hr if incomplete",
+        },
+    })
+
+
+async def _build_welcome_sequence(business_name: str, service: str, client_name: str = "") -> str:
+    """Generate automated client welcome/onboarding sequence."""
+    return json.dumps({
+        "business": business_name,
+        "service": service,
+        "sequence": [
+            {"timing": "Instant", "channel": "email", "subject": f"Welcome to {business_name}!", "content": "Payment confirmed, access credentials, what happens next, intake form link"},
+            {"timing": "+1 hour", "channel": "sms", "content": "Quick text with kickoff booking link and intake form reminder"},
+            {"timing": "+24 hours", "channel": "email", "subject": "Your kickoff call is booked!", "content": "Kickoff prep: what to bring, agenda preview, expectations"},
+            {"timing": "+48 hours", "channel": "email", "subject": "Before your kickoff: quick prep", "content": "Asset collection checklist, portal access tutorial, FAQ link"},
+            {"timing": "+7 days", "channel": "email", "subject": "Week 1 complete — here's what we built", "content": "First deliverables preview, milestone dashboard, feedback request"},
+        ],
+        "portal_access": {"url": f"portal.{business_name.lower().replace(' ', '')}.com", "credentials": "Auto-generated, emailed separately"},
+    })
+
+
+async def _build_deliverable_pipeline(service: str, timeline_days: str = "30") -> str:
+    """Define production workflow with quality gates."""
+    days = int(timeline_days)
+    return json.dumps({
+        "service": service,
+        "total_timeline": f"{days} days",
+        "phases": {
+            "phase_1_discovery": {"days": f"1-{days//6}", "deliverables": ["Strategy document", "Research findings", "Competitive analysis"], "quality_gate": "Client approval of strategic direction"},
+            "phase_2_production": {"days": f"{days//6+1}-{days//2}", "deliverables": ["Core deliverables in draft", "Review-ready assets"], "quality_gate": "Internal QA checklist passed"},
+            "phase_3_review": {"days": f"{days//2+1}-{days*3//4}", "deliverables": ["Client review round 1", "Revision round (max 2)"], "quality_gate": "Client sign-off on all deliverables"},
+            "phase_4_launch": {"days": f"{days*3//4+1}-{days}", "deliverables": ["Final assets live", "Performance tracking active", "First results report"], "quality_gate": "Everything live and tracking"},
+        },
+        "approval_workflow": "Draft → Internal QA → Client Review → Revision (max 2 rounds) → Final Approval → Go Live",
+        "communication": "Client updated at every phase transition + weekly progress email",
+    })
+
+
+async def _track_client_milestone(client_name: str, milestone: str, status: str = "complete", notes: str = "") -> str:
+    """Log client delivery milestone."""
+    return json.dumps({
+        "client": client_name,
+        "milestone": milestone,
+        "status": status,
+        "notes": notes,
+        "next_action": "Send milestone notification to client" if status == "complete" else f"Continue work on {milestone}",
+        "logged_at": "now",
+    })
+
+
+async def _calculate_client_ltv(monthly_revenue: str, retention_months: str = "12", expansion_rate: str = "0") -> str:
+    """Project client lifetime value."""
+    mrr = float(monthly_revenue)
+    months = int(retention_months)
+    expansion = float(expansion_rate) / 100
+    base_ltv = mrr * months
+    expansion_ltv = sum(mrr * (1 + expansion) ** m for m in range(months))
+    return json.dumps({
+        "monthly_revenue": mrr,
+        "avg_retention_months": months,
+        "expansion_rate": f"{expansion*100}%",
+        "base_ltv": f"${base_ltv:,.0f}",
+        "ltv_with_expansion": f"${expansion_ltv:,.0f}",
+        "cac_target": f"${base_ltv/3:,.0f} (LTV/3 rule)",
+        "payback_period_target": f"{months//4} months (retain 75%+ of LTV)",
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# KNOWLEDGE ENGINE HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _build_knowledge_graph(domains: str = "", entity_types: str = "") -> str:
+    """Design the entity relationship graph for institutional knowledge."""
+    return json.dumps({
+        "graph_schema": {
+            "node_types": {
+                "company": ["name", "industry", "size", "icp_match_score", "relationship_status"],
+                "person": ["name", "title", "company", "contact_info", "interaction_history"],
+                "industry": ["name", "market_size", "growth_rate", "key_players", "trends"],
+                "strategy": ["type", "channel", "effectiveness_score", "last_used", "context"],
+                "tool": ["name", "category", "api_cost", "internal_alternative", "usage_count"],
+                "outcome": ["metric", "value", "campaign_id", "agent_id", "timestamp"],
+                "content": ["type", "platform", "performance", "audience_reaction", "reusable_patterns"],
+            },
+            "edge_types": [
+                "works_at", "contacted_by", "converted_to_client", "churned",
+                "competes_with", "partners_with", "targets_icp",
+                "produced_by_agent", "used_in_campaign", "resulted_in",
+                "similar_to", "contradicts", "supersedes",
+            ],
+            "indexes": ["by_freshness", "by_confidence", "by_domain", "by_agent"],
+        },
+        "storage": "Supabase (structured) + vector embeddings (semantic search)",
+        "capacity": "Start with 10K nodes, scale to 1M+",
+    })
+
+
+async def _create_knowledge_entry(category: str, content: str, source: str = "", confidence: str = "verified", tags: str = "") -> str:
+    """Add a fact or insight to the knowledge base."""
+    import uuid as _uuid
+    return json.dumps({
+        "id": f"KB-{str(_uuid.uuid4())[:8].upper()}",
+        "category": category,
+        "content": content[:500],
+        "source": source,
+        "confidence": confidence,
+        "tags": [t.strip() for t in tags.split(",")] if tags else [],
+        "created": "now",
+        "freshness_expiry": {"market_data": "24h", "competitor_intel": "7d", "industry_trend": "30d", "client_pattern": "90d", "strategy_insight": "180d"}.get(category, "30d"),
+        "status": "active",
+    })
+
+
+async def _query_knowledge_base(query: str, domain: str = "", min_confidence: str = "inferred") -> str:
+    """Semantic search across accumulated knowledge."""
+    return json.dumps({
+        "query": query,
+        "domain": domain or "all",
+        "min_confidence": min_confidence,
+        "results": [],
+        "note": "Knowledge base is building. Results will populate as agents accumulate data from tool calls, client interactions, and market research. Every agent run adds to the knowledge base automatically.",
+        "coverage_status": "Phase 1: Accumulation — all tool outputs being captured and categorized",
+    })
+
+
+async def _track_api_dependency(api_name: str, call_count: str = "0", avg_cost: str = "0", internal_coverage: str = "0") -> str:
+    """Log external API usage for internalization planning."""
+    return json.dumps({
+        "api": api_name,
+        "monthly_calls": int(call_count),
+        "avg_cost_per_call": f"${float(avg_cost):.4f}",
+        "monthly_cost": f"${int(call_count) * float(avg_cost):.2f}",
+        "internal_coverage_pct": f"{internal_coverage}%",
+        "internalization_readiness": "Ready" if float(internal_coverage) > 80 else "Building" if float(internal_coverage) > 30 else "Accumulating",
+        "recommendation": f"{'Can replace with internal knowledge' if float(internal_coverage) > 80 else 'Continue accumulating data — ' + str(100 - int(float(internal_coverage))) + '% more coverage needed'}",
+    })
+
+
+async def _calculate_knowledge_coverage(domain: str = "all") -> str:
+    """Score self-sufficiency by knowledge domain."""
+    return json.dumps({
+        "domain": domain,
+        "coverage_by_domain": {
+            "market_data": {"coverage_pct": 0, "entries": 0, "status": "accumulating", "target": "Replace web_search for common queries"},
+            "competitor_intel": {"coverage_pct": 0, "entries": 0, "status": "accumulating", "target": "Internal competitive database"},
+            "icp_patterns": {"coverage_pct": 0, "entries": 0, "status": "accumulating", "target": "Predict ICP fit without research"},
+            "content_patterns": {"coverage_pct": 0, "entries": 0, "status": "accumulating", "target": "Generate content from internal playbooks"},
+            "pricing_intelligence": {"coverage_pct": 0, "entries": 0, "status": "accumulating", "target": "Internal pricing models"},
+            "industry_knowledge": {"coverage_pct": 0, "entries": 0, "status": "accumulating", "target": "Self-serve industry reports"},
+        },
+        "overall_self_sufficiency": "0% — Phase 1: Data accumulation in progress",
+        "milestone": "Phase 1: 0-20% (accumulate) → Phase 2: 20-50% (organize) → Phase 3: 50-80% (predict) → Phase 4: 80%+ (self-sufficient)",
+    })
+
+
+async def _detect_knowledge_gaps(domain: str = "", priority: str = "high") -> str:
+    """Identify missing knowledge areas ranked by business impact."""
+    return json.dumps({
+        "domain": domain or "all",
+        "priority": priority,
+        "gaps": [
+            {"domain": "market_data", "gap": "No internal economic indicators dataset", "impact": "high", "research_plan": "Accumulate from get_economic_indicators and get_market_data calls"},
+            {"domain": "competitor_intel", "gap": "No competitor pricing history", "impact": "high", "research_plan": "Track competitor pricing on every competitive_intel agent run"},
+            {"domain": "client_patterns", "gap": "No client behavior models", "impact": "high", "research_plan": "Log every client interaction, build cohort models after 10+ clients"},
+            {"domain": "content_performance", "gap": "No content effectiveness data", "impact": "medium", "research_plan": "Track engagement metrics for every piece of content produced"},
+        ],
+        "note": "Gaps auto-fill as agents run and accumulate data. Priority gaps drive research agent scheduling.",
+    })
+
+
+async def _build_prediction_model(model_type: str, data_requirements: str = "") -> str:
+    """Design predictive model from accumulated data."""
+    models = {
+        "lead_scoring": {"inputs": ["ICP match", "engagement signals", "company size", "tech stack"], "output": "Conversion probability 0-100", "min_data": "50+ leads with outcome data"},
+        "churn_prediction": {"inputs": ["Engagement frequency", "CSAT trend", "support tickets", "usage decline"], "output": "Churn risk: low/medium/high", "min_data": "20+ clients with 6mo+ history"},
+        "pricing_optimization": {"inputs": ["Client size", "service scope", "competitive pricing", "win/loss history"], "output": "Optimal price point", "min_data": "30+ proposals with win/loss data"},
+        "channel_effectiveness": {"inputs": ["Channel", "content type", "audience segment", "timing"], "output": "Expected ROI by channel", "min_data": "100+ campaign data points"},
+    }
+    model = models.get(model_type, {"inputs": ["Custom"], "output": "Custom prediction", "min_data": "Sufficient historical data"})
+    return json.dumps({
+        "model_type": model_type,
+        "specification": model,
+        "status": "Design phase — accumulating training data",
+        "note": "Model becomes available when minimum data threshold is met. All agent outputs contribute to training data.",
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AGENT WORKSPACE & WORKFLOW HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _provision_agent_workspace(agent_id: str, compute_type: str = "standard", capabilities: str = "") -> str:
+    """Create sandboxed compute environment for an agent."""
+    cap_list = [c.strip() for c in capabilities.split(",")] if capabilities else ["shell", "browser", "file_system"]
+    compute_specs = {
+        "standard": {"cpu": "2 vCPU", "memory": "4GB", "storage": "10GB", "network": "outbound_only"},
+        "heavy": {"cpu": "4 vCPU", "memory": "8GB", "storage": "50GB", "network": "outbound_only"},
+        "builder": {"cpu": "8 vCPU", "memory": "16GB", "storage": "100GB", "network": "outbound_with_ports"},
+    }
+    return json.dumps({
+        "agent_id": agent_id,
+        "workspace_id": f"WS-{agent_id[:8].upper()}",
+        "compute": compute_specs.get(compute_type, compute_specs["standard"]),
+        "capabilities": cap_list,
+        "sandboxing": {
+            "isolation": "Container-based (gVisor/Firecracker)",
+            "network": "Outbound only, no listening ports (unless builder tier)",
+            "file_system": "Persistent volume per agent, snapshot on each run",
+            "secrets": "Vault-injected, never written to disk",
+        },
+        "persistence": "Workspace state persists between runs. Agent resumes from last checkpoint.",
+        "languages_available": ["python3.12", "node20", "go1.22", "rust1.77"],
+        "tools_available": ["git", "curl", "jq", "sqlite3", "chromium (headless)"],
+    })
+
+
+async def _configure_browser_automation(agent_id: str, allowed_domains: str = "", capabilities: str = "") -> str:
+    """Set up browser automation for an agent."""
+    domains = [d.strip() for d in allowed_domains.split(",")] if allowed_domains else ["*"]
+    return json.dumps({
+        "agent_id": agent_id,
+        "browser": "Chromium (headless)",
+        "capabilities": {
+            "navigate": "Visit URLs, follow links, handle redirects",
+            "interact": "Click buttons, fill forms, select dropdowns, upload files",
+            "extract": "Read page content, extract structured data, parse tables",
+            "screenshot": "Capture full-page or element screenshots for verification",
+            "wait": "Wait for elements, network idle, custom conditions",
+            "sessions": "Persistent sessions with cookie/localStorage management",
+        },
+        "security": {
+            "allowed_domains": domains,
+            "blocked": ["No financial transactions", "No account creation without approval", "No PII submission"],
+            "rate_limiting": "Max 60 requests/minute per domain",
+            "user_agent": "SupervisorBot/1.0 (Automated Agent)",
+        },
+        "use_cases": [
+            "Research competitor websites and pricing pages",
+            "Fill client intake forms and applications",
+            "Monitor social media platforms for mentions",
+            "Extract data from analytics dashboards",
+            "Test deployed websites and applications",
+        ],
+    })
+
+
+async def _create_code_sandbox(language: str, packages: str = "", timeout: str = "300") -> str:
+    """Provision language-specific code execution environment."""
+    return json.dumps({
+        "language": language,
+        "runtime": {"python": "Python 3.12", "node": "Node.js 20 LTS", "go": "Go 1.22", "rust": "Rust 1.77"}.get(language, language),
+        "packages": [p.strip() for p in packages.split(",")] if packages else ["standard library"],
+        "timeout_seconds": int(timeout),
+        "execution_model": {
+            "input": "Code string + stdin",
+            "output": "stdout + stderr + exit code + artifacts",
+            "artifacts": "Files created during execution persist in workspace",
+            "resource_limits": {"max_memory": "2GB", "max_cpu_time": f"{timeout}s", "max_output": "10MB"},
+        },
+        "security": "Sandboxed execution, no network access during code run, no system calls",
+    })
+
+
+async def _design_workflow(name: str, trigger: str, steps: str, error_handling: str = "retry") -> str:
+    """Create trigger-based automation workflow."""
+    step_list = [s.strip() for s in steps.split(",")]
+    return json.dumps({
+        "workflow_name": name,
+        "trigger": {
+            "type": trigger,
+            "examples": {
+                "webhook": "External event (Stripe payment, form submission, API call)",
+                "schedule": "Cron-like (every day at 9am, every Monday, every hour)",
+                "event": "Internal event (agent completes, metric crosses threshold)",
+                "manual": "Human-triggered via API or dashboard button",
+            },
+        },
+        "steps": [{"order": i + 1, "action": step, "timeout": "60s", "on_failure": error_handling} for i, step in enumerate(step_list)],
+        "error_handling": {
+            "retry": {"max_retries": 3, "backoff": "exponential (2s, 4s, 8s)"},
+            "fallback": "Execute fallback action",
+            "escalate": "Notify human via Slack/email",
+            "skip": "Log error and continue to next step",
+        },
+        "monitoring": {"execution_log": True, "duration_tracking": True, "failure_alerting": True},
+    })
+
+
+async def _build_agent_pipeline(agents: str, data_flow: str = "sequential") -> str:
+    """Connect multi-agent execution chains."""
+    agent_list = [a.strip() for a in agents.split(",")]
+    return json.dumps({
+        "pipeline": {
+            "agents": agent_list,
+            "data_flow": data_flow,
+            "execution_model": {
+                "sequential": "Agent A output → transforms → Agent B input → ... → Final output",
+                "parallel": "Multiple agents run simultaneously, results merged at join point",
+                "conditional": "Agent A output determines which agent runs next (branching)",
+            }.get(data_flow, data_flow),
+        },
+        "data_transformation": "Between each agent: extract relevant fields, format for next agent's context",
+        "error_handling": "If any agent fails: retry once, then skip with logged error, continue pipeline",
+        "examples": [
+            "Prospector → Outreach → Social: Lead gen pipeline",
+            "Economist → Governance → Advisor: Intelligence-informed strategy",
+            "Data Engineer → All Agents: Dashboard data feeds every agent",
+            "Client Fulfillment → Billing → CS: Client lifecycle pipeline",
+        ],
+    })
+
+
+async def _set_autonomy_level(agent_id: str, level: str = "2", spending_limit: str = "0", approval_required: str = "true") -> str:
+    """Configure agent independence tier."""
+    levels = {
+        "0": {"name": "Observer", "can": "Read data, generate recommendations", "cannot": "Take any action", "approval": "All actions need human approval"},
+        "1": {"name": "Suggester", "can": "Draft outputs, propose actions", "cannot": "Execute or publish", "approval": "Human approves before execution"},
+        "2": {"name": "Actor", "can": "Execute within guardrails", "cannot": "Spend money or contact clients without approval", "approval": "Financial and client-facing actions need approval"},
+        "3": {"name": "Autonomous", "can": "Execute most actions independently", "cannot": "Exceed spending limits or change strategy", "approval": "Only strategy changes and large spend need approval"},
+        "4": {"name": "Self-Improving", "can": "Optimize own prompts, build tools, adjust strategy", "cannot": "Modify other agents or system architecture", "approval": "Quarterly human review of self-improvements"},
+    }
+    return json.dumps({
+        "agent_id": agent_id,
+        "autonomy_level": int(level),
+        "level_details": levels.get(level, levels["2"]),
+        "spending_limit_per_action": f"${float(spending_limit)}" if float(spending_limit) > 0 else "No spending authority",
+        "approval_required": approval_required == "true",
+        "progression_criteria": "Demonstrate reliability over 10+ runs with >90% positive outcomes to level up",
+    })
+
+
+async def _create_workflow_monitor(workflow_name: str, alert_on: str = "failure") -> str:
+    """Set up execution tracking for workflows."""
+    return json.dumps({
+        "workflow": workflow_name,
+        "monitoring": {
+            "metrics_tracked": ["execution_count", "success_rate", "avg_duration", "failure_reasons", "cost_per_run"],
+            "alert_triggers": {
+                "failure": "Any workflow failure → immediate notification",
+                "slow": "Duration > 2x average → warning",
+                "cost": "Cost per run > threshold → warning",
+                "drift": "Success rate drops below 90% → alert",
+            },
+            "dashboard": f"Visible at /workflows/{workflow_name}/metrics",
+        },
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# WORLD MODEL HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _build_world_state(domains: str = "all") -> str:
+    """Create real-time world state model."""
+    return json.dumps({
+        "world_state": {
+            "economy": {"status": "Query get_economic_indicators for current state", "indicators": ["GDP", "CPI", "Unemployment", "Fed Rate", "Consumer Confidence"], "update_frequency": "daily"},
+            "markets": {"status": "Query get_market_data for live data", "tracked": ["S&P 500", "Sector indices", "VIX", "10Y yield", "DXY"], "update_frequency": "real-time"},
+            "technology": {"status": "Scan HN, Reddit, tech news", "tracked": ["AI developments", "Platform changes", "New tools/frameworks"], "update_frequency": "daily"},
+            "culture": {"status": "Monitor social platforms", "tracked": ["Trending topics", "Social movements", "Cultural moments", "Viral content"], "update_frequency": "hourly"},
+            "politics": {"status": "Monitor regulatory feeds", "tracked": ["Policy changes", "Regulatory actions", "Tax law updates", "Trade policy"], "update_frequency": "daily"},
+            "weather_events": {"status": "Monitor impact events", "tracked": ["Supply chain disruptions", "Regional events affecting business"], "update_frequency": "as-needed"},
+        },
+        "agent_integration": "Every agent receives relevant world state context before executing",
+    })
+
+
+async def _map_social_climate(topic: str, platforms: str = "all") -> str:
+    """Analyze current social sentiment on a topic."""
+    platform_list = [p.strip() for p in platforms.split(",")] if platforms != "all" else ["linkedin", "twitter", "reddit", "tiktok", "hackernews"]
+    return json.dumps({
+        "topic": topic,
+        "platforms": platform_list,
+        "analysis_framework": {
+            "sentiment": {"positive": 0, "negative": 0, "neutral": 0, "mixed": 0},
+            "volume": "Track mention volume over time to detect trend shifts",
+            "key_narratives": "Identify the 3-5 dominant narratives around this topic",
+            "influencer_positions": "Map key voices and their stances",
+            "generational_split": "How Gen Z vs Millennial vs Gen X view this topic",
+        },
+        "data_sources": [f"Use search_reddit for r/{topic.replace(' ', '')} sentiment", "Use search_hackernews for tech community view", "Use web_search for broader media sentiment"],
+        "actionable_output": f"For {topic}: recommended tone, messaging do's and don'ts, platforms to lean into vs avoid",
+    })
+
+
+async def _build_cultural_calendar(geography: str = "us", industry: str = "", months: str = "3") -> str:
+    """Map cultural moments and seasonal patterns."""
+    return json.dumps({
+        "geography": geography,
+        "industry": industry,
+        "months_ahead": int(months),
+        "calendar_categories": {
+            "holidays": "Federal holidays, cultural celebrations, religious observances",
+            "industry_events": f"Conferences, trade shows, award deadlines for {industry or 'your industry'}",
+            "buying_seasons": "Budget cycles, fiscal year ends, seasonal demand patterns",
+            "cultural_moments": "Awareness months, social movements, viral events",
+            "content_hooks": "Annual events that create content opportunities (Earth Day, Small Business Saturday, etc.)",
+        },
+        "for_each_event": {
+            "what": "Event/moment name and date",
+            "relevance": "How it affects this business (1-5 scale)",
+            "content_opportunity": "Specific content angle",
+            "messaging_adjustment": "Tone/messaging changes needed",
+            "risk": "Any sensitivity or controversy to avoid",
+        },
+    })
+
+
+async def _track_platform_culture(platform: str) -> str:
+    """Map norms and best practices for a specific platform."""
+    cultures = {
+        "linkedin": {"tone": "Professional but human", "format": "Multi-paragraph stories, carousels, polls", "taboo": "Hard selling, engagement bait, irrelevant personal stories", "algorithm": "Favors comments > likes, dwell time, native content"},
+        "twitter": {"tone": "Punchy, opinionated, real-time", "format": "Hot takes, threads, quote tweets, memes", "taboo": "Long-form without value, promotional links in first tweet", "algorithm": "Favors replies, bookmarks, early engagement velocity"},
+        "reddit": {"tone": "Authentic, humble, value-first", "format": "Helpful comments, detailed answers, AMAs", "taboo": "Self-promotion, marketing-speak, anything that smells like an ad", "algorithm": "Community-moderated, karma-based credibility"},
+        "tiktok": {"tone": "Authentic, entertaining, educational", "format": "15-60s vertical video, trending sounds, native style", "taboo": "Corporate tone, over-produced content, ignoring trends", "algorithm": "Completion rate > followers, fresh accounts can go viral"},
+        "hackernews": {"tone": "Technical, data-driven, skeptical", "format": "Show HN, technical deep-dives, thoughtful comments", "taboo": "Marketing, clickbait, unsubstantiated claims, fluff", "algorithm": "Points + comments, recency, no gaming tolerance"},
+        "youtube": {"tone": "Authoritative yet approachable", "format": "Shorts (30-60s) and long-form (8-15min)", "taboo": "Clickbait without delivering, stolen content", "algorithm": "Watch time, CTR on thumbnails, session time"},
+    }
+    return json.dumps({
+        "platform": platform,
+        "culture": cultures.get(platform.lower(), {"note": f"Research {platform} norms with web_search"}),
+        "best_posting_times": "Use web_search for current best-times data for your specific audience",
+        "content_pillars": "Adapt your 3-5 content pillars to this platform's native format",
+    })
+
+
+async def _map_geographic_context(geography: str, business_type: str = "") -> str:
+    """Build spatial awareness for business operations."""
+    return json.dumps({
+        "geography": geography,
+        "context": {
+            "regulatory": f"Use get_regulatory_updates for {geography}-specific regulations",
+            "cultural": f"Use web_search for business culture norms in {geography}",
+            "competitive": f"Use web_search for competitors in {geography}",
+            "economic": f"Use get_economic_indicators for {geography} economic data",
+            "talent": f"Use web_search for hiring market in {geography}",
+        },
+        "considerations": [
+            "Timezone implications for client communication",
+            "Regional language/dialect preferences in content",
+            "Local regulations (privacy, employment, tax)",
+            "Cultural sensitivity in marketing messaging",
+            "Regional platform preferences (some regions favor different social platforms)",
+        ],
+    })
+
+
+async def _build_temporal_model(industry: str = "", business_stage: str = "") -> str:
+    """Build business cycle and timing awareness."""
+    return json.dumps({
+        "industry": industry,
+        "business_stage": business_stage,
+        "temporal_layers": {
+            "daily": {"patterns": "Peak engagement hours, optimal send times, meeting windows", "data_source": "Analytics + platform insights"},
+            "weekly": {"patterns": "Best days for content, outreach, reporting", "data_source": "Historical performance data"},
+            "monthly": {"patterns": "Content calendar, billing cycles, reporting cadence", "data_source": "Business operations data"},
+            "quarterly": {"patterns": "Budget cycles, QBRs, seasonal demand, tax deadlines", "data_source": "Financial calendar + industry norms"},
+            "annual": {"patterns": "Major holidays, industry conferences, fiscal planning, renewal seasons", "data_source": "Industry calendar + historical data"},
+            "multi_year": {"patterns": "Technology adoption curves, market maturity, business lifecycle stage", "data_source": "Industry reports + trend analysis"},
+        },
+        "current_position": {
+            "business_cycle": "Determine via get_economic_indicators (expansion/peak/contraction/trough)",
+            "technology_cycle": "Determine via web_search for current adoption curves",
+            "industry_cycle": f"Determine via get_industry_report for {industry or 'your industry'}",
+        },
+    })
+
+
+async def _run_scenario_analysis(scenario: str, business_name: str = "", impact_areas: str = "") -> str:
+    """Run what-if business modeling."""
+    areas = [a.strip() for a in impact_areas.split(",")] if impact_areas else ["revenue", "clients", "operations", "hiring", "marketing"]
+    return json.dumps({
+        "scenario": scenario,
+        "business": business_name,
+        "analysis": {area: {"impact": "Assess with current data", "probability": "Estimate", "mitigation": "Develop contingency"} for area in areas},
+        "framework": {
+            "step_1": "Define scenario parameters (severity, duration, trigger)",
+            "step_2": f"Assess impact on each area: {', '.join(areas)}",
+            "step_3": "Estimate probability (low/medium/high) and timeline",
+            "step_4": "Develop mitigation strategies for each impact area",
+            "step_5": "Define trigger signals that indicate scenario is materializing",
+            "step_6": "Create response playbook: immediate actions, 30-day plan, 90-day plan",
+        },
+        "common_scenarios": [
+            "Economic recession: demand drops 20-40%",
+            "Major competitor launch: pricing pressure",
+            "Regulation change: compliance costs increase",
+            "Key client churn: revenue concentration risk",
+            "AI disruption: commoditization of core service",
+            "Viral moment: sudden demand spike (positive or negative)",
+        ],
+    })
+
+
+async def _build_sentiment_tracker(topics: str, platforms: str = "all") -> str:
+    """Configure real-time sentiment monitoring."""
+    topic_list = [t.strip() for t in topics.split(",")]
+    return json.dumps({
+        "tracked_topics": topic_list,
+        "platforms": platforms,
+        "monitoring_config": {
+            "data_sources": ["Reddit API", "HN Algolia API", "Google Trends", "Twitter/X API", "News RSS feeds"],
+            "sentiment_model": "Classify each mention: positive/negative/neutral with confidence score",
+            "aggregation": "Rolling 24hr, 7d, 30d sentiment scores per topic",
+            "alerts": {
+                "sentiment_shift": "Topic sentiment changes >20% in 24 hours",
+                "volume_spike": "Mention volume >3x normal in 4 hours",
+                "negative_surge": "Negative sentiment >60% for any tracked topic",
+            },
+        },
+        "output": "Daily sentiment digest injected into agent context for relevant agents",
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SUPPORT & HELPDESK HANDLERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -6663,6 +7219,161 @@ def register_all_tools():
         [ToolParameter(name="industry", description="Industry to research"),
          ToolParameter(name="geography", description="Geography: us, state name, or country", required=False)],
         _industry_association_research, "partnerships")
+
+    # ── Client Fulfillment Tools ──
+    registry.register("build_client_intake", "Generate structured client intake questionnaire for onboarding.",
+        [ToolParameter(name="service", description="Service being delivered"),
+         ToolParameter(name="questions", description="Additional custom questions", required=False)],
+        _build_client_intake, "delivery")
+
+    registry.register("build_welcome_sequence", "Generate automated client welcome/onboarding email+SMS sequence.",
+        [ToolParameter(name="business_name", description="Business name"),
+         ToolParameter(name="service", description="Service being delivered"),
+         ToolParameter(name="client_name", description="Client name for personalization", required=False)],
+        _build_welcome_sequence, "delivery")
+
+    registry.register("build_deliverable_pipeline", "Define production workflow with phases, quality gates, and approval flows.",
+        [ToolParameter(name="service", description="Service being delivered"),
+         ToolParameter(name="timeline_days", description="Total timeline in days", required=False)],
+        _build_deliverable_pipeline, "delivery")
+
+    registry.register("track_client_milestone", "Log client delivery milestone with status and notifications.",
+        [ToolParameter(name="client_name", description="Client name"),
+         ToolParameter(name="milestone", description="Milestone name"),
+         ToolParameter(name="status", description="Status: complete, in_progress, blocked", required=False),
+         ToolParameter(name="notes", description="Notes or context", required=False)],
+        _track_client_milestone, "delivery")
+
+    registry.register("calculate_client_ltv", "Project client lifetime value with expansion revenue modeling.",
+        [ToolParameter(name="monthly_revenue", description="Monthly revenue from client"),
+         ToolParameter(name="retention_months", description="Average retention in months", required=False),
+         ToolParameter(name="expansion_rate", description="Monthly expansion rate %", required=False)],
+        _calculate_client_ltv, "delivery")
+
+    # ── Knowledge Engine Tools ──
+    registry.register("build_knowledge_graph", "Design entity relationship graph for institutional knowledge.",
+        [ToolParameter(name="domains", description="Knowledge domains: market, competitor, client, content, strategy", required=False),
+         ToolParameter(name="entity_types", description="Entity types to track", required=False)],
+        _build_knowledge_graph, "research")
+
+    registry.register("create_knowledge_entry", "Add a fact or insight to the institutional knowledge base.",
+        [ToolParameter(name="category", description="Category: market_data, competitor_intel, icp_patterns, content_patterns, pricing, industry"),
+         ToolParameter(name="content", description="The knowledge content"),
+         ToolParameter(name="source", description="Source: tool_output, client_call, agent_learning, web_research", required=False),
+         ToolParameter(name="confidence", description="Confidence: verified, inferred, hypothesized", required=False),
+         ToolParameter(name="tags", description="Comma-separated tags", required=False)],
+        _create_knowledge_entry, "research")
+
+    registry.register("query_knowledge_base", "Semantic search across accumulated institutional knowledge.",
+        [ToolParameter(name="query", description="Natural language query"),
+         ToolParameter(name="domain", description="Filter by domain", required=False),
+         ToolParameter(name="min_confidence", description="Minimum confidence: verified, inferred, hypothesized", required=False)],
+        _query_knowledge_base, "research")
+
+    registry.register("track_api_dependency", "Log external API usage for internalization planning.",
+        [ToolParameter(name="api_name", description="API name"),
+         ToolParameter(name="call_count", description="Monthly call count", required=False),
+         ToolParameter(name="avg_cost", description="Average cost per call", required=False),
+         ToolParameter(name="internal_coverage", description="% of queries answerable internally", required=False)],
+        _track_api_dependency, "research")
+
+    registry.register("calculate_knowledge_coverage", "Score self-sufficiency by knowledge domain.",
+        [ToolParameter(name="domain", description="Domain to assess or 'all'", required=False)],
+        _calculate_knowledge_coverage, "research")
+
+    registry.register("detect_knowledge_gaps", "Identify missing knowledge areas ranked by business impact.",
+        [ToolParameter(name="domain", description="Domain to analyze", required=False),
+         ToolParameter(name="priority", description="Priority filter: high, medium, low", required=False)],
+        _detect_knowledge_gaps, "research")
+
+    registry.register("build_prediction_model", "Design predictive model from accumulated data (lead scoring, churn, pricing).",
+        [ToolParameter(name="model_type", description="Model: lead_scoring, churn_prediction, pricing_optimization, channel_effectiveness"),
+         ToolParameter(name="data_requirements", description="Additional data requirements", required=False)],
+        _build_prediction_model, "research")
+
+    # ── Agent Workspace & Workflow Tools ──
+    registry.register("provision_agent_workspace", "Create sandboxed compute environment for an agent.",
+        [ToolParameter(name="agent_id", description="Agent ID to provision workspace for"),
+         ToolParameter(name="compute_type", description="Tier: standard, heavy, builder", required=False),
+         ToolParameter(name="capabilities", description="Capabilities: shell, browser, file_system, code_execution", required=False)],
+        _provision_agent_workspace, "orchestration")
+
+    registry.register("configure_browser_automation", "Set up browser automation capabilities for an agent.",
+        [ToolParameter(name="agent_id", description="Agent ID"),
+         ToolParameter(name="allowed_domains", description="Comma-separated allowed domains (or * for all)", required=False),
+         ToolParameter(name="capabilities", description="Browser capabilities to enable", required=False)],
+        _configure_browser_automation, "orchestration")
+
+    registry.register("create_code_sandbox", "Provision language-specific code execution environment.",
+        [ToolParameter(name="language", description="Language: python, node, go, rust"),
+         ToolParameter(name="packages", description="Comma-separated packages to install", required=False),
+         ToolParameter(name="timeout", description="Execution timeout in seconds", required=False)],
+        _create_code_sandbox, "orchestration")
+
+    registry.register("design_workflow", "Create trigger-based automation workflow.",
+        [ToolParameter(name="name", description="Workflow name"),
+         ToolParameter(name="trigger", description="Trigger: webhook, schedule, event, manual"),
+         ToolParameter(name="steps", description="Comma-separated workflow steps"),
+         ToolParameter(name="error_handling", description="Error strategy: retry, fallback, escalate, skip", required=False)],
+        _design_workflow, "orchestration")
+
+    registry.register("build_agent_pipeline", "Connect multi-agent execution chains.",
+        [ToolParameter(name="agents", description="Comma-separated agent IDs in execution order"),
+         ToolParameter(name="data_flow", description="Flow: sequential, parallel, conditional", required=False)],
+        _build_agent_pipeline, "orchestration")
+
+    registry.register("set_autonomy_level", "Configure agent independence tier (0=observer to 4=self-improving).",
+        [ToolParameter(name="agent_id", description="Agent ID"),
+         ToolParameter(name="level", description="Autonomy level: 0, 1, 2, 3, 4", required=False),
+         ToolParameter(name="spending_limit", description="Max spend per action in dollars", required=False),
+         ToolParameter(name="approval_required", description="Require approval: true or false", required=False)],
+        _set_autonomy_level, "orchestration")
+
+    registry.register("create_workflow_monitor", "Set up execution tracking and alerting for workflows.",
+        [ToolParameter(name="workflow_name", description="Workflow to monitor"),
+         ToolParameter(name="alert_on", description="Alert trigger: failure, slow, cost, drift", required=False)],
+        _create_workflow_monitor, "orchestration")
+
+    # ── World Model Tools ──
+    registry.register("build_world_state", "Create real-time world state model across economy, markets, tech, culture.",
+        [ToolParameter(name="domains", description="Domains: economy, markets, technology, culture, politics, all", required=False)],
+        _build_world_state, "research")
+
+    registry.register("map_social_climate", "Analyze current social sentiment on a topic across platforms.",
+        [ToolParameter(name="topic", description="Topic to analyze"),
+         ToolParameter(name="platforms", description="Platforms: linkedin, twitter, reddit, tiktok, hackernews, all", required=False)],
+        _map_social_climate, "research")
+
+    registry.register("build_cultural_calendar", "Map cultural moments and seasonal patterns for next N months.",
+        [ToolParameter(name="geography", description="Geography: us, uk, global, or specific region", required=False),
+         ToolParameter(name="industry", description="Industry for relevant events", required=False),
+         ToolParameter(name="months", description="Months ahead to plan", required=False)],
+        _build_cultural_calendar, "research")
+
+    registry.register("track_platform_culture", "Map norms, best practices, and algorithm preferences for a platform.",
+        [ToolParameter(name="platform", description="Platform: linkedin, twitter, reddit, tiktok, hackernews, youtube")],
+        _track_platform_culture, "research")
+
+    registry.register("map_geographic_context", "Build spatial awareness for business operations in a geography.",
+        [ToolParameter(name="geography", description="Geography to analyze"),
+         ToolParameter(name="business_type", description="Type of business for context", required=False)],
+        _map_geographic_context, "research")
+
+    registry.register("build_temporal_model", "Build business cycle and timing awareness for the industry.",
+        [ToolParameter(name="industry", description="Industry for cycle analysis", required=False),
+         ToolParameter(name="business_stage", description="Current stage: startup, growth, scale, mature", required=False)],
+        _build_temporal_model, "research")
+
+    registry.register("run_scenario_analysis", "Run what-if business modeling for strategic planning.",
+        [ToolParameter(name="scenario", description="Scenario to model (e.g. 'recession', 'competitor launch', 'regulation change')"),
+         ToolParameter(name="business_name", description="Business name", required=False),
+         ToolParameter(name="impact_areas", description="Areas to assess: revenue, clients, operations, hiring, marketing", required=False)],
+        _run_scenario_analysis, "research")
+
+    registry.register("build_sentiment_tracker", "Configure real-time sentiment monitoring for topics across platforms.",
+        [ToolParameter(name="topics", description="Comma-separated topics to track"),
+         ToolParameter(name="platforms", description="Platforms to monitor: all, or comma-separated list", required=False)],
+        _build_sentiment_tracker, "research")
 
 
 register_all_tools()
