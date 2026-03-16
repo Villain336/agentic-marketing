@@ -3180,6 +3180,295 @@ async def _generate_page(page_type: str, business_name: str, content: str,
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# BACK-OFFICE TOOL IMPLEMENTATIONS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _generate_chart_of_accounts(entity_type: str = "llc", industry: str = "services") -> str:
+    """Generate entity-appropriate chart of accounts."""
+    base = {
+        "1000-Assets": ["1010 Business Checking", "1020 Business Savings", "1030 Accounts Receivable",
+                        "1040 Prepaid Expenses", "1050 Equipment", "1060 Accumulated Depreciation"],
+        "2000-Liabilities": ["2010 Accounts Payable", "2020 Credit Card Payable", "2030 Sales Tax Payable",
+                             "2040 Payroll Tax Payable", "2050 Unearned Revenue"],
+        "3000-Equity": [],
+        "4000-Revenue": ["4010 Service Revenue", "4020 Retainer Revenue", "4030 Project Revenue",
+                         "4040 Consulting Revenue", "4050 Referral Income"],
+        "5000-COGS": ["5010 Contractor Payments", "5020 Software/Tools (Delivery)", "5030 Subcontractor Costs"],
+        "6000-Operating": ["6010 Advertising", "6020 Software Subscriptions", "6030 Professional Services",
+                           "6040 Office/Coworking", "6050 Insurance", "6060 Travel", "6070 Education/Training",
+                           "6080 Meals (50% deductible)", "6090 Phone/Internet", "6100 Bank Fees"],
+    }
+    et = (entity_type or "llc").lower()
+    if et == "sole_prop":
+        base["3000-Equity"] = ["3010 Owner's Equity", "3020 Owner's Draws"]
+    elif et in ("llc",):
+        base["3000-Equity"] = ["3010 Member's Equity", "3020 Member's Distributions", "3030 Retained Earnings"]
+    elif et in ("s_corp", "c_corp"):
+        base["3000-Equity"] = ["3010 Common Stock", "3020 Retained Earnings", "3030 Dividends Paid"]
+        base["6000-Operating"].append("6110 Officer Compensation")
+        base["6000-Operating"].append("6120 Payroll Expenses")
+    elif et == "partnership":
+        base["3000-Equity"] = ["3010 Partner A Capital", "3020 Partner B Capital", "3030 Partner Draws"]
+    return json.dumps({"entity_type": et, "industry": industry, "chart_of_accounts": base})
+
+
+async def _generate_pnl_template(entity_type: str = "llc", monthly_revenue: str = "0") -> str:
+    """Generate monthly P&L template."""
+    et = (entity_type or "llc").lower()
+    template = {
+        "revenue": {"service_revenue": 0, "retainer_revenue": 0, "project_revenue": 0, "total_revenue": 0},
+        "cogs": {"contractor_costs": 0, "delivery_tools": 0, "total_cogs": 0},
+        "gross_profit": 0,
+        "operating_expenses": {
+            "marketing": 0, "software": 0, "professional_services": 0, "insurance": 0,
+            "office": 0, "travel": 0, "education": 0, "misc": 0,
+        },
+    }
+    if et in ("s_corp", "c_corp"):
+        template["operating_expenses"]["officer_salary"] = 0
+        template["operating_expenses"]["payroll_taxes"] = 0
+        template["operating_expenses"]["benefits"] = 0
+    template["net_operating_income"] = 0
+    if et == "c_corp":
+        template["income_tax_provision"] = 0
+        template["net_income_after_tax"] = 0
+    else:
+        template["note"] = f"Pass-through entity ({et}) — income taxed at owner level"
+    return json.dumps({"entity_type": et, "pnl_template": template})
+
+
+async def _tax_deadline_calendar(entity_type: str = "llc", state: str = "") -> str:
+    """Generate tax compliance calendar by entity type."""
+    et = (entity_type or "llc").lower()
+    deadlines = []
+    # Quarterly estimated taxes — all entities
+    deadlines.append({"date": "Apr 15", "item": "Q1 estimated tax payment", "form": "1040-ES" if et in ("sole_prop", "llc") else "1120-W"})
+    deadlines.append({"date": "Jun 15", "item": "Q2 estimated tax payment", "form": "1040-ES" if et in ("sole_prop", "llc") else "1120-W"})
+    deadlines.append({"date": "Sep 15", "item": "Q3 estimated tax payment", "form": "1040-ES" if et in ("sole_prop", "llc") else "1120-W"})
+    deadlines.append({"date": "Jan 15", "item": "Q4 estimated tax payment", "form": "1040-ES" if et in ("sole_prop", "llc") else "1120-W"})
+
+    if et == "sole_prop":
+        deadlines.append({"date": "Apr 15", "item": "Annual tax return", "form": "Schedule C (1040)"})
+    elif et == "llc":
+        deadlines.append({"date": "Mar 15", "item": "Partnership return (multi-member) or Schedule C (single-member)", "form": "1065 or Schedule C"})
+    elif et == "s_corp":
+        deadlines.append({"date": "Mar 15", "item": "S-Corp tax return", "form": "1120-S"})
+        deadlines.append({"date": "Jan 31", "item": "W-2s to employees", "form": "W-2"})
+        deadlines.append({"date": "Jan 31", "item": "1099s to contractors", "form": "1099-NEC"})
+    elif et == "c_corp":
+        deadlines.append({"date": "Apr 15", "item": "C-Corp tax return", "form": "1120"})
+        deadlines.append({"date": "Jan 31", "item": "W-2s to employees", "form": "W-2"})
+        deadlines.append({"date": "Jan 31", "item": "1099s to contractors", "form": "1099-NEC"})
+    elif et == "partnership":
+        deadlines.append({"date": "Mar 15", "item": "Partnership return + K-1s", "form": "1065 + K-1"})
+
+    if state:
+        deadlines.append({"date": "Varies", "item": f"State tax return — {state}", "form": f"Check {state} DOR"})
+        deadlines.append({"date": "Varies", "item": f"Annual report — {state}", "form": f"Secretary of State"})
+
+    return json.dumps({"entity_type": et, "state": state, "deadlines": sorted(deadlines, key=lambda d: d["date"])})
+
+
+async def _create_hiring_plan(service: str = "", current_revenue: str = "0", entity_type: str = "llc") -> str:
+    """Generate revenue-triggered hiring plan."""
+    et = (entity_type or "llc").lower()
+    plan = {
+        "entity_type": et,
+        "hiring_model": "1099 contractors" if et == "sole_prop" else "W-2 + 1099 mix",
+        "phases": [
+            {"revenue_trigger": "$0-5K/mo", "hires": ["No hires — founder does everything"],
+             "note": "Focus on sales and delivery. Automate what you can."},
+            {"revenue_trigger": "$5K-15K/mo", "hires": ["1099 Contractor: Delivery Specialist", "1099 Contractor: VA (admin)"],
+             "note": "Delegate delivery first so founder can sell."},
+            {"revenue_trigger": "$15K-30K/mo", "hires": ["1099/W-2: Operations Manager", "1099: Content/Marketing"],
+             "note": "Ops manager is the first critical hire. Frees founder for strategy."},
+            {"revenue_trigger": "$30K-50K/mo", "hires": ["W-2: Account Manager", "1099: Sales Development"],
+             "note": "Account management prevents churn. SDR drives growth."},
+            {"revenue_trigger": "$50K+/mo", "hires": ["W-2: Department Leads", "W-2: Finance/Bookkeeper"],
+             "note": "Build middle management. Founder becomes CEO."},
+        ],
+    }
+    if et in ("s_corp", "c_corp"):
+        plan["note"] = f"Owner is already W-2 employee of the {et.replace('_', '-').upper()}. Payroll is running from day 1."
+    return json.dumps(plan)
+
+
+async def _worker_classification_check(worker_role: str = "", state: str = "", hours_per_week: str = "0") -> str:
+    """Check 1099 vs W-2 classification risk."""
+    risk_factors = []
+    hours = int(hours_per_week) if hours_per_week.isdigit() else 0
+    if hours >= 30:
+        risk_factors.append("Working 30+ hours/week — high risk of misclassification as employee")
+    factors = {
+        "behavioral_control": "Does the business control HOW the worker performs? If yes → employee indicator.",
+        "financial_control": "Does the worker have unreimbursed expenses, opportunity for profit/loss? If yes → contractor indicator.",
+        "relationship_type": "Is there a written contract? Benefits? Permanence? These all matter.",
+    }
+    return json.dumps({
+        "worker_role": worker_role, "state": state, "hours_per_week": hours,
+        "risk_factors": risk_factors, "irs_factors": factors,
+        "recommendation": "Consult employment attorney if any risk factors present.",
+        "state_note": f"{state} may have stricter rules than federal (e.g. CA ABC test, MA presumption of employment)" if state else "",
+    })
+
+
+async def _build_sales_pipeline(service: str = "", avg_deal_size: str = "0", sales_cycle_days: str = "30") -> str:
+    """Build CRM pipeline stages with conversion targets."""
+    return json.dumps({
+        "pipeline_stages": [
+            {"stage": "Lead", "description": "New inbound or outbound lead", "target_conversion": "40%", "actions": ["Qualify via BANT", "Add to CRM", "Schedule discovery"]},
+            {"stage": "Discovery", "description": "Discovery call completed", "target_conversion": "60%", "actions": ["Run discovery script", "Identify pain/budget/timeline", "Send recap email"]},
+            {"stage": "Proposal", "description": "Proposal sent", "target_conversion": "50%", "actions": ["Send custom proposal", "Include 3 pricing tiers", "Set follow-up reminder"]},
+            {"stage": "Negotiation", "description": "Active negotiation", "target_conversion": "70%", "actions": ["Handle objections", "Offer concessions strategically", "Get verbal commit"]},
+            {"stage": "Closed Won", "description": "Contract signed, payment received", "target_conversion": "100%", "actions": ["Send contract", "Collect payment", "Trigger onboarding"]},
+            {"stage": "Closed Lost", "description": "Deal lost", "target_conversion": "—", "actions": ["Log reason", "Add to nurture sequence", "Review in retrospective"]},
+        ],
+        "velocity_targets": {
+            "avg_deal_size": avg_deal_size,
+            "sales_cycle_days": sales_cycle_days,
+            "target_win_rate": "35-45% overall",
+            "leads_needed_monthly": "Based on your targets, work backwards from revenue goal",
+        },
+    })
+
+
+async def _generate_discovery_script(service: str = "", icp: str = "") -> str:
+    """Generate discovery call script with objection handling."""
+    return json.dumps({
+        "opening": f"Thanks for taking the time. I'd love to understand your situation before I talk about what we do. Can you walk me through [specific pain related to {service}]?",
+        "questions": {
+            "pain": ["What's the biggest challenge you're facing with [area]?", "How long has this been a problem?", "What have you tried so far?"],
+            "impact": ["What does this cost you monthly — in time, money, or missed opportunities?", "If you don't solve this in the next 6 months, what happens?"],
+            "budget": ["Do you have a budget allocated for solving this?", "What would solving this be worth to you monthly?"],
+            "authority": ["Who else is involved in this decision?", "What does your decision process look like?"],
+            "timeline": ["When would you ideally want to start?", "Is there a deadline driving this?"],
+        },
+        "objection_handling": {
+            "too_expensive": "I understand. Let me ask — what's the cost of NOT solving this? [Reframe value vs price]",
+            "need_to_think": "Totally fair. What specifically do you need to think through? [Identify real objection]",
+            "talking_to_others": "Smart to compare. What criteria are most important to you? [Position your differentiator]",
+            "bad_timing": "When would be better? Let me send you something useful in the meantime. [Stay in touch]",
+        },
+        "close": "Based on what you've told me, here's what I'd recommend... [Prescribe, don't pitch]. Can I send you a proposal by [date]?",
+    })
+
+
+async def _build_delivery_sop(service: str = "", phase: str = "onboarding") -> str:
+    """Generate standard operating procedure for a delivery phase."""
+    return json.dumps({
+        "service": service, "phase": phase,
+        "sop": {
+            "objective": f"Standard procedure for the {phase} phase of {service} delivery",
+            "steps": [
+                {"step": 1, "action": "Send welcome email with expectations doc", "owner": "Account Manager", "timing": "Within 2 hours of contract signing"},
+                {"step": 2, "action": "Schedule kickoff call", "owner": "Account Manager", "timing": "Within 24 hours"},
+                {"step": 3, "action": "Collect all required assets/access", "owner": "Operations", "timing": "Before kickoff call"},
+                {"step": 4, "action": "Run kickoff call (agenda: goals, timeline, communication cadence)", "owner": "Project Lead", "timing": "Within 3 business days"},
+                {"step": 5, "action": "Set up project in PM tool with milestones", "owner": "Operations", "timing": "Within 24 hours of kickoff"},
+                {"step": 6, "action": "Send client the project timeline and communication plan", "owner": "Account Manager", "timing": "Same day as kickoff"},
+            ],
+            "quality_gates": ["Client assets received", "Kickoff call completed", "Project plan approved by client"],
+            "escalation": "If any step is blocked for >24 hours, escalate to Operations Manager",
+        },
+    })
+
+
+async def _capacity_planning(service: str = "", hours_per_client: str = "10", team_size: str = "1") -> str:
+    """Calculate capacity and utilization targets."""
+    hpc = int(hours_per_client) if hours_per_client.isdigit() else 10
+    ts = int(team_size) if team_size.isdigit() else 1
+    billable_hours = 32  # per person per week (80% utilization)
+    max_clients = (billable_hours * ts) // hpc if hpc > 0 else 0
+    return json.dumps({
+        "hours_per_client_weekly": hpc,
+        "team_size": ts,
+        "billable_hours_per_person": billable_hours,
+        "utilization_target": "80%",
+        "max_concurrent_clients": max_clients,
+        "recommended_max": int(max_clients * 0.85),  # leave buffer
+        "warning_threshold": int(max_clients * 0.9),
+        "actions_at_capacity": ["Raise prices", "Hire next team member", "Waitlist new clients", "Reduce scope per client"],
+    })
+
+
+async def _build_metrics_hierarchy(service: str = "", business_model: str = "retainer") -> str:
+    """Build North Star → L1 → L2 → Leading indicators hierarchy."""
+    return json.dumps({
+        "north_star": "Monthly Recurring Revenue (MRR)" if business_model == "retainer" else "Monthly Revenue",
+        "l1_metrics": [
+            {"metric": "New Clients/Month", "target": "3-5", "source": "CRM"},
+            {"metric": "Client Retention Rate", "target": ">90%", "source": "CRM"},
+            {"metric": "Average Revenue Per Client", "target": "Varies", "source": "Billing"},
+            {"metric": "Gross Margin", "target": ">60%", "source": "Accounting"},
+        ],
+        "l2_metrics": [
+            {"metric": "Lead-to-Client Conversion Rate", "target": "15-25%", "source": "CRM"},
+            {"metric": "Sales Cycle Length (days)", "target": "<30", "source": "CRM"},
+            {"metric": "Customer Acquisition Cost", "target": "<1 month revenue", "source": "Marketing + Sales"},
+            {"metric": "Lifetime Value", "target": ">3x CAC", "source": "Billing + CRM"},
+            {"metric": "Net Promoter Score", "target": ">50", "source": "Survey"},
+        ],
+        "leading_indicators": [
+            {"metric": "Qualified Leads/Week", "source": "Marketing"},
+            {"metric": "Discovery Calls/Week", "source": "Calendar"},
+            {"metric": "Proposals Sent/Week", "source": "CRM"},
+            {"metric": "Website Traffic", "source": "Analytics"},
+            {"metric": "Email Open Rate", "source": "ESP"},
+            {"metric": "Social Engagement Rate", "source": "Social tools"},
+            {"metric": "Content Published/Week", "source": "CMS"},
+        ],
+    })
+
+
+async def _build_attribution_model(channels: str = "") -> str:
+    """Design multi-touch attribution model."""
+    return json.dumps({
+        "recommended_model": "Position-Based (U-shaped)",
+        "allocation": {
+            "first_touch": "40% — credits the channel that brought them in",
+            "middle_touches": "20% — split across all nurturing touchpoints",
+            "last_touch": "40% — credits the channel that closed the deal",
+        },
+        "tracking_requirements": [
+            "UTM parameters on all links (utm_source, utm_medium, utm_campaign)",
+            "CRM integration to map touchpoints to deals",
+            "Call tracking with dynamic number insertion",
+            "Form tracking with hidden fields for attribution",
+            "Cookie consent + first-party cookies for cross-session tracking",
+        ],
+        "channel_mapping": {
+            "organic_search": "utm_source=google&utm_medium=organic",
+            "paid_search": "utm_source=google&utm_medium=cpc",
+            "social_organic": "utm_source=[platform]&utm_medium=social",
+            "social_paid": "utm_source=[platform]&utm_medium=paid_social",
+            "email": "utm_source=email&utm_medium=email&utm_campaign=[name]",
+            "referral": "utm_source=referral&utm_medium=partner",
+            "direct": "No UTM — direct traffic or dark social",
+        },
+    })
+
+
+async def _build_dashboard_spec(business_name: str = "", metrics: str = "") -> str:
+    """Generate executive dashboard specification."""
+    return json.dumps({
+        "dashboard_name": f"{business_name} Executive Dashboard",
+        "refresh_cadence": "Real-time for revenue/leads, daily for everything else",
+        "sections": [
+            {"name": "Revenue", "kpis": ["MRR", "MRR Growth %", "Revenue vs Target", "Cash Collected"], "visualization": "Line chart + big numbers"},
+            {"name": "Pipeline", "kpis": ["Open Deals ($)", "Deals by Stage", "Win Rate (30d)", "Avg Deal Size"], "visualization": "Funnel + bar chart"},
+            {"name": "Marketing", "kpis": ["Leads This Week", "CAC", "Traffic", "Conversion Rate"], "visualization": "Sparklines + trend arrows"},
+            {"name": "Delivery", "kpis": ["Active Clients", "Utilization %", "NPS Score", "Overdue Tasks"], "visualization": "Gauge + number"},
+            {"name": "Finance", "kpis": ["Gross Margin", "Burn Rate", "Runway (months)", "AR Aging"], "visualization": "Big numbers + bar chart"},
+        ],
+        "recommended_tools": [
+            {"tool": "Databox", "use": "Dashboard aggregation from multiple sources", "cost": "$0-72/mo"},
+            {"tool": "Google Looker Studio", "use": "Free BI for GA4/GSC/Sheets data", "cost": "Free"},
+            {"tool": "Notion", "use": "Internal scorecards and weekly reviews", "cost": "$8-10/mo"},
+        ],
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # REGISTER ALL TOOLS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -3783,6 +4072,74 @@ def register_all_tools():
          ToolParameter(name="brand_colors", description="JSON or hex color", required=False),
          ToolParameter(name="style", description="Visual style: modern, bold, minimal", required=False)],
         _generate_page, "website")
+
+    # ── Finance Tools ──
+    registry.register("generate_chart_of_accounts", "Generate entity-appropriate chart of accounts with industry-specific categories.",
+        [ToolParameter(name="entity_type", description="Entity type: sole_prop, llc, s_corp, c_corp, partnership"),
+         ToolParameter(name="industry", description="Industry for category customization", required=False)],
+        _generate_chart_of_accounts, "finance")
+
+    registry.register("generate_pnl_template", "Generate monthly P&L template adapted to entity type.",
+        [ToolParameter(name="entity_type", description="Entity type: sole_prop, llc, s_corp, c_corp"),
+         ToolParameter(name="monthly_revenue", description="Estimated monthly revenue", required=False)],
+        _generate_pnl_template, "finance")
+
+    registry.register("tax_deadline_calendar", "Generate tax compliance calendar with entity-specific deadlines.",
+        [ToolParameter(name="entity_type", description="Entity type: sole_prop, llc, s_corp, c_corp, partnership"),
+         ToolParameter(name="state", description="State of operation", required=False)],
+        _tax_deadline_calendar, "finance")
+
+    # ── HR Tools ──
+    registry.register("create_hiring_plan", "Generate revenue-triggered hiring plan adapted to entity type.",
+        [ToolParameter(name="service", description="Service the business provides"),
+         ToolParameter(name="current_revenue", description="Current monthly revenue", required=False),
+         ToolParameter(name="entity_type", description="Entity type: sole_prop, llc, s_corp, c_corp", required=False)],
+        _create_hiring_plan, "hr")
+
+    registry.register("worker_classification_check", "Check 1099 vs W-2 classification risk for a worker role.",
+        [ToolParameter(name="worker_role", description="Role/title of the worker"),
+         ToolParameter(name="state", description="State of operation", required=False),
+         ToolParameter(name="hours_per_week", description="Hours per week the worker does", required=False)],
+        _worker_classification_check, "hr")
+
+    # ── Sales Pipeline Tools ──
+    registry.register("build_sales_pipeline", "Build CRM pipeline stages with conversion targets and actions.",
+        [ToolParameter(name="service", description="Service being sold"),
+         ToolParameter(name="avg_deal_size", description="Average deal size in dollars", required=False),
+         ToolParameter(name="sales_cycle_days", description="Average sales cycle length in days", required=False)],
+        _build_sales_pipeline, "sales")
+
+    registry.register("generate_discovery_script", "Generate discovery call script with objection handling library.",
+        [ToolParameter(name="service", description="Service being sold"),
+         ToolParameter(name="icp", description="Ideal customer profile", required=False)],
+        _generate_discovery_script, "sales")
+
+    # ── Delivery & Operations Tools ──
+    registry.register("build_delivery_sop", "Generate standard operating procedure for a delivery phase.",
+        [ToolParameter(name="service", description="Service being delivered"),
+         ToolParameter(name="phase", description="Phase: onboarding, execution, review, handoff", required=False)],
+        _build_delivery_sop, "delivery")
+
+    registry.register("capacity_planning", "Calculate capacity, utilization targets, and max concurrent clients.",
+        [ToolParameter(name="service", description="Service being delivered"),
+         ToolParameter(name="hours_per_client", description="Hours per client per week", required=False),
+         ToolParameter(name="team_size", description="Number of team members", required=False)],
+        _capacity_planning, "delivery")
+
+    # ── Business Intelligence / Analytics Tools ──
+    registry.register("build_metrics_hierarchy", "Build North Star → L1 → L2 → Leading indicators hierarchy.",
+        [ToolParameter(name="service", description="Service/business type"),
+         ToolParameter(name="business_model", description="Model: retainer, project, hourly, productized", required=False)],
+        _build_metrics_hierarchy, "bi")
+
+    registry.register("build_attribution_model", "Design multi-touch attribution model with tracking requirements.",
+        [ToolParameter(name="channels", description="Current marketing channels (comma-separated)", required=False)],
+        _build_attribution_model, "bi")
+
+    registry.register("build_dashboard_spec", "Generate executive dashboard specification with KPIs and tool recommendations.",
+        [ToolParameter(name="business_name", description="Business name"),
+         ToolParameter(name="metrics", description="Key metrics to include (comma-separated)", required=False)],
+        _build_dashboard_spec, "bi")
 
 
 register_all_tools()
