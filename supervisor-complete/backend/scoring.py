@@ -47,6 +47,13 @@ class AgentScorer:
             "procurement": self._score_procurement,
             "newsletter": self._score_newsletter,
             "ppc": self._score_ppc,
+            "finance": self._score_finance,
+            "hr": self._score_hr,
+            "sales": self._score_sales,
+            "delivery": self._score_delivery,
+            "analytics_agent": self._score_analytics,
+            "tax_strategist": self._score_tax,
+            "wealth_architect": self._score_wealth,
         }
 
         for agent_id, scorer in scorers.items():
@@ -252,6 +259,179 @@ class AgentScorer:
         return {"score": min(100, base + perf),
                 "reasoning": f"PPC optimizing, ROAS: {roas}x" if roas else "PPC playbook ready",
                 "metrics": ad}
+
+
+    # ── Back-Office Agents ──────────────────────────────────────────
+
+    def _score_finance(self, campaign: Campaign, metrics: dict) -> dict:
+        """P&L accuracy, cash-flow visibility, budget adherence."""
+        has_plan = bool(campaign.memory.financial_plan)
+        fin = metrics.get("finance_metrics", {})
+
+        if not has_plan:
+            return {"score": 0, "reasoning": "No financial plan yet", "metrics": {}}
+
+        base = 40  # Plan exists
+        revenue = fin.get("mrr", 0) or fin.get("total_revenue", 0)
+        burn = fin.get("monthly_burn", 0)
+
+        runway_score = 0
+        if burn > 0 and revenue > 0:
+            ratio = revenue / burn
+            runway_score = min(30, ratio * 15)  # 2x revenue/burn = 30 pts
+
+        accuracy_score = min(30, fin.get("forecast_accuracy", 0) * 0.3)  # 100% accuracy = 30 pts
+
+        score = base + runway_score + accuracy_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Financial plan active, rev/burn ratio: {revenue/burn:.1f}x" if burn > 0 else "Financial plan built, awaiting revenue data",
+            "metrics": fin,
+        }
+
+    def _score_hr(self, campaign: Campaign, metrics: dict) -> dict:
+        """Hiring velocity, compliance coverage, team fill rate."""
+        has_playbook = bool(campaign.memory.hr_playbook)
+        hr = metrics.get("hr_metrics", {})
+
+        if not has_playbook:
+            return {"score": 0, "reasoning": "No HR playbook yet", "metrics": {}}
+
+        base = 40
+        positions_filled = hr.get("positions_filled", 0)
+        positions_open = hr.get("positions_open", 0)
+        total = positions_filled + positions_open
+
+        fill_score = 0
+        if total > 0:
+            fill_score = min(35, (positions_filled / total) * 35)
+
+        compliance_score = min(25, hr.get("compliance_pct", 0) * 0.25)  # 100% = 25 pts
+
+        score = base + fill_score + compliance_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"HR active, {positions_filled}/{total} positions filled" if total else "HR playbook ready, awaiting hiring data",
+            "metrics": hr,
+        }
+
+    def _score_sales(self, campaign: Campaign, metrics: dict) -> dict:
+        """Pipeline value, close rate, average deal size."""
+        has_playbook = bool(campaign.memory.sales_playbook)
+        crm = metrics.get("crm_metrics", {})
+
+        if not has_playbook:
+            return {"score": 0, "reasoning": "No sales playbook yet", "metrics": {}}
+
+        base = 35
+        close_rate = crm.get("close_rate", 0)
+        pipeline_value = crm.get("pipeline_value", 0)
+        deals = crm.get("total_deals", 0)
+
+        close_score = min(30, close_rate * 1.2)  # 25% close = 30 pts
+        pipeline_score = min(20, pipeline_value / 5000)  # $100K pipeline = 20 pts
+        volume_score = min(15, deals * 1.5)  # 10 deals = 15 pts
+
+        score = base + close_score + pipeline_score + volume_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Pipeline: ${pipeline_value:,.0f}, {close_rate}% close rate, {deals} deals" if deals else "Sales playbook ready, awaiting pipeline data",
+            "metrics": crm,
+        }
+
+    def _score_delivery(self, campaign: Campaign, metrics: dict) -> dict:
+        """On-time delivery rate, client satisfaction, capacity utilization."""
+        has_system = bool(campaign.memory.delivery_system)
+        ops = metrics.get("delivery_metrics", {})
+
+        if not has_system:
+            return {"score": 0, "reasoning": "No delivery system yet", "metrics": {}}
+
+        base = 40
+        on_time = ops.get("on_time_pct", 0)
+        satisfaction = ops.get("csat", 0)
+        utilization = ops.get("utilization_pct", 0)
+
+        ontime_score = min(25, on_time * 0.25)  # 100% on-time = 25 pts
+        csat_score = min(20, satisfaction * 4)  # 5.0 CSAT = 20 pts
+        util_score = min(15, utilization * 0.15)  # 100% util = 15 pts (over-utilization penalized by cap)
+
+        score = base + ontime_score + csat_score + util_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Delivery active, {on_time}% on-time, {satisfaction}/5 CSAT" if on_time else "Delivery system built, awaiting ops data",
+            "metrics": ops,
+        }
+
+    def _score_analytics(self, campaign: Campaign, metrics: dict) -> dict:
+        """Dashboard coverage, insight actionability, data freshness."""
+        has_framework = bool(campaign.memory.analytics_framework)
+
+        if not has_framework:
+            return {"score": 0, "reasoning": "No analytics framework yet", "metrics": {}}
+
+        # Score based on how many metric sources are feeding in
+        sources_active = sum(1 for k in ["email_metrics", "ad_metrics", "site_metrics",
+                                          "social_metrics", "crm_metrics", "finance_metrics"]
+                             if metrics.get(k))
+
+        base = 40
+        coverage_score = min(40, sources_active * 8)  # 5 sources = 40 pts
+        # Extra credit if key metrics are present
+        has_attribution = 1 if metrics.get("attribution_model") else 0
+        has_dashboard = 1 if metrics.get("dashboard_live") else 0
+        bonus = (has_attribution + has_dashboard) * 10
+
+        score = base + coverage_score + bonus
+        return {
+            "score": min(100, score),
+            "reasoning": f"Analytics framework active, {sources_active}/6 data sources connected",
+            "metrics": {"sources_active": sources_active},
+        }
+
+    def _score_tax(self, campaign: Campaign, metrics: dict) -> dict:
+        """Tax savings identified, compliance status, deadline adherence."""
+        has_playbook = bool(campaign.memory.tax_playbook)
+        tax = metrics.get("tax_metrics", {})
+
+        if not has_playbook:
+            return {"score": 0, "reasoning": "No tax playbook yet", "metrics": {}}
+
+        base = 45  # Tax planning alone is high-value
+        savings = tax.get("annual_savings", 0)
+        compliance = tax.get("compliance_pct", 100)
+
+        savings_score = min(30, savings / 1000)  # $30K savings = 30 pts
+        compliance_score = min(25, compliance * 0.25)  # 100% compliance = 25 pts
+
+        score = base + savings_score + compliance_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Tax strategy active, ${savings:,.0f} annual savings identified, {compliance}% compliant" if savings else "Tax playbook built, awaiting filing data",
+            "metrics": tax,
+        }
+
+    def _score_wealth(self, campaign: Campaign, metrics: dict) -> dict:
+        """Wealth structures deployed, asset protection coverage, tax efficiency."""
+        has_strategy = bool(campaign.memory.wealth_strategy)
+        wealth = metrics.get("wealth_metrics", {})
+
+        if not has_strategy:
+            return {"score": 0, "reasoning": "No wealth strategy yet", "metrics": {}}
+
+        base = 45
+        structures = wealth.get("structures_deployed", 0)
+        protection_pct = wealth.get("asset_protection_pct", 0)
+
+        structure_score = min(30, structures * 10)  # 3 structures = 30 pts
+        protection_score = min(25, protection_pct * 0.25)  # 100% = 25 pts
+
+        score = base + structure_score + protection_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Wealth strategy active, {structures} structures, {protection_pct}% asset protection" if structures else "Wealth strategy built, awaiting implementation data",
+            "metrics": wealth,
+        }
 
 
 scorer = AgentScorer()

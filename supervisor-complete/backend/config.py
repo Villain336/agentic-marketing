@@ -36,6 +36,7 @@ class Settings:
     supabase_url: str = ""
     supabase_anon_key: str = ""
     supabase_service_key: str = ""
+    supabase_jwt_secret: str = ""
 
     providers: list = field(default_factory=list)
 
@@ -199,6 +200,7 @@ class Settings:
             supabase_url=os.getenv("SUPABASE_URL", ""),
             supabase_anon_key=os.getenv("SUPABASE_ANON_KEY", ""),
             supabase_service_key=os.getenv("SUPABASE_SERVICE_KEY", ""),
+            supabase_jwt_secret=os.getenv("SUPABASE_JWT_SECRET", ""),
             providers=providers,
             max_agent_iterations=int(os.getenv("MAX_AGENT_ITERATIONS", "25")),
             max_agent_runtime=int(os.getenv("MAX_AGENT_RUNTIME", "300")),

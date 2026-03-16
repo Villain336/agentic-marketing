@@ -27,6 +27,11 @@ from scoring import scorer
 from sensing import sensing
 from wallet import wallet
 from gauntlet import gauntlet
+from genome import genome
+from scheduler import scheduler, register_default_jobs
+from auth import AuthMiddleware, get_user_id
+from lifecycle import lifecycle
+import db
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -34,8 +39,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger("supervisor.api")
 
-app = FastAPI(title="Supervisor API", description="Autonomous Agency Platform — Backend Orchestration", version="0.2.0")
+app = FastAPI(title="Supervisor API", description="Autonomous Agency Platform — Backend Orchestration", version="0.3.0")
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(AuthMiddleware)
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Start background scheduler with default jobs."""
+    register_default_jobs()
+    scheduler.start()
+    logger.info("Background scheduler started")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Stop background scheduler."""
+    scheduler.stop()
+    logger.info("Background scheduler stopped")
 
 # In-memory stores (swap for Supabase in production)
 campaigns: dict[str, Campaign] = {}
@@ -80,6 +101,11 @@ async def list_agents():
 @app.get("/providers")
 async def list_providers():
     return model_router.status()
+
+@app.get("/scheduler")
+async def scheduler_status():
+    """Get status of all scheduled background jobs."""
+    return {"jobs": scheduler.get_status()}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -132,6 +158,17 @@ async def run_campaign(req: RunCampaignRequest):
     campaign = Campaign(id=campaign_id, memory=CampaignMemory(business=biz))
     campaigns[campaign_id] = campaign
 
+    # Inject cross-campaign intelligence from genome engine
+    recs = genome.get_recommendations(campaign)
+    if recs.get("has_data"):
+        intel_lines = []
+        for rec in recs.get("recommendations", []):
+            intel_lines.append(f"• {rec}")
+        if recs.get("benchmarks"):
+            benchmarks = recs["benchmarks"]
+            intel_lines.append(f"Benchmarks from {recs['matches']} similar campaigns: {benchmarks}")
+        campaign.memory.genome_intel = "\n".join(intel_lines)
+
     agent_ids = AGENT_ORDER
     if req.start_from and req.start_from in AGENT_MAP:
         agent_ids = agent_ids[agent_ids.index(req.start_from):]
@@ -161,6 +198,10 @@ async def run_campaign(req: RunCampaignRequest):
             yield f"data: {json.dumps({'event': 'agent_complete', 'agent_id': aid, 'memory': _serialize_memory(campaign.memory)})}\n\n"
             await asyncio.sleep(1)
 
+        # Record campaign DNA for cross-campaign learning
+        genome.record_campaign_dna(campaign, getattr(campaign, '_metrics', {}))
+        # Persist to database
+        await db.save_campaign(campaign_id, campaign.user_id, _serialize_memory(campaign.memory), "complete")
         yield f"data: {json.dumps({'event': 'campaign_complete', 'campaign_id': campaign_id, 'memory': _serialize_memory(campaign.memory)})}\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream",
@@ -462,14 +503,58 @@ async def receive_webhook(source: str, request: Request):
                               event_type=body.get("event", body.get("type", "")),
                               data=body)
 
+    # Persist webhook event to database
+    await db.save_performance_event({
+        "id": event.id, "campaign_id": campaign_id, "source": source,
+        "event_type": event.event_type, "data": body,
+    })
+
     trigger = await sensing.process_event(campaign, event)
 
     result = {"received": True, "processed": True, "source": source}
     if trigger:
         result["trigger"] = trigger
         logger.info(f"Webhook trigger: {trigger}")
+        # Actually execute the triggered agent re-run in the background
+        if trigger.get("trigger") == "rerun_agent":
+            agent_id = trigger.get("agent_id")
+            reason = trigger.get("reason", "threshold breach")
+            asyncio.create_task(
+                _execute_sensing_trigger(campaign, agent_id, reason)
+            )
+            result["action"] = f"Scheduled re-run of {agent_id}"
 
     return result
+
+
+async def _execute_sensing_trigger(campaign: Campaign, agent_id: str, reason: str):
+    """Background task: re-run an agent after a sensing trigger fires."""
+    agent = get_agent(agent_id)
+    if not agent:
+        logger.error(f"Sensing trigger: agent {agent_id} not found")
+        return
+
+    logger.info(f"Sensing trigger executing: re-running {agent_id} — {reason}")
+
+    # Inject the trigger reason into memory so the agent knows why it's re-running
+    campaign.memory.brand_context = (
+        (campaign.memory.business.brand_context or "")
+        + f"\n\n[AUTO-TRIGGER] You are re-running because: {reason}. "
+        f"Review your previous output and optimize based on the new performance data."
+    )
+
+    try:
+        async for event in engine.run(
+            agent=agent, memory=campaign.memory,
+            campaign_id=campaign.id, tier=Tier.STANDARD,
+        ):
+            if event.memory_update:
+                for k, v in event.memory_update.items():
+                    if hasattr(campaign.memory, k):
+                        setattr(campaign.memory, k, v)
+        logger.info(f"Sensing trigger complete: {agent_id} re-run finished")
+    except Exception as e:
+        logger.error(f"Sensing trigger failed for {agent_id}: {e}", exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -615,6 +700,98 @@ Return JSON: {{"approved": true/false, "issues": ["..."], "suggested_changes": [
             reviews.append({"reviewer": reviewer_id, "error": str(e)})
 
     return {"agent_id": target_agent_id, "reviews": reviews, "reviewer_count": len(reviews)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AGENT LIFECYCLE — A/B Testing, Health, Dissolution
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/campaign/{campaign_id}/health")
+async def campaign_health(campaign_id: str):
+    """Evaluate agent health across a campaign."""
+    campaign = campaigns.get(campaign_id)
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    return lifecycle.evaluate_health(campaign)
+
+
+@app.get("/campaign/{campaign_id}/lifecycle/recommendations")
+async def lifecycle_recommendations(campaign_id: str):
+    """Get dissolution/A/B test recommendations for underperforming agents."""
+    campaign = campaigns.get(campaign_id)
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    return {"recommendations": lifecycle.recommend_dissolution(campaign)}
+
+
+@app.post("/lifecycle/ab-test")
+async def create_ab_test(request: Request):
+    """Create an A/B test between agent variants."""
+    body = await request.json()
+    agent_id = body.get("agent_id", "")
+    variants = body.get("variants", [])
+    if not agent_id or len(variants) < 2:
+        raise HTTPException(400, "Need agent_id and at least 2 variants")
+
+    test = lifecycle.create_ab_test(
+        agent_id=agent_id,
+        variant_configs=variants,
+        min_runs=body.get("min_runs", 3),
+        auto_promote=body.get("auto_promote", True),
+    )
+    return test.to_dict()
+
+
+@app.get("/lifecycle/ab-test/{test_id}")
+async def get_ab_test(test_id: str):
+    """Get A/B test status and results."""
+    result = lifecycle.get_test(test_id)
+    if not result:
+        raise HTTPException(404, "Test not found")
+    return result
+
+
+@app.post("/lifecycle/ab-test/{test_id}/result")
+async def record_ab_result(test_id: str, request: Request):
+    """Record a variant run result."""
+    body = await request.json()
+    winner = lifecycle.record_test_result(
+        test_id, body.get("variant_id", ""), body.get("score", 0),
+    )
+    return {"recorded": True, "winner_id": winner}
+
+
+@app.get("/lifecycle/tests")
+async def list_ab_tests(agent_id: str = ""):
+    """List all A/B tests, optionally filtered by agent."""
+    return {"tests": lifecycle.list_tests(agent_id)}
+
+
+@app.post("/lifecycle/dissolve")
+async def dissolve_agent(request: Request):
+    """Dissolve an underperforming agent in a campaign."""
+    body = await request.json()
+    result = lifecycle.dissolve_agent(
+        body.get("agent_id", ""), body.get("campaign_id", ""), body.get("reason", ""),
+    )
+    return result
+
+
+@app.post("/lifecycle/promote")
+async def promote_variant(request: Request):
+    """Promote a winning A/B test variant to default."""
+    body = await request.json()
+    result = lifecycle.promote_variant(body.get("variant_id", ""), body.get("reason", ""))
+    return result
+
+
+@app.get("/lifecycle/log")
+async def lifecycle_log(campaign_id: str = ""):
+    """Get dissolution and promotion history."""
+    return {
+        "dissolutions": lifecycle.get_dissolution_log(campaign_id),
+        "promotions": lifecycle.get_promotion_log(),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

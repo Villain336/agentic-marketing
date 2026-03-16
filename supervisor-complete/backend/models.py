@@ -191,6 +191,8 @@ class CampaignMemory(BaseModel):
     treasury_plan: str = ""
     tax_playbook: str = ""
     wealth_strategy: str = ""
+    # Cross-campaign intelligence (injected by genome engine at campaign start)
+    genome_intel: str = ""
 
     def entity_rules(self) -> str:
         """Return entity-specific operational rules every agent MUST follow."""
@@ -303,6 +305,9 @@ class CampaignMemory(BaseModel):
         for val, label in status_map:
             if val:
                 parts.append(label)
+        # Inject cross-campaign intelligence from genome engine
+        if self.genome_intel:
+            parts.append(f"\n── CROSS-CAMPAIGN INTELLIGENCE ──\n{self.genome_intel}")
         return "\n".join(parts)
 
 
