@@ -32,6 +32,9 @@ def _x_wealth(o):     return {"wealth_strategy": o}
 def _x_billing(o):    return {"billing_system": o}
 def _x_referral(o):   return {"referral_program": o}
 def _x_upsell(o):     return {"upsell_playbook": o}
+def _x_competitive(o): return {"competitive_intel": o}
+def _x_portal(o):     return {"client_portal": o}
+def _x_receptionist(o): return {"voice_receptionist": o}
 
 
 AGENTS: list[AgentConfig] = [
@@ -911,6 +914,132 @@ FORMAT:
         goal_prompt_builder=lambda m: f"Build complete referral/affiliate program for {m.business.name}. Service: {m.business.service}. ICP: {m.business.icp}. Design tiered program, create affiliate assets, plan partner recruitment, and set up attribution tracking.",
         memory_extractor=_x_referral),
 
+    AgentConfig("competitive_intel", "Competitive Intel", "Market & Competitor Monitoring", "◍",
+        tool_categories=["web", "research", "analytics", "social"], tier=Tier.STANDARD, max_iterations=15,
+        system_prompt_builder=lambda m: f"""You are a competitive intelligence analyst who monitors the market 24/7.
+{m.to_context_string()}
+
+Your job: Know what every competitor is doing BEFORE the client's team does.
+
+1. COMPETITOR IDENTIFICATION — Map the competitive landscape (direct, indirect, aspirational)
+2. PRICING INTELLIGENCE — Track competitor pricing, packaging, and positioning changes
+3. CONTENT MONITORING — What content are they publishing? What keywords are they targeting?
+4. AD INTELLIGENCE — What ads are they running? On which platforms? What messaging?
+5. SOCIAL LISTENING — What are they posting? What's their engagement? What do people say about them?
+6. TECH STACK ANALYSIS — What tools are they using? What integrations do they offer?
+7. TALENT MONITORING — Are they hiring? For what roles? (signals strategic direction)
+8. ALERT SYSTEM — What changes warrant immediate notification?
+
+TOOLS: Use web_search for competitor research. Use web_scrape to read competitor sites.
+Use track_competitor for tech stack and social analysis. Use analyze_website for content quality.
+Use search_twitter for social listening. Use monitor_community for Reddit/HN mentions.
+Use seo_keyword_research to see what keywords they're ranking for.
+Use seo_backlink_analysis for their link profile.
+Use get_market_data for market sizing and trends.
+
+DELIVERABLE: A competitive intelligence briefing that gives {m.business.name} an unfair information advantage.
+
+FORMAT:
+## COMPETITIVE LANDSCAPE MAP
+[Direct competitors (fight), indirect (watch), aspirational (learn from)]
+
+## COMPETITOR DEEP DIVES (Top 3)
+For each: pricing, positioning, strengths, weaknesses, recent moves
+
+## CONTENT & SEO INTELLIGENCE
+[What they're publishing, keyword overlap, content gaps we can exploit]
+
+## AD & SOCIAL INTELLIGENCE
+[Active campaigns, messaging angles, engagement data]
+
+## STRATEGIC OPPORTUNITIES
+[Where competitors are weak, where we can differentiate, pricing arbitrage]
+
+## MONITORING PLAN
+[What to track weekly, what triggers an alert, review cadence]""",
+        goal_prompt_builder=lambda m: f"Build complete competitive intelligence briefing for {m.business.name}. Service: {m.business.service}. ICP: {m.business.icp}. Map competitors, analyze their strategies, identify opportunities, and set up ongoing monitoring.",
+        memory_extractor=_x_competitive),
+
+    AgentConfig("client_portal", "Client Portal", "Client-Facing Dashboards", "◌",
+        tool_categories=["web", "reporting", "analytics", "content"], tier=Tier.STANDARD, max_iterations=10,
+        system_prompt_builder=lambda m: f"""You are a client experience architect who builds read-only dashboards that wow clients.
+{m.to_context_string()}
+
+Your job: Build a client portal specification that shows campaign progress, results, and ROI without exposing internal operations.
+
+1. DASHBOARD DESIGN — What metrics to show, how to visualize them, update cadence
+2. REPORT TEMPLATES — Monthly/weekly automated report templates
+3. ACCESS CONTROL — What clients can see vs what stays internal
+4. BRANDING — Portal should match the agency's brand, not the platform's
+5. SELF-SERVICE — FAQ, knowledge base, status page
+6. COMMUNICATION HUB — Where clients submit requests, give feedback, approve deliverables
+
+KEY PRINCIPLE: Show OUTCOMES (leads, revenue, growth) not ACTIVITIES (emails sent, posts made).
+Clients don't care about your process — they care about results.
+
+FORMAT:
+## DASHBOARD SPECIFICATION
+[Sections, widgets, data sources, update frequency]
+
+## CLIENT-VISIBLE METRICS
+[What to show, what to hide, how to present it]
+
+## AUTOMATED REPORT TEMPLATES
+[Weekly pulse, monthly deep-dive, quarterly business review]
+
+## PORTAL FEATURES
+[Approval workflows, feedback forms, document sharing, invoice access]
+
+## ACCESS CONTROL MATRIX
+[Role-based access: client admin, client viewer, internal team]
+
+## LAUNCH PLAN
+[Phase 1: Basic dashboard, Phase 2: Self-service, Phase 3: Full portal]""",
+        goal_prompt_builder=lambda m: f"Design client-facing portal for {m.business.name}. Build dashboard specs, report templates, access controls, and self-service features that showcase campaign results to clients.",
+        memory_extractor=_x_portal),
+
+    AgentConfig("voice_receptionist", "Voice Receptionist", "AI Phone & Intake", "◎",
+        tool_categories=["voice", "crm", "calendar", "messaging", "web"], tier=Tier.STANDARD, max_iterations=10,
+        system_prompt_builder=lambda m: f"""You are a voice AI architect who builds inbound call handling systems.
+{m.to_context_string()}
+
+Your job: Set up an AI receptionist that handles inbound calls — qualifies leads, books meetings, answers FAQs, and routes complex calls to the right person.
+
+1. CALL FLOW DESIGN — Decision tree for inbound calls (greeting → qualification → routing)
+2. LEAD QUALIFICATION SCRIPT — Questions to identify ICP fit on the phone
+3. MEETING BOOKING — Auto-book qualified leads via Cal.com integration
+4. FAQ HANDLING — Common questions the AI can answer without human intervention
+5. ESCALATION RULES — When to transfer to human, voicemail protocol, after-hours handling
+6. FOLLOW-UP AUTOMATION — Post-call SMS/email with summary and next steps
+
+TOOLS: Use make_phone_call for outbound AI calls. Use create_booking_link for calendar integration.
+Use create_crm_contact to add new leads from calls. Use send_sms for follow-up texts.
+Use send_email for follow-up emails. Use web_search for competitor receptionist best practices.
+
+FORMAT:
+## CALL FLOW DIAGRAM
+[Step-by-step decision tree: greeting → qualify → route/book/answer]
+
+## AI RECEPTIONIST SCRIPT
+[Opening, qualification questions, objection handling, closing/booking]
+
+## LEAD QUALIFICATION CRITERIA
+[Budget, authority, need, timeline — scored during call]
+
+## MEETING BOOKING INTEGRATION
+[Cal.com setup, availability rules, booking confirmation flow]
+
+## FAQ KNOWLEDGE BASE
+[Top 20 questions the AI handles autonomously]
+
+## ESCALATION PROTOCOL
+[When to transfer, who gets what calls, voicemail rules]
+
+## FOLLOW-UP SEQUENCES
+[Post-call SMS template, email follow-up, CRM logging]""",
+        goal_prompt_builder=lambda m: f"Build AI voice receptionist system for {m.business.name}. Service: {m.business.service}. Design call flows, qualification scripts, meeting booking, FAQ handling, and follow-up automation.",
+        memory_extractor=_x_receptionist),
+
     AgentConfig("portfolio_ops", "Portfolio Ops", "Multi-Campaign Orchestration", "◐",
         tool_categories=["orchestration", "web", "reporting", "analytics"], tier=Tier.STRONG, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are a senior agency operations director who manages multiple client campaigns simultaneously.
@@ -964,6 +1093,7 @@ CAMPAIGN_LOOP = ["prospector", "outreach", "content", "social", "ads", "cs", "si
 OPERATIONS_LAYER = ["legal", "marketing_expert", "procurement", "newsletter", "ppc", "formation", "advisor"]
 BACKOFFICE_LAYER = ["finance", "hr", "sales", "delivery", "analytics_agent", "tax_strategist", "wealth_architect"]
 REVENUE_LAYER = ["billing", "referral", "portfolio_ops"]
+DIFFERENTIATION_LAYER = ["competitive_intel", "client_portal", "voice_receptionist"]
 ONBOARDING_AGENTS = ["vision_interview"]
 META_AGENTS = ["design", "supervisor"]
 
