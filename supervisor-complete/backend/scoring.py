@@ -60,6 +60,8 @@ class AgentScorer:
             "competitive_intel": self._score_competitive_intel,
             "client_portal": self._score_client_portal,
             "voice_receptionist": self._score_voice_receptionist,
+            "fullstack_dev": self._score_fullstack_dev,
+            "economist": self._score_economist,
         }
 
         for agent_id, scorer in scorers.items():
@@ -544,6 +546,57 @@ class AgentScorer:
             "score": min(100, score),
             "reasoning": f"Voice AI active, {calls} calls handled, {meetings} meetings booked" if calls else "Voice receptionist system configured",
             "metrics": voice,
+        }
+
+
+    # ── Builder & Intelligence Agents ──────────────────────────────
+
+    def _score_fullstack_dev(self, campaign: Campaign, metrics: dict) -> dict:
+        """Code quality, deployment readiness, test coverage, security audit pass rate."""
+        has_output = bool(campaign.memory.fullstack_dev_output)
+        dev = metrics.get("dev_metrics", {})
+
+        if not has_output:
+            return {"score": 0, "reasoning": "No full-stack dev output yet", "metrics": {}}
+
+        base = 45  # Having a production-ready app blueprint is high-value
+        test_coverage = dev.get("test_coverage_pct", 0)
+        security_score = dev.get("security_audit_score", 0)
+        deployed = 1 if dev.get("deployed") else 0
+
+        test_score = min(20, test_coverage * 0.2)  # 100% coverage = 20 pts
+        security_pts = min(20, security_score * 0.2)  # 100 score = 20 pts
+        deploy_score = 15 if deployed else 0
+
+        score = base + test_score + security_pts + deploy_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"App built, {test_coverage}% test coverage, security {security_score}/100, {'deployed' if deployed else 'ready to deploy'}" if test_coverage else "Full-stack blueprint complete, awaiting build metrics",
+            "metrics": dev,
+        }
+
+    def _score_economist(self, campaign: Campaign, metrics: dict) -> dict:
+        """Intelligence freshness, actionable insights count, risk accuracy."""
+        has_briefing = bool(campaign.memory.economist_briefing)
+        econ = metrics.get("economist_metrics", {})
+
+        if not has_briefing:
+            return {"score": 0, "reasoning": "No economist briefing yet", "metrics": {}}
+
+        base = 50  # Economic intelligence is inherently valuable
+        insights_actioned = econ.get("insights_actioned", 0)
+        risks_flagged = econ.get("risks_flagged", 0)
+        accuracy = econ.get("prediction_accuracy_pct", 0)
+
+        insight_score = min(20, insights_actioned * 5)  # 4 actioned = 20 pts
+        risk_score = min(15, risks_flagged * 3)  # 5 risks flagged = 15 pts
+        accuracy_score = min(15, accuracy * 0.15)  # 100% accuracy = 15 pts
+
+        score = base + insight_score + risk_score + accuracy_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Economic briefing active, {insights_actioned} insights actioned, {risks_flagged} risks flagged" if insights_actioned else "Economic intelligence briefing complete, monitoring active",
+            "metrics": econ,
         }
 
 
