@@ -10,7 +10,7 @@ import asyncio
 import logging
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -31,6 +31,9 @@ from genome import genome
 from scheduler import scheduler, register_default_jobs
 from auth import AuthMiddleware, get_user_id
 from lifecycle import lifecycle
+from ws import ws_manager
+from versioning import versioner
+from templates import get_template, list_templates, TEMPLATES
 import db
 
 logging.basicConfig(
@@ -108,6 +111,55 @@ async def list_providers():
 async def scheduler_status():
     """Get status of all scheduled background jobs."""
     return {"jobs": scheduler.get_status()}
+
+@app.get("/ws/status")
+async def ws_status():
+    """Get WebSocket connection stats."""
+    return ws_manager.get_status()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# WEBSOCKET — Real-time Campaign & Portfolio Feeds
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.websocket("/ws/campaign/{campaign_id}")
+async def ws_campaign_feed(websocket: WebSocket, campaign_id: str):
+    """Real-time feed for a specific campaign — agent status, metrics, triggers."""
+    await ws_manager.connect(websocket, campaign_id)
+    try:
+        while True:
+            # Keep connection alive, handle client messages
+            data = await websocket.receive_text()
+            # Client can send ping or request refresh
+            msg = json.loads(data) if data else {}
+            if msg.get("type") == "ping":
+                await websocket.send_text(json.dumps({"type": "pong"}))
+            elif msg.get("type") == "refresh_scores":
+                campaign = campaigns.get(campaign_id)
+                if campaign:
+                    scores = scorer.score_all(campaign)
+                    await websocket.send_text(json.dumps({
+                        "type": "score_update", "scores": {
+                            k: {"score": v["score"], "grade": v["grade"]}
+                            for k, v in scores.items()
+                        },
+                    }))
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, campaign_id)
+
+
+@app.websocket("/ws/portfolio")
+async def ws_portfolio_feed(websocket: WebSocket):
+    """Real-time feed for portfolio-level events across all campaigns."""
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            msg = json.loads(data) if data else {}
+            if msg.get("type") == "ping":
+                await websocket.send_text(json.dumps({"type": "pong"}))
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -196,6 +248,12 @@ async def run_campaign(req: RunCampaignRequest):
                 logger.error(f"Campaign agent {aid} failed: {e}", exc_info=True)
                 yield f"data: {json.dumps({'event': 'agent_error', 'agent_id': aid, 'error': str(e)})}\n\n"
                 continue
+
+            # Snapshot memory version after agent completes
+            versioner.snapshot(campaign_id, aid, _serialize_memory(campaign.memory))
+            # Push live status via WebSocket
+            asyncio.create_task(ws_manager.send_agent_status(
+                campaign_id, aid, "complete"))
 
             yield f"data: {json.dumps({'event': 'agent_complete', 'agent_id': aid, 'memory': _serialize_memory(campaign.memory)})}\n\n"
             await asyncio.sleep(1)
@@ -481,6 +539,103 @@ async def run_market_research(profile_id: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# CAMPAIGN TEMPLATES
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/templates")
+async def get_templates():
+    """List all available campaign templates."""
+    return {"templates": list_templates()}
+
+
+@app.get("/templates/{template_id}")
+async def get_template_detail(template_id: str):
+    """Get full template configuration."""
+    template = get_template(template_id)
+    if not template:
+        raise HTTPException(404, f"Template not found: {template_id}")
+    return {"id": template_id, **template}
+
+
+@app.post("/templates/{template_id}/launch")
+async def launch_from_template(template_id: str, request: Request):
+    """Launch a campaign from a template — skip onboarding, go straight to execution."""
+    template = get_template(template_id)
+    if not template:
+        raise HTTPException(404, f"Template not found: {template_id}")
+
+    body = await request.json()
+
+    # Merge template defaults with user-provided business profile
+    biz_data = {**template.get("business_defaults", {}), **body.get("business", {})}
+    biz = BusinessProfile(**{
+        "name": biz_data.get("name", ""),
+        "service": biz_data.get("service", ""),
+        "icp": biz_data.get("icp", ""),
+        "geography": biz_data.get("geography", ""),
+        "goal": biz_data.get("goal", template.get("business_defaults", {}).get("goal", "")),
+        "entity_type": biz_data.get("entity_type", ""),
+        "state_of_formation": biz_data.get("state_of_formation", ""),
+        "industry": biz_data.get("industry", ""),
+        "brand_context": biz_data.get("brand_context", ""),
+    })
+
+    campaign_id = str(uuid.uuid4())
+    campaign = Campaign(id=campaign_id, memory=CampaignMemory(business=biz))
+    campaign.user_id = get_user_id(request)
+    campaigns[campaign_id] = campaign
+
+    # Inject genome intelligence
+    recs = genome.get_recommendations(campaign)
+    if recs.get("has_data"):
+        intel_lines = [f"• {r}" for r in recs.get("recommendations", [])]
+        campaign.memory.genome_intel = "\n".join(intel_lines)
+
+    # Determine agent sequence from template
+    if template.get("agents") == "all":
+        agent_ids = AGENT_ORDER
+    else:
+        agent_ids = [a for a in template["agents"] if a in AGENT_MAP]
+
+    tier = Tier(body.get("tier", "standard"))
+
+    async def stream():
+        yield f"data: {json.dumps({'event': 'template_launch', 'template': template_id, 'campaign_id': campaign_id, 'agents': agent_ids})}\n\n"
+
+        for i, aid in enumerate(agent_ids):
+            agent = get_agent(aid)
+            if not agent:
+                continue
+
+            yield f"data: {json.dumps({'event': 'agent_start', 'agent_id': aid, 'label': agent.label, 'index': i, 'total': len(agent_ids)})}\n\n"
+
+            try:
+                async for event in engine.run(agent=agent, memory=campaign.memory,
+                                              campaign_id=campaign_id, tier=tier):
+                    if event.memory_update:
+                        for k, v in event.memory_update.items():
+                            if hasattr(campaign.memory, k):
+                                setattr(campaign.memory, k, v)
+                    yield f"data: {event.model_dump_json()}\n\n"
+            except Exception as e:
+                logger.error(f"Template campaign agent {aid} failed: {e}", exc_info=True)
+                yield f"data: {json.dumps({'event': 'agent_error', 'agent_id': aid, 'error': str(e)})}\n\n"
+                continue
+
+            versioner.snapshot(campaign_id, aid, _serialize_memory(campaign.memory))
+            yield f"data: {json.dumps({'event': 'agent_complete', 'agent_id': aid, 'memory': _serialize_memory(campaign.memory)})}\n\n"
+            await asyncio.sleep(1)
+
+        genome.record_campaign_dna(campaign, getattr(campaign, '_metrics', {}))
+        await db.save_campaign(campaign_id, campaign.user_id,
+                               _serialize_memory(campaign.memory), "complete")
+        yield f"data: {json.dumps({'event': 'campaign_complete', 'campaign_id': campaign_id, 'template': template_id, 'memory': _serialize_memory(campaign.memory)})}\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Campaign-ID": campaign_id})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # WEBHOOK RECEIVER
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -517,6 +672,8 @@ async def receive_webhook(source: str, request: Request):
     if trigger:
         result["trigger"] = trigger
         logger.info(f"Webhook trigger: {trigger}")
+        # Push trigger to WebSocket listeners
+        asyncio.create_task(ws_manager.send_trigger_fired(campaign_id, trigger))
         # Actually execute the triggered agent re-run in the background
         if trigger.get("trigger") == "rerun_agent":
             agent_id = trigger.get("agent_id")
@@ -572,7 +729,7 @@ async def list_approvals(status: str = "pending"):
 
 @app.post("/approvals")
 async def create_approval(request: Request):
-    """Create a new approval request."""
+    """Create a new approval request — notifies owner via Slack/Telegram/email."""
     body = await request.json()
     item = ApprovalItem(
         campaign_id=body.get("campaign_id", ""),
@@ -581,7 +738,52 @@ async def create_approval(request: Request):
         content=body.get("content", {}),
     )
     approval_queue[item.id] = item
+
+    # Push to WebSocket listeners
+    asyncio.create_task(ws_manager.send_approval_needed(
+        item.campaign_id, {"id": item.id, "agent_id": item.agent_id,
+                           "action_type": item.action_type}))
+
+    # Notify owner via available channels
+    asyncio.create_task(_notify_approval_needed(item))
+
+    # Persist to DB
+    await db.save_approval(item.model_dump())
+
     return {"id": item.id, "status": "pending"}
+
+
+async def _notify_approval_needed(item: ApprovalItem):
+    """Send approval notification via Slack, Telegram, or email."""
+    from tools import registry
+
+    msg = (f"Approval needed: {item.action_type}\n"
+           f"Agent: {item.agent_id}\n"
+           f"Campaign: {item.campaign_id}\n"
+           f"ID: {item.id}")
+
+    # Try Slack first, then Telegram, then email
+    if settings.slack_bot_token:
+        try:
+            await registry.execute("send_slack_message",
+                {"channel": "#approvals", "message": msg}, "approval")
+        except Exception:
+            pass
+
+    if settings.telegram_bot_token and settings.telegram_owner_chat_id:
+        try:
+            await registry.execute("send_telegram_message",
+                {"message": msg}, "approval")
+        except Exception:
+            pass
+
+    if settings.owner_email and settings.sendgrid_api_key:
+        try:
+            await registry.execute("send_email",
+                {"to": settings.owner_email, "subject": f"Approval Needed: {item.action_type}",
+                 "body": msg}, "approval")
+        except Exception:
+            pass
 
 
 @app.post("/approvals/{item_id}/decide")
@@ -702,6 +904,37 @@ Return JSON: {{"approved": true/false, "issues": ["..."], "suggested_changes": [
             reviews.append({"reviewer": reviewer_id, "error": str(e)})
 
     return {"agent_id": target_agent_id, "reviews": reviews, "reviewer_count": len(reviews)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MEMORY VERSIONING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/campaign/{campaign_id}/versions")
+async def get_memory_versions(campaign_id: str, agent_id: str = "", limit: int = 50):
+    """Get memory version history for a campaign."""
+    return {"versions": versioner.get_history(campaign_id, agent_id, limit)}
+
+
+@app.get("/campaign/{campaign_id}/versions/{version_id}")
+async def get_memory_version(campaign_id: str, version_id: int):
+    """Get a specific version with full snapshot."""
+    result = versioner.get_version(campaign_id, version_id)
+    if not result:
+        raise HTTPException(404, "Version not found")
+    return result
+
+
+@app.get("/campaign/{campaign_id}/versions/diff/{v1}/{v2}")
+async def diff_memory_versions(campaign_id: str, v1: int, v2: int):
+    """Diff two memory versions."""
+    return versioner.diff_versions(campaign_id, v1, v2)
+
+
+@app.get("/campaign/{campaign_id}/versions/timeline/{field}")
+async def field_timeline(campaign_id: str, field: str):
+    """Get the change timeline for a specific memory field."""
+    return {"field": field, "timeline": versioner.get_field_timeline(campaign_id, field)}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
