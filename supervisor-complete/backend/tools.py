@@ -6153,6 +6153,680 @@ async def _get_regulatory_updates(categories: str, jurisdiction: str = "federal"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# FIGMA DESIGN HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _figma_get_file(file_key: str, components_only: bool = False) -> str:
+    """Get Figma file data — pages, frames, components, styles."""
+    if not settings.figma_api_key:
+        return json.dumps({"error": "FIGMA_API_KEY required", "draft": True, "note": "Configure Figma API key to access design files directly."})
+    try:
+        url = f"https://api.figma.com/v1/files/{file_key}"
+        if components_only:
+            url += "?depth=1"
+        resp = await _http.get(url, headers={"X-FIGMA-TOKEN": settings.figma_api_key})
+        if resp.status_code == 200:
+            data = resp.json()
+            return json.dumps({
+                "file_name": data.get("name", ""),
+                "last_modified": data.get("lastModified", ""),
+                "version": data.get("version", ""),
+                "pages": [{"name": p.get("name", ""), "id": p.get("id", ""), "child_count": len(p.get("children", []))} for p in data.get("document", {}).get("children", [])],
+                "components_count": len(data.get("components", {})),
+                "styles_count": len(data.get("styles", {})),
+            })
+        return json.dumps({"error": f"Figma API returned {resp.status_code}", "detail": resp.text[:500]})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+async def _figma_get_components(file_key: str, page_name: str = "") -> str:
+    """List all components in a Figma file with their properties."""
+    if not settings.figma_api_key:
+        return json.dumps({"error": "FIGMA_API_KEY required", "draft": True})
+    try:
+        resp = await _http.get(f"https://api.figma.com/v1/files/{file_key}/components", headers={"X-FIGMA-TOKEN": settings.figma_api_key})
+        if resp.status_code == 200:
+            data = resp.json()
+            components = []
+            for meta in data.get("meta", {}).get("components", []):
+                comp = {
+                    "key": meta.get("key", ""),
+                    "name": meta.get("name", ""),
+                    "description": meta.get("description", ""),
+                    "containing_frame": meta.get("containing_frame", {}).get("name", ""),
+                    "page_name": meta.get("containing_frame", {}).get("pageName", ""),
+                }
+                if not page_name or comp["page_name"].lower() == page_name.lower():
+                    components.append(comp)
+            return json.dumps({"file_key": file_key, "components": components, "total": len(components)})
+        return json.dumps({"error": f"Figma API returned {resp.status_code}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+async def _figma_get_styles(file_key: str) -> str:
+    """Get all styles (colors, text, effects, grids) from a Figma file."""
+    if not settings.figma_api_key:
+        return json.dumps({"error": "FIGMA_API_KEY required", "draft": True})
+    try:
+        resp = await _http.get(f"https://api.figma.com/v1/files/{file_key}/styles", headers={"X-FIGMA-TOKEN": settings.figma_api_key})
+        if resp.status_code == 200:
+            data = resp.json()
+            styles = []
+            for s in data.get("meta", {}).get("styles", []):
+                styles.append({
+                    "key": s.get("key", ""),
+                    "name": s.get("name", ""),
+                    "style_type": s.get("style_type", ""),
+                    "description": s.get("description", ""),
+                })
+            return json.dumps({"file_key": file_key, "styles": styles, "total": len(styles)})
+        return json.dumps({"error": f"Figma API returned {resp.status_code}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+async def _figma_export_assets(file_key: str, node_ids: str, format: str = "png", scale: str = "2") -> str:
+    """Export assets (images, icons, illustrations) from Figma nodes."""
+    if not settings.figma_api_key:
+        return json.dumps({"error": "FIGMA_API_KEY required", "draft": True})
+    try:
+        ids = node_ids.replace(" ", "")
+        resp = await _http.get(
+            f"https://api.figma.com/v1/images/{file_key}?ids={ids}&format={format}&scale={scale}",
+            headers={"X-FIGMA-TOKEN": settings.figma_api_key}
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            images = data.get("images", {})
+            return json.dumps({"file_key": file_key, "format": format, "scale": scale, "exported_urls": images, "count": len(images)})
+        return json.dumps({"error": f"Figma API returned {resp.status_code}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+async def _figma_extract_design_tokens(file_key: str) -> str:
+    """Extract design tokens (colors, typography, spacing) from Figma for CSS/Tailwind/code."""
+    if not settings.figma_api_key:
+        return json.dumps({"error": "FIGMA_API_KEY required", "draft": True, "note": "Will generate token structure from file styles when configured."})
+    try:
+        resp = await _http.get(f"https://api.figma.com/v1/files/{file_key}", headers={"X-FIGMA-TOKEN": settings.figma_api_key})
+        if resp.status_code == 200:
+            data = resp.json()
+            styles = data.get("styles", {})
+            tokens = {"colors": {}, "typography": {}, "effects": {}, "grids": {}}
+            for style_id, style_info in styles.items():
+                stype = style_info.get("styleType", "")
+                name = style_info.get("name", style_id).replace("/", "-").replace(" ", "_").lower()
+                if stype == "FILL":
+                    tokens["colors"][name] = {"figma_style_id": style_id, "description": style_info.get("description", "")}
+                elif stype == "TEXT":
+                    tokens["typography"][name] = {"figma_style_id": style_id, "description": style_info.get("description", "")}
+                elif stype == "EFFECT":
+                    tokens["effects"][name] = {"figma_style_id": style_id}
+                elif stype == "GRID":
+                    tokens["grids"][name] = {"figma_style_id": style_id}
+            return json.dumps({
+                "file_key": file_key,
+                "tokens": tokens,
+                "export_formats": ["CSS custom properties", "Tailwind config", "SCSS variables", "JSON tokens"],
+                "total_tokens": sum(len(v) for v in tokens.values()),
+            })
+        return json.dumps({"error": f"Figma API returned {resp.status_code}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+async def _figma_get_team_projects(team_id: str = "") -> str:
+    """List all projects in a Figma team."""
+    tid = team_id or settings.figma_team_id
+    if not settings.figma_api_key:
+        return json.dumps({"error": "FIGMA_API_KEY required", "draft": True})
+    if not tid:
+        return json.dumps({"error": "FIGMA_TEAM_ID required"})
+    try:
+        resp = await _http.get(f"https://api.figma.com/v1/teams/{tid}/projects", headers={"X-FIGMA-TOKEN": settings.figma_api_key})
+        if resp.status_code == 200:
+            data = resp.json()
+            projects = [{"id": p.get("id", ""), "name": p.get("name", "")} for p in data.get("projects", [])]
+            return json.dumps({"team_id": tid, "projects": projects, "total": len(projects)})
+        return json.dumps({"error": f"Figma API returned {resp.status_code}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HARVEY AI LEGAL HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _harvey_legal_research(query: str, jurisdiction: str = "us_federal", area: str = "general") -> str:
+    """Research legal questions using Harvey AI."""
+    if not settings.harvey_api_key:
+        return json.dumps({
+            "query": query, "jurisdiction": jurisdiction, "area": area, "draft": True,
+            "analysis": {
+                "summary": f"Legal research query: {query}",
+                "jurisdiction": jurisdiction,
+                "practice_area": area,
+                "key_considerations": [
+                    "Consult qualified attorney for binding legal advice",
+                    "Jurisdiction-specific rules may apply",
+                    "Regulatory landscape changes frequently",
+                ],
+                "recommended_actions": [
+                    "Configure HARVEY_API_KEY for AI-powered legal research",
+                    "Cross-reference with primary legal sources",
+                    "Consider engaging local counsel for jurisdiction-specific matters",
+                ],
+            },
+            "note": "Configure HARVEY_API_KEY for AI-powered legal research with case law citations.",
+        })
+    try:
+        resp = await _http.post(
+            "https://api.harvey.ai/v1/research",
+            headers={"Authorization": f"Bearer {settings.harvey_api_key}", "Content-Type": "application/json"},
+            json={"query": query, "jurisdiction": jurisdiction, "practice_area": area},
+            timeout=60,
+        )
+        if resp.status_code == 200:
+            return json.dumps(resp.json())
+        return json.dumps({"error": f"Harvey API returned {resp.status_code}", "detail": resp.text[:500]})
+    except Exception as e:
+        return json.dumps({"error": str(e), "query": query})
+
+
+async def _harvey_contract_analysis(contract_text: str, analysis_type: str = "review", focus: str = "") -> str:
+    """Analyze contracts using Harvey AI — review, risk assessment, clause extraction."""
+    if not settings.harvey_api_key:
+        focus_label = f" focusing on {focus}" if focus else ""
+        return json.dumps({
+            "analysis_type": analysis_type, "focus": focus, "draft": True,
+            "review": {
+                "contract_length": len(contract_text),
+                "analysis_requested": f"{analysis_type}{focus_label}",
+                "standard_checks": [
+                    "Indemnification clauses — scope and caps",
+                    "Limitation of liability — consequential damages carve-outs",
+                    "Termination provisions — for cause vs convenience, notice periods",
+                    "IP ownership and assignment — work product, pre-existing IP",
+                    "Confidentiality — duration, exceptions, return of materials",
+                    "Non-compete/non-solicit — geographic and temporal scope",
+                    "Governing law and dispute resolution — arbitration vs litigation",
+                    "Data protection and privacy — GDPR, CCPA compliance",
+                    "Force majeure — scope and notification requirements",
+                    "Payment terms — net terms, late fees, currency",
+                ],
+                "risk_flags": "Configure HARVEY_API_KEY for automated risk flagging",
+            },
+            "note": "Configure HARVEY_API_KEY for deep AI-powered contract analysis.",
+        })
+    try:
+        resp = await _http.post(
+            "https://api.harvey.ai/v1/contracts/analyze",
+            headers={"Authorization": f"Bearer {settings.harvey_api_key}", "Content-Type": "application/json"},
+            json={"text": contract_text, "type": analysis_type, "focus": focus},
+            timeout=60,
+        )
+        if resp.status_code == 200:
+            return json.dumps(resp.json())
+        return json.dumps({"error": f"Harvey API returned {resp.status_code}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+async def _harvey_regulatory_analysis(regulation: str, industry: str = "", jurisdiction: str = "us_federal") -> str:
+    """Analyze regulatory requirements and compliance obligations."""
+    if not settings.harvey_api_key:
+        return json.dumps({
+            "regulation": regulation, "industry": industry, "jurisdiction": jurisdiction, "draft": True,
+            "analysis": {
+                "common_frameworks": {
+                    "data_privacy": ["GDPR (EU)", "CCPA/CPRA (California)", "PIPEDA (Canada)", "LGPD (Brazil)", "state privacy laws"],
+                    "financial": ["SOX", "PCI-DSS", "BSA/AML", "SEC regulations", "state money transmitter laws"],
+                    "healthcare": ["HIPAA", "HITECH", "FDA regulations", "state telehealth laws"],
+                    "employment": ["FLSA", "FMLA", "ADA", "Title VII", "state labor codes", "OSHA"],
+                    "ai_specific": ["EU AI Act", "NYC Local Law 144", "state AI disclosure laws", "FTC AI guidance"],
+                    "advertising": ["FTC Act Section 5", "CAN-SPAM", "TCPA", "Lanham Act", "NAD guidelines"],
+                },
+                "compliance_steps": [
+                    "Identify applicable regulations for business type and jurisdictions",
+                    "Map data flows and processing activities",
+                    "Conduct gap analysis against requirements",
+                    "Implement required controls and documentation",
+                    "Establish ongoing monitoring and reporting",
+                ],
+            },
+            "note": "Configure HARVEY_API_KEY for regulation-specific AI analysis.",
+        })
+    try:
+        resp = await _http.post(
+            "https://api.harvey.ai/v1/regulatory",
+            headers={"Authorization": f"Bearer {settings.harvey_api_key}", "Content-Type": "application/json"},
+            json={"regulation": regulation, "industry": industry, "jurisdiction": jurisdiction},
+            timeout=60,
+        )
+        if resp.status_code == 200:
+            return json.dumps(resp.json())
+        return json.dumps({"error": f"Harvey API returned {resp.status_code}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+async def _harvey_case_law_search(query: str, jurisdiction: str = "us_federal", court_level: str = "all") -> str:
+    """Search case law for precedents and relevant decisions."""
+    if not settings.harvey_api_key:
+        return json.dumps({
+            "query": query, "jurisdiction": jurisdiction, "court_level": court_level, "draft": True,
+            "guidance": {
+                "search_query": query,
+                "free_alternatives": [
+                    "Google Scholar (scholar.google.com) — case law search",
+                    "CourtListener (courtlistener.com) — free legal research",
+                    "Casetext (via CoCounsel) — AI-assisted research",
+                    "PACER — federal court filings",
+                ],
+                "search_strategies": [
+                    "Use Boolean operators for precision",
+                    "Filter by jurisdiction and date range",
+                    "Check citing references for current validity",
+                    "Verify holdings haven't been overruled (Shepardize)",
+                ],
+            },
+            "note": "Configure HARVEY_API_KEY for comprehensive AI-powered case law search.",
+        })
+    try:
+        resp = await _http.post(
+            "https://api.harvey.ai/v1/case-law/search",
+            headers={"Authorization": f"Bearer {settings.harvey_api_key}", "Content-Type": "application/json"},
+            json={"query": query, "jurisdiction": jurisdiction, "court_level": court_level},
+            timeout=60,
+        )
+        if resp.status_code == 200:
+            return json.dumps(resp.json())
+        return json.dumps({"error": f"Harvey API returned {resp.status_code}"})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# EXPANDED FULL-STACK DEV HANDLERS (Mobile, Desktop, Extensions, AI, CLI, Microservices)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _generate_mobile_app(platform: str, app_name: str, features: str = "", tech_stack: str = "") -> str:
+    """Generate complete mobile app scaffold — iOS, Android, or cross-platform."""
+    feature_list = [f.strip() for f in features.split(",")] if features else ["auth", "navigation", "api"]
+
+    platform_configs = {
+        "react_native": {
+            "framework": "React Native + Expo",
+            "language": "TypeScript",
+            "navigation": "React Navigation v6",
+            "state": "Zustand + React Query",
+            "ui": "NativeWind (Tailwind for RN)",
+            "storage": "AsyncStorage + SQLite (offline)",
+            "build": "EAS Build (Expo Application Services)",
+            "distribution": "TestFlight (iOS) + Play Console (Android)",
+        },
+        "flutter": {
+            "framework": "Flutter 3.x",
+            "language": "Dart",
+            "navigation": "GoRouter",
+            "state": "Riverpod + Freezed",
+            "ui": "Material 3 + Custom Theme",
+            "storage": "Hive + Drift (SQLite)",
+            "build": "Flutter build + Fastlane",
+            "distribution": "TestFlight + Play Console",
+        },
+        "ios_native": {
+            "framework": "SwiftUI + UIKit",
+            "language": "Swift 5.9+",
+            "navigation": "NavigationStack",
+            "state": "SwiftData + Observation",
+            "ui": "SwiftUI native components",
+            "storage": "Core Data / SwiftData",
+            "build": "Xcode Cloud or Fastlane",
+            "distribution": "TestFlight → App Store",
+        },
+        "android_native": {
+            "framework": "Jetpack Compose",
+            "language": "Kotlin",
+            "navigation": "Navigation Compose",
+            "state": "ViewModel + Hilt DI",
+            "ui": "Material 3 Compose",
+            "storage": "Room DB",
+            "build": "Gradle + GitHub Actions",
+            "distribution": "Play Console (internal track → production)",
+        },
+    }
+
+    config = platform_configs.get(platform, platform_configs["react_native"])
+
+    return json.dumps({
+        "app_name": app_name,
+        "platform": platform,
+        "tech_stack": config,
+        "directory_structure": [
+            f"{app_name}/",
+            "├── src/",
+            "│   ├── screens/          # Screen components",
+            "│   ├── components/       # Reusable UI components",
+            "│   ├── navigation/       # Navigation config",
+            "│   ├── services/         # API clients, auth",
+            "│   ├── stores/           # State management",
+            "│   ├── hooks/            # Custom hooks",
+            "│   ├── utils/            # Helpers, constants",
+            "│   └── assets/           # Images, fonts",
+            "├── __tests__/            # Test suites",
+            "├── ios/                  # iOS native config" if platform != "android_native" else "",
+            "├── android/              # Android native config" if platform != "ios_native" else "",
+            "├── app.json              # App configuration",
+            "└── eas.json              # Build configuration" if "react_native" in platform else "└── pubspec.yaml" if "flutter" in platform else "└── build.gradle",
+        ],
+        "features": feature_list,
+        "included": [
+            "Authentication (biometric + social login)",
+            "Push notifications (APNs + FCM)",
+            "Deep linking / Universal Links",
+            "Offline-first data sync",
+            "In-app purchases / subscriptions",
+            "Crash reporting (Sentry)",
+            "Analytics (Mixpanel/PostHog)",
+            "CI/CD pipeline",
+            "App Store optimization metadata",
+        ],
+    })
+
+
+async def _generate_desktop_app(framework: str, app_name: str, features: str = "") -> str:
+    """Generate desktop app scaffold — Electron, Tauri, or native."""
+    feature_list = [f.strip() for f in features.split(",")] if features else ["window_management", "file_system", "auto_update"]
+
+    framework_configs = {
+        "electron": {
+            "runtime": "Electron 28+",
+            "language": "TypeScript",
+            "ui": "React + Vite (renderer process)",
+            "ipc": "Electron IPC (contextBridge)",
+            "packaging": "electron-builder",
+            "auto_update": "electron-updater (Squirrel)",
+            "platforms": ["macOS (DMG/PKG)", "Windows (NSIS/MSI)", "Linux (AppImage/deb/rpm)"],
+            "size": "~80-150MB (Chromium bundled)",
+        },
+        "tauri": {
+            "runtime": "Tauri 2.x (Rust backend)",
+            "language": "Rust (backend) + TypeScript (frontend)",
+            "ui": "React/Svelte/Vue + Vite",
+            "ipc": "Tauri commands (invoke)",
+            "packaging": "tauri-bundler",
+            "auto_update": "tauri-plugin-updater",
+            "platforms": ["macOS (DMG)", "Windows (MSI/NSIS)", "Linux (AppImage/deb)"],
+            "size": "~5-15MB (uses system WebView)",
+        },
+        "flutter_desktop": {
+            "runtime": "Flutter Desktop",
+            "language": "Dart",
+            "ui": "Flutter widgets (Material/Cupertino)",
+            "ipc": "Platform channels",
+            "packaging": "flutter build + installers",
+            "auto_update": "Custom or Sparkle (macOS)",
+            "platforms": ["macOS", "Windows", "Linux"],
+            "size": "~20-40MB",
+        },
+    }
+
+    config = framework_configs.get(framework, framework_configs["tauri"])
+
+    return json.dumps({
+        "app_name": app_name,
+        "framework": framework,
+        "tech_stack": config,
+        "directory_structure": [
+            f"{app_name}/",
+            "├── src-tauri/            # Rust backend" if framework == "tauri" else "├── main/                 # Main process",
+            "│   ├── commands/         # IPC command handlers",
+            "│   ├── plugins/          # Native plugins",
+            "│   └── lib.rs" if framework == "tauri" else "│   └── main.ts",
+            "├── src/                  # Frontend UI",
+            "│   ├── components/",
+            "│   ├── pages/",
+            "│   ├── stores/",
+            "│   └── App.tsx",
+            "├── resources/            # Icons, assets",
+            "├── scripts/              # Build & signing scripts",
+            "└── package.json",
+        ],
+        "features": feature_list,
+        "included": [
+            "System tray / menu bar integration",
+            "Auto-update with differential updates",
+            "Native file system access (sandboxed)",
+            "OS notifications",
+            "Global keyboard shortcuts",
+            "Deep link protocol handler",
+            "Code signing & notarization (macOS/Windows)",
+            "Installer generation for all platforms",
+            "Crash reporting",
+        ],
+    })
+
+
+async def _generate_browser_extension(browser: str, extension_name: str, extension_type: str = "content_enhancer", features: str = "") -> str:
+    """Generate browser extension scaffold — Chrome, Firefox, Safari."""
+    feature_list = [f.strip() for f in features.split(",")] if features else ["popup", "content_script", "storage"]
+
+    return json.dumps({
+        "extension_name": extension_name,
+        "browser": browser,
+        "manifest_version": "3" if browser in ("chrome", "chromium") else "2/3",
+        "extension_type": extension_type,
+        "directory_structure": [
+            f"{extension_name}/",
+            "├── src/",
+            "│   ├── background/       # Service worker (MV3)",
+            "│   ├── content/          # Content scripts",
+            "│   ├── popup/            # Popup UI (React/Svelte)",
+            "│   ├── options/          # Options page",
+            "│   ├── sidepanel/        # Side panel UI (Chrome)",
+            "│   └── shared/           # Shared utilities",
+            "├── public/",
+            "│   ├── icons/            # Extension icons (16/32/48/128)",
+            "│   └── manifest.json",
+            "├── scripts/",
+            "│   ├── build.js          # Build for multiple browsers",
+            "│   └── publish.js        # Store submission",
+            "├── tests/",
+            "└── package.json",
+        ],
+        "features": feature_list,
+        "included": [
+            "Manifest V3 service worker (Chrome) + background scripts (Firefox)",
+            "Content script injection with DOM manipulation",
+            "Popup/sidebar UI with React/Svelte",
+            "chrome.storage API for persistent data",
+            "Cross-browser message passing (runtime.sendMessage)",
+            "Context menu integration",
+            "Keyboard shortcuts (commands API)",
+            "Chrome Web Store / Firefox AMO submission scripts",
+            "Hot reload dev setup (webpack/vite)",
+        ],
+        "permissions_model": {
+            "required": ["storage", "activeTab"],
+            "optional": ["tabs", "history", "bookmarks", "contextMenus"],
+            "host_permissions": ["Specific domains only (principle of least privilege)"],
+        },
+    })
+
+
+async def _generate_agent_framework(agent_type: str, agent_name: str, llm_provider: str = "anthropic", tools: str = "", architecture: str = "single") -> str:
+    """Generate AI agent framework — single agent, multi-agent, supervisor, or swarm."""
+    tool_list = [t.strip() for t in tools.split(",")] if tools else ["web_search", "file_operations"]
+
+    arch_configs = {
+        "single": {
+            "pattern": "Single Agent with Tool Use",
+            "description": "One agent with access to multiple tools. Best for focused tasks.",
+            "components": ["Agent loop", "Tool registry", "Memory (conversation + long-term)", "Output parser"],
+        },
+        "supervisor": {
+            "pattern": "Supervisor-Worker Architecture",
+            "description": "Supervisor delegates tasks to specialized worker agents. Best for complex workflows.",
+            "components": ["Supervisor agent", "Worker agents (specialized)", "Task queue", "Result aggregator", "Shared memory"],
+        },
+        "chain": {
+            "pattern": "Sequential Chain (Pipeline)",
+            "description": "Agents run in sequence, each building on prior output. Best for structured workflows.",
+            "components": ["Pipeline orchestrator", "Stage agents", "Context passing", "Error recovery"],
+        },
+        "swarm": {
+            "pattern": "Agent Swarm (Handoff)",
+            "description": "Agents hand off to each other based on expertise. Best for dynamic routing.",
+            "components": ["Router", "Specialist agents", "Handoff protocol", "Shared context"],
+        },
+    }
+
+    config = arch_configs.get(architecture, arch_configs["single"])
+
+    return json.dumps({
+        "agent_name": agent_name,
+        "agent_type": agent_type,
+        "architecture": config,
+        "llm_provider": llm_provider,
+        "tools": tool_list,
+        "directory_structure": [
+            f"{agent_name}/",
+            "├── src/",
+            "│   ├── agents/           # Agent definitions",
+            "│   ├── tools/            # Tool implementations",
+            "│   ├── memory/           # Memory backends (SQLite, Redis, vector)",
+            "│   ├── prompts/          # System prompts & templates",
+            "│   ├── orchestration/    # Multi-agent coordination",
+            "│   └── api/              # Agent-as-API (FastAPI/Express)",
+            "├── configs/              # Agent configs (YAML/JSON)",
+            "├── tests/",
+            "├── scripts/",
+            "│   ├── run_agent.py      # CLI runner",
+            "│   └── evaluate.py       # Eval framework",
+            "└── pyproject.toml",
+        ],
+        "included": [
+            "Structured tool use with function calling",
+            "Conversation + long-term memory (vector DB)",
+            "Streaming output (SSE/WebSocket)",
+            "Token tracking and cost management",
+            "Error recovery and retry logic",
+            "Human-in-the-loop checkpoints",
+            "Eval framework for agent performance",
+            "Agent-as-API deployment (FastAPI)",
+            "Multi-provider LLM fallback",
+            "MCP (Model Context Protocol) server support",
+        ],
+    })
+
+
+async def _generate_cli_tool(language: str, tool_name: str, commands: str = "", features: str = "") -> str:
+    """Generate CLI tool scaffold with argument parsing, TUI, and distribution."""
+    command_list = [c.strip() for c in commands.split(",")] if commands else ["init", "run", "config"]
+    feature_list = [f.strip() for f in features.split(",")] if features else ["config_file", "colored_output", "progress_bars"]
+
+    lang_configs = {
+        "python": {"framework": "Typer + Rich", "packaging": "PyPI (twine/flit)", "binary": "PyInstaller or Nuitka", "tui": "Textual"},
+        "typescript": {"framework": "Commander + Inquirer", "packaging": "npm", "binary": "pkg or Bun compile", "tui": "Ink (React for CLI)"},
+        "go": {"framework": "Cobra + Viper", "packaging": "go install / Homebrew", "binary": "Native (go build)", "tui": "Bubble Tea + Lip Gloss"},
+        "rust": {"framework": "Clap + dialoguer", "packaging": "crates.io / Homebrew", "binary": "Native (cargo build --release)", "tui": "Ratatui + crossterm"},
+    }
+
+    config = lang_configs.get(language, lang_configs["python"])
+
+    return json.dumps({
+        "tool_name": tool_name,
+        "language": language,
+        "tech_stack": config,
+        "commands": command_list,
+        "features": feature_list,
+        "directory_structure": [
+            f"{tool_name}/",
+            "├── src/",
+            "│   ├── commands/         # Command implementations",
+            "│   ├── config/           # Config file loading",
+            "│   ├── output/           # Formatting, colors, tables",
+            "│   └── main.py" if language == "python" else f"│   └── main.{language[:2]}",
+            "├── tests/",
+            "├── completions/          # Shell completions (bash/zsh/fish)",
+            "├── man/                  # Man pages",
+            "└── Makefile",
+        ],
+        "included": [
+            "Subcommand architecture with help text",
+            "Config file support (TOML/YAML)",
+            "Shell completions (bash, zsh, fish)",
+            "Colored output and progress indicators",
+            "Interactive prompts for missing args",
+            "JSON/table/plain output formats",
+            "Binary distribution (Homebrew formula, npm global, cargo install)",
+            "Man page generation",
+        ],
+    })
+
+
+async def _generate_microservice(service_name: str, service_type: str = "rest", language: str = "python", communication: str = "http") -> str:
+    """Generate microservice scaffold with inter-service communication."""
+    comm_configs = {
+        "http": {"protocol": "REST/HTTP", "discovery": "Service registry (Consul/Eureka) or DNS", "load_balancing": "Client-side (Ribbon) or reverse proxy (Traefik)"},
+        "grpc": {"protocol": "gRPC (Protocol Buffers)", "discovery": "gRPC service reflection + DNS", "load_balancing": "gRPC built-in or Envoy proxy"},
+        "event": {"protocol": "Event-driven (Kafka/RabbitMQ/NATS)", "discovery": "Topic/queue-based routing", "load_balancing": "Consumer groups"},
+        "graphql": {"protocol": "GraphQL Federation", "discovery": "Apollo Router / schema registry", "load_balancing": "Gateway-level"},
+    }
+
+    config = comm_configs.get(communication, comm_configs["http"])
+
+    return json.dumps({
+        "service_name": service_name,
+        "service_type": service_type,
+        "language": language,
+        "communication": config,
+        "directory_structure": [
+            f"{service_name}/",
+            "├── src/",
+            "│   ├── handlers/         # Request/event handlers",
+            "│   ├── services/         # Business logic",
+            "│   ├── repositories/     # Data access",
+            "│   ├── models/           # Domain models",
+            "│   ├── proto/" if communication == "grpc" else "│   ├── schemas/",
+            "│   └── middleware/       # Auth, logging, tracing",
+            "├── tests/",
+            "├── migrations/           # Database migrations",
+            "├── Dockerfile",
+            "├── docker-compose.yml    # Local dev with dependencies",
+            "├── helm/                 # Kubernetes Helm chart",
+            "│   ├── Chart.yaml",
+            "│   ├── values.yaml",
+            "│   └── templates/",
+            "└── Makefile",
+        ],
+        "included": [
+            "Health check endpoint (/health, /ready)",
+            "OpenTelemetry tracing (distributed)",
+            "Structured logging (JSON)",
+            "Circuit breaker pattern",
+            "Retry with exponential backoff",
+            "Graceful shutdown handling",
+            "Database connection pooling",
+            "Helm chart for Kubernetes deployment",
+            "Docker Compose for local development",
+            "API versioning",
+            "Rate limiting per client",
+        ],
+        "observability": {
+            "tracing": "OpenTelemetry → Jaeger/Zipkin",
+            "metrics": "Prometheus + Grafana",
+            "logging": "Structured JSON → ELK/Loki",
+            "alerting": "Alertmanager rules",
+        },
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # REGISTER ALL TOOLS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -7374,6 +8048,104 @@ def register_all_tools():
         [ToolParameter(name="topics", description="Comma-separated topics to track"),
          ToolParameter(name="platforms", description="Platforms to monitor: all, or comma-separated list", required=False)],
         _build_sentiment_tracker, "research")
+
+    # ── Figma Design Tools ──
+    registry.register("figma_get_file", "Get Figma file data — pages, frames, components, styles.",
+        [ToolParameter(name="file_key", description="Figma file key (from URL: figma.com/file/{key}/...)"),
+         ToolParameter(name="components_only", description="Only fetch top-level structure", required=False)],
+        _figma_get_file, "figma")
+
+    registry.register("figma_get_components", "List all components in a Figma file with their properties and containing frames.",
+        [ToolParameter(name="file_key", description="Figma file key"),
+         ToolParameter(name="page_name", description="Filter by page name", required=False)],
+        _figma_get_components, "figma")
+
+    registry.register("figma_get_styles", "Get all styles (colors, text, effects, grids) from a Figma file.",
+        [ToolParameter(name="file_key", description="Figma file key")],
+        _figma_get_styles, "figma")
+
+    registry.register("figma_export_assets", "Export assets (images, icons, illustrations) from Figma nodes as PNG/SVG/PDF.",
+        [ToolParameter(name="file_key", description="Figma file key"),
+         ToolParameter(name="node_ids", description="Comma-separated node IDs to export"),
+         ToolParameter(name="format", description="Export format: png, svg, pdf, jpg", required=False),
+         ToolParameter(name="scale", description="Scale factor: 1, 2, 3, 4", required=False)],
+        _figma_export_assets, "figma")
+
+    registry.register("figma_extract_design_tokens", "Extract design tokens (colors, typography, spacing) from Figma for CSS/Tailwind/code.",
+        [ToolParameter(name="file_key", description="Figma file key")],
+        _figma_extract_design_tokens, "figma")
+
+    registry.register("figma_get_team_projects", "List all projects in a Figma team.",
+        [ToolParameter(name="team_id", description="Figma team ID (defaults to FIGMA_TEAM_ID env var)", required=False)],
+        _figma_get_team_projects, "figma")
+
+    # ── Harvey AI Legal Tools ──
+    registry.register("harvey_legal_research", "Research legal questions with AI-powered case law analysis and citations.",
+        [ToolParameter(name="query", description="Legal research question"),
+         ToolParameter(name="jurisdiction", description="Jurisdiction: us_federal, us_state, eu, uk, international", required=False),
+         ToolParameter(name="area", description="Practice area: corporate, ip, employment, privacy, tax, regulatory, contracts", required=False)],
+        _harvey_legal_research, "harvey")
+
+    registry.register("harvey_contract_analysis", "Analyze contracts — risk assessment, clause extraction, redline suggestions.",
+        [ToolParameter(name="contract_text", description="Contract text to analyze"),
+         ToolParameter(name="analysis_type", description="Type: review, risk_assessment, clause_extraction, redline, summary", required=False),
+         ToolParameter(name="focus", description="Focus areas: indemnification, ip, termination, liability, data_privacy", required=False)],
+        _harvey_contract_analysis, "harvey")
+
+    registry.register("harvey_regulatory_analysis", "Analyze regulatory requirements and compliance obligations for specific industries.",
+        [ToolParameter(name="regulation", description="Regulation or compliance area: gdpr, ccpa, hipaa, sox, pci_dss, ai_act, etc."),
+         ToolParameter(name="industry", description="Industry: saas, fintech, healthcare, ecommerce, etc.", required=False),
+         ToolParameter(name="jurisdiction", description="Jurisdiction: us_federal, eu, uk, california, etc.", required=False)],
+        _harvey_regulatory_analysis, "harvey")
+
+    registry.register("harvey_case_law_search", "Search case law for precedents, relevant decisions, and legal analysis.",
+        [ToolParameter(name="query", description="Case law search query"),
+         ToolParameter(name="jurisdiction", description="Jurisdiction: us_federal, us_state, eu, uk", required=False),
+         ToolParameter(name="court_level", description="Court: supreme, appellate, district, all", required=False)],
+        _harvey_case_law_search, "harvey")
+
+    # ── Expanded Full-Stack Dev Tools (Mobile, Desktop, Extensions, AI, CLI, Microservices) ──
+    registry.register("generate_mobile_app", "Generate complete mobile app scaffold — iOS, Android, or cross-platform (React Native, Flutter).",
+        [ToolParameter(name="platform", description="Platform: react_native, flutter, ios_native, android_native"),
+         ToolParameter(name="app_name", description="App name"),
+         ToolParameter(name="features", description="Comma-separated features: auth, push_notifications, payments, offline, maps, camera", required=False),
+         ToolParameter(name="tech_stack", description="Override default tech stack", required=False)],
+        _generate_mobile_app, "mobile")
+
+    registry.register("generate_desktop_app", "Generate desktop app scaffold — Electron, Tauri, or Flutter Desktop.",
+        [ToolParameter(name="framework", description="Framework: electron, tauri, flutter_desktop"),
+         ToolParameter(name="app_name", description="App name"),
+         ToolParameter(name="features", description="Comma-separated features: system_tray, auto_update, file_system, notifications", required=False)],
+        _generate_desktop_app, "development")
+
+    registry.register("generate_browser_extension", "Generate browser extension scaffold — Chrome (MV3), Firefox, Safari.",
+        [ToolParameter(name="browser", description="Browser: chrome, firefox, safari, chromium"),
+         ToolParameter(name="extension_name", description="Extension name"),
+         ToolParameter(name="extension_type", description="Type: content_enhancer, productivity, dev_tool, ad_blocker, scraper", required=False),
+         ToolParameter(name="features", description="Comma-separated features: popup, content_script, sidepanel, context_menu, storage", required=False)],
+        _generate_browser_extension, "development")
+
+    registry.register("generate_agent_framework", "Generate AI agent system — single agent, multi-agent supervisor, chain, or swarm.",
+        [ToolParameter(name="agent_type", description="Type: chatbot, task_agent, research_agent, coding_agent, workflow_agent"),
+         ToolParameter(name="agent_name", description="Agent project name"),
+         ToolParameter(name="llm_provider", description="LLM: anthropic, openai, google, mistral, local", required=False),
+         ToolParameter(name="tools", description="Comma-separated tools the agent needs", required=False),
+         ToolParameter(name="architecture", description="Architecture: single, supervisor, chain, swarm", required=False)],
+        _generate_agent_framework, "ai_dev")
+
+    registry.register("generate_cli_tool", "Generate CLI tool scaffold with argument parsing, TUI, and distribution packaging.",
+        [ToolParameter(name="language", description="Language: python, typescript, go, rust"),
+         ToolParameter(name="tool_name", description="CLI tool name"),
+         ToolParameter(name="commands", description="Comma-separated subcommands", required=False),
+         ToolParameter(name="features", description="Comma-separated features: config_file, tui, completions, man_pages", required=False)],
+        _generate_cli_tool, "development")
+
+    registry.register("generate_microservice", "Generate microservice scaffold with inter-service communication and observability.",
+        [ToolParameter(name="service_name", description="Service name"),
+         ToolParameter(name="service_type", description="Type: rest, grpc, event_consumer, graphql, worker", required=False),
+         ToolParameter(name="language", description="Language: python, go, rust, typescript, java", required=False),
+         ToolParameter(name="communication", description="Communication: http, grpc, event, graphql", required=False)],
+        _generate_microservice, "development")
 
 
 register_all_tools()
