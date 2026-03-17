@@ -354,3 +354,43 @@ async def load_budgets(campaign_id: str) -> list[dict]:
     except Exception as e:
         logger.error(f"Failed to load budgets for {campaign_id}: {e}")
         return []
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AGENT RUN SNAPSHOTS (for adaptive learning trends)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def save_run_snapshot(snapshot: dict) -> bool:
+    """Save an agent run snapshot for trend analysis."""
+    client = _get_client()
+    if not client:
+        return False
+
+    try:
+        client.table("agent_run_snapshots").insert(snapshot).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save run snapshot: {e}")
+        return False
+
+
+async def load_run_snapshots(
+    campaign_id: str, agent_id: str, limit: int = 10,
+) -> list[dict]:
+    """Load recent run snapshots for trend computation."""
+    client = _get_client()
+    if not client:
+        return []
+
+    try:
+        result = (client.table("agent_run_snapshots")
+                  .select("*")
+                  .eq("campaign_id", campaign_id)
+                  .eq("agent_id", agent_id)
+                  .order("created_at", desc=True)
+                  .limit(limit)
+                  .execute())
+        return result.data or []
+    except Exception as e:
+        logger.error(f"Failed to load run snapshots: {e}")
+        return []

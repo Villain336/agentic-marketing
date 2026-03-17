@@ -307,5 +307,64 @@ class CampaignGenome:
         return dna.to_dict() if dna else None
 
 
+    # ── Adaptive Loop Methods ─────────────────────────────────────────────
+
+    def get_live_intelligence(self, campaign: Campaign) -> dict[str, Any]:
+        """Get fresh genome intelligence (not the stale creation-time string).
+        Called by adaptation.py on every agent run."""
+        biz = campaign.memory.business
+        return self.query_intelligence(
+            icp_type=biz.icp,
+            service_type=biz.service,
+            geography=biz.geography,
+            industry=biz.industry,
+        )
+
+    def record_scoring_outcomes(
+        self, campaign: Campaign, scores: dict[str, dict],
+    ) -> None:
+        """Feed scoring grades + sensing metrics back into campaign DNA.
+        Called by the health_check scheduler job to keep genome current."""
+        dna = self._dna_store.get(campaign.id)
+        if not dna:
+            dna = self.record_campaign_dna(campaign)
+
+        # Update outcomes from raw sensing metrics
+        raw_metrics = getattr(campaign, '_metrics', {})
+        outcome_map = {
+            "email_metrics": ["reply_rate", "open_rate", "click_rate", "bounce_rate"],
+            "ad_metrics": ["ctr", "cpa", "roas"],
+            "site_metrics": ["bounce_rate", "conversion_rate"],
+            "social_metrics": ["engagement_rate"],
+            "crm_metrics": ["close_rate"],
+            "revenue_metrics": ["mrr", "total_revenue"],
+            "billing_metrics": ["collection_rate"],
+        }
+        for source, keys in outcome_map.items():
+            source_metrics = raw_metrics.get(source, {})
+            for key in keys:
+                if key in source_metrics:
+                    dna.outcomes[key] = source_metrics[key]
+
+        # Record lessons from agent scores
+        for agent_id, data in scores.items():
+            grade = data.get("grade", "")
+            reasoning = data.get("reasoning", "")
+            if not reasoning:
+                continue
+            lesson = f"{agent_id}: {reasoning}"
+            if grade in ("A+", "A", "A-"):
+                if lesson not in dna.lessons["what_worked"]:
+                    dna.lessons["what_worked"].append(lesson)
+                    # Cap at 20 lessons
+                    dna.lessons["what_worked"] = dna.lessons["what_worked"][-20:]
+            elif grade in ("D", "D-", "F"):
+                if lesson not in dna.lessons["what_didnt"]:
+                    dna.lessons["what_didnt"].append(lesson)
+                    dna.lessons["what_didnt"] = dna.lessons["what_didnt"][-20:]
+
+        logger.info(f"Scoring outcomes recorded for campaign {campaign.id}")
+
+
 # Singleton
 genome = CampaignGenome()
