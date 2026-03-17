@@ -202,7 +202,7 @@ async def run_agent(agent_id: str, req: RunAgentRequest):
 
     async def stream():
         try:
-            async for event in engine.run(agent=agent, memory=campaign.memory, campaign_id=campaign_id, tier=req.tier):
+            async for event in engine.run(agent=agent, memory=campaign.memory, campaign_id=campaign_id, tier=req.tier, campaign=campaign):
                 if event.memory_update:
                     for k, v in event.memory_update.items():
                         if hasattr(campaign.memory, k):
@@ -257,7 +257,7 @@ async def run_campaign(req: RunCampaignRequest):
             yield f"data: {json.dumps({'event': 'agent_start', 'agent_id': aid, 'label': agent.label, 'index': i, 'total': len(agent_ids)})}\n\n"
 
             try:
-                async for event in engine.run(agent=agent, memory=campaign.memory, campaign_id=campaign_id, tier=req.tier):
+                async for event in engine.run(agent=agent, memory=campaign.memory, campaign_id=campaign_id, tier=req.tier, campaign=campaign):
                     if event.memory_update:
                         for k, v in event.memory_update.items():
                             if hasattr(campaign.memory, k):
@@ -630,7 +630,7 @@ async def launch_from_template(template_id: str, request: Request):
 
             try:
                 async for event in engine.run(agent=agent, memory=campaign.memory,
-                                              campaign_id=campaign_id, tier=tier):
+                                              campaign_id=campaign_id, tier=tier, campaign=campaign):
                     if event.memory_update:
                         for k, v in event.memory_update.items():
                             if hasattr(campaign.memory, k):
@@ -713,7 +713,9 @@ async def receive_webhook(source: str, request: Request):
 
 
 async def _execute_sensing_trigger(campaign: Campaign, agent_id: str, reason: str):
-    """Background task: re-run an agent after a sensing trigger fires."""
+    """Background task: re-run an agent after a sensing trigger fires.
+    The adaptation engine automatically injects performance feedback and
+    learned strategies — no need to manually append to brand_context."""
     agent = get_agent(agent_id)
     if not agent:
         logger.error(f"Sensing trigger: agent {agent_id} not found")
@@ -721,17 +723,11 @@ async def _execute_sensing_trigger(campaign: Campaign, agent_id: str, reason: st
 
     logger.info(f"Sensing trigger executing: re-running {agent_id} — {reason}")
 
-    # Inject the trigger reason into memory so the agent knows why it's re-running
-    campaign.memory.brand_context = (
-        (campaign.memory.business.brand_context or "")
-        + f"\n\n[AUTO-TRIGGER] You are re-running because: {reason}. "
-        f"Review your previous output and optimize based on the new performance data."
-    )
-
     try:
         async for event in engine.run(
             agent=agent, memory=campaign.memory,
             campaign_id=campaign.id, tier=Tier.STANDARD,
+            campaign=campaign, trigger_reason=reason,
         ):
             if event.memory_update:
                 for k, v in event.memory_update.items():
@@ -1047,7 +1043,7 @@ async def _run_campaign_background(campaign: Campaign, tier: Tier):
             continue
         try:
             async for event in engine.run(agent=agent, memory=campaign.memory,
-                                          campaign_id=campaign.id, tier=tier):
+                                          campaign_id=campaign.id, tier=tier, campaign=campaign):
                 if event.memory_update:
                     for k, v in event.memory_update.items():
                         if hasattr(campaign.memory, k):

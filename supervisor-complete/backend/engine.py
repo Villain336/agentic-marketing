@@ -21,6 +21,16 @@ from tools import registry
 
 logger = logging.getLogger("supervisor.engine")
 
+# Lazy import to avoid circular dependency
+_adaptation_engine = None
+
+def _get_adaptation_engine():
+    global _adaptation_engine
+    if _adaptation_engine is None:
+        from adaptation import adaptation_engine
+        _adaptation_engine = adaptation_engine
+    return _adaptation_engine
+
 
 class AgentConfig:
     """Configuration for a single agent."""
@@ -54,10 +64,27 @@ class AgentEngine:
     """
 
     async def run(self, agent: AgentConfig, memory: CampaignMemory,
-                  campaign_id: str = "", tier: Tier = None) -> AsyncGenerator[AgentStreamEvent, None]:
+                  campaign_id: str = "", tier: Tier = None,
+                  campaign: "Campaign | None" = None,
+                  trigger_reason: str = "") -> AsyncGenerator[AgentStreamEvent, None]:
         tier = tier or agent.tier
         system = agent.system_prompt_builder(memory)
         goal = agent.goal_prompt_builder(memory)
+
+        # ── Adaptive Intelligence Injection ──
+        adaptive_block = ""
+        if campaign:
+            try:
+                adapt = _get_adaptation_engine()
+                adaptive_ctx = adapt.build_context(
+                    agent_id=agent.id, campaign=campaign,
+                    trigger_reason=trigger_reason,
+                )
+                adaptive_block = adapt.render_prompt_block(adaptive_ctx)
+                if adaptive_block:
+                    system = system + "\n\n" + adaptive_block
+            except Exception as e:
+                logger.warning(f"Adaptation injection skipped for {agent.id}: {e}")
         tools = agent.get_tools()
         messages = [{"role": "user", "content": goal}]
 
@@ -183,6 +210,21 @@ class AgentEngine:
             content=full_text_output, provider=provider_used,
             status=AgentStatus.DONE, memory_update=memory_update,
         )
+
+        # ── Record run snapshot for trend computation ──
+        if campaign and campaign_id:
+            try:
+                from scoring import scorer
+                adapt = _get_adaptation_engine()
+                scores = scorer.score_all(campaign)
+                agent_score = scores.get(agent.id, {}).get("score", 0)
+                agent_metrics = scores.get(agent.id, {}).get("metrics", {})
+                adapt.record_run_snapshot(
+                    agent_id=agent.id, campaign_id=campaign_id,
+                    score=agent_score, metrics=agent_metrics,
+                )
+            except Exception as e:
+                logger.debug(f"Snapshot recording skipped for {agent.id}: {e}")
 
         logger.info(f"Agent {agent.id} done: {iteration} iterations, {total_ms}ms")
 

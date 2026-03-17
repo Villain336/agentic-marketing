@@ -209,21 +209,55 @@ async def _tax_deadline_monitor():
 
 
 async def _campaign_health_check():
-    """Score all active campaigns and log any agents with grade D or below."""
+    """Score all active campaigns, feed results to genome, and log failing agents."""
     from main import campaigns
     from scoring import scorer
+    from genome import genome
 
     for campaign_id, campaign in list(campaigns.items()):
         if campaign.status != "active":
             continue
         scores = scorer.score_all(campaign)
+
+        # Feed scores back into genome DNA — closes the learning loop
+        try:
+            genome.record_scoring_outcomes(campaign, scores)
+        except Exception as e:
+            logger.error(f"Genome scoring feedback failed for {campaign_id}: {e}")
+
         failing = {aid: data for aid, data in scores.items()
                    if data.get("grade", "F") in ("D", "D-", "F")}
         if failing:
+            agent_grades = ', '.join(f'{a}={d["grade"]}' for a, d in failing.items())
             logger.warning(
-                f"Campaign {campaign_id} has {len(failing)} failing agents: "
-                f"{', '.join(f'{a}={d[\"grade\"]}' for a, d in failing.items())}"
+                f"Campaign {campaign_id} has {len(failing)} failing agents: {agent_grades}"
             )
+
+
+async def _adaptation_refresh():
+    """Refresh genome intelligence for active campaigns so agents stay current."""
+    from main import campaigns
+    from genome import genome
+
+    refreshed = 0
+    for campaign_id, campaign in list(campaigns.items()):
+        if campaign.status != "active":
+            continue
+        try:
+            recs = genome.get_recommendations(campaign)
+            if recs.get("has_data"):
+                intel_lines = [f"• {r}" for r in recs.get("recommendations", [])]
+                benchmarks = recs.get("benchmarks", {})
+                if benchmarks:
+                    bench_strs = [f"{k}: {v}" for k, v in list(benchmarks.items())[:5]]
+                    intel_lines.append(f"Benchmarks: {', '.join(bench_strs)}")
+                campaign.memory.genome_intel = "\n".join(intel_lines)
+                refreshed += 1
+        except Exception as e:
+            logger.error(f"Adaptation refresh failed for {campaign_id}: {e}")
+
+    if refreshed:
+        logger.info(f"Adaptation refresh: updated genome intel for {refreshed} campaigns")
 
 
 def register_default_jobs():
@@ -238,3 +272,5 @@ def register_default_jobs():
                        "Daily tax deadline monitoring and alerts")
     scheduler.register("health_check", 21600, _campaign_health_check,
                        "6-hourly campaign health scoring check")
+    scheduler.register("adaptation_refresh", 7200, _adaptation_refresh,
+                       "2-hourly genome intelligence refresh for active campaigns")
