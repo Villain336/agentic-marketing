@@ -38,6 +38,16 @@ from ratelimit import RateLimitMiddleware
 from costtracker import cost_tracker
 from webhook_auth import verify_webhook
 from whitelabel import tenant_manager
+from revshare import attribution_engine, revshare_billing, REVSHARE_PLANS
+from skillforge import skillforge
+from marketplace import skillhub
+from whatsapp import whatsapp
+from replanner import replanner
+from onprem import onprem
+from privacy import privacy_router
+from finetuning import training_collector, finetune_manager
+from wideresearch import wide_research
+from designview import design_view
 import db
 
 logging.basicConfig(
@@ -1304,6 +1314,660 @@ async def get_tenant_by_slug(slug: str):
         "brand_color_primary": tenant.brand_color_primary,
         "brand_color_accent": tenant.brand_color_accent,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REVENUE SHARE ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/revshare/plans")
+async def list_revshare_plans():
+    """List available revenue share plans."""
+    return {"plans": {k: v.model_dump() for k, v in REVSHARE_PLANS.items()}}
+
+
+@app.post("/revshare/enroll")
+async def enroll_revshare(request: Request):
+    """Enroll a user in a revenue share plan."""
+    body = await request.json()
+    user_id = body.get("user_id") or get_user_id(request)
+    plan = body.get("plan", "growth")
+    try:
+        revshare_billing.set_user_plan(user_id, plan)
+        return {"enrolled": True, "plan": plan, "user_id": user_id}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/revshare/attribute")
+async def attribute_revenue(request: Request):
+    """Attribute a revenue event to agent actions."""
+    body = await request.json()
+    attrs = attribution_engine.attribute_revenue(
+        campaign_id=body["campaign_id"],
+        revenue_event_id=body.get("event_id", ""),
+        amount=body["amount"],
+        currency=body.get("currency", "USD"),
+        window_days=body.get("window_days", 30),
+    )
+    return {"attributions": [a.model_dump() for a in attrs]}
+
+
+@app.get("/revshare/campaign/{campaign_id}/attributions")
+async def get_campaign_attributions(campaign_id: str):
+    """Get revenue attributions for a campaign."""
+    attrs = attribution_engine.get_attributions(campaign_id)
+    by_agent = attribution_engine.get_agent_revenue(campaign_id)
+    return {"attributions": [a.model_dump() for a in attrs], "by_agent": by_agent}
+
+
+@app.post("/revshare/invoice")
+async def generate_revshare_invoice(request: Request):
+    """Generate a revenue share invoice."""
+    body = await request.json()
+    try:
+        invoice = revshare_billing.generate_invoice(
+            user_id=body["user_id"], campaign_id=body["campaign_id"],
+        )
+        return invoice.model_dump()
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/revshare/dashboard/{user_id}")
+async def revshare_dashboard(user_id: str):
+    """Get revenue share dashboard for a user."""
+    return revshare_billing.get_revenue_dashboard(user_id)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SKILLFORGE — SELF-WRITING SKILLS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/skills/create")
+async def create_skill(request: Request):
+    """Create a new self-authored skill."""
+    body = await request.json()
+    try:
+        skill = skillforge.create_skill(
+            name=body["name"], description=body["description"],
+            parameters=body.get("parameters", []),
+            implementation_type=body.get("implementation_type", "api_chain"),
+            implementation=body.get("implementation", {}),
+            author_agent_id=body.get("agent_id", ""),
+            campaign_id=body.get("campaign_id", ""),
+            tags=body.get("tags", []),
+        )
+        return skill.model_dump()
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/skills/{skill_id}/validate")
+async def validate_skill(skill_id: str):
+    """Validate a skill definition."""
+    result = skillforge.validate_skill(skill_id)
+    return result
+
+
+@app.post("/skills/{skill_id}/execute")
+async def execute_skill(skill_id: str, request: Request):
+    """Execute a validated skill."""
+    body = await request.json()
+    from tools import registry
+    result = await skillforge.execute_skill(
+        skill_id, body.get("inputs", {}),
+        tool_registry=registry, llm_router=model_router,
+    )
+    return result.model_dump()
+
+
+@app.post("/skills/{skill_id}/register")
+async def register_skill_as_tool(skill_id: str):
+    """Register a validated skill as a callable tool."""
+    from tools import registry
+    success = skillforge.register_to_tool_registry(skill_id, registry)
+    if not success:
+        raise HTTPException(400, "Skill must be validated before registration")
+    return {"registered": True, "skill_id": skill_id}
+
+
+@app.post("/skills/{skill_id}/publish")
+async def publish_skill(skill_id: str):
+    """Publish a skill to the marketplace."""
+    success = skillforge.publish_skill(skill_id)
+    if not success:
+        raise HTTPException(400, "Skill must be validated before publishing")
+    return {"published": True}
+
+
+@app.get("/skills")
+async def list_skills(campaign_id: str = None):
+    """List skills for a campaign or all skills."""
+    skills = skillforge.list_skills(campaign_id=campaign_id)
+    return {"skills": [s.model_dump() for s in skills]}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SKILLHUB MARKETPLACE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/marketplace/search")
+async def marketplace_search(query: str = "", category: str = "",
+                              item_type: str = "", sort_by: str = "installs",
+                              limit: int = 20, offset: int = 0):
+    """Search the SkillHub marketplace."""
+    return skillhub.search(query=query, category=category, item_type=item_type,
+                           sort_by=sort_by, limit=limit, offset=offset)
+
+
+@app.get("/marketplace/featured")
+async def marketplace_featured():
+    """Get featured marketplace items."""
+    return {"featured": [f.model_dump() for f in skillhub.get_featured()]}
+
+
+@app.get("/marketplace/categories")
+async def marketplace_categories():
+    """Get marketplace category summary."""
+    return {"categories": skillhub.get_categories_summary()}
+
+
+@app.post("/marketplace/publish")
+async def marketplace_publish(request: Request):
+    """Publish an item to the marketplace."""
+    body = await request.json()
+    from marketplace import MarketplaceListing
+    listing = MarketplaceListing(**body)
+    result = skillhub.publish(listing)
+    return result.model_dump()
+
+
+@app.post("/marketplace/{listing_id}/install")
+async def marketplace_install(listing_id: str, request: Request):
+    """Install a marketplace item."""
+    body = await request.json()
+    item = skillhub.install(listing_id, body.get("user_id", ""), body.get("campaign_id", ""))
+    if not item:
+        raise HTTPException(404, "Listing not found")
+    return {"installed": True, "listing_id": listing_id}
+
+
+@app.post("/marketplace/{listing_id}/review")
+async def marketplace_review(listing_id: str, request: Request):
+    """Add a review to a marketplace listing."""
+    body = await request.json()
+    review = skillhub.add_review(listing_id, body.get("user_id", ""),
+                                  body.get("rating", 5), body.get("comment", ""))
+    if not review:
+        raise HTTPException(404, "Listing not found")
+    return review.model_dump()
+
+
+@app.get("/marketplace/{listing_id}")
+async def marketplace_get_listing(listing_id: str):
+    """Get a marketplace listing."""
+    listing = skillhub.get_listing(listing_id)
+    if not listing:
+        raise HTTPException(404, "Listing not found")
+    reviews = skillhub.get_reviews(listing_id)
+    return {**listing.model_dump(), "reviews": [r.model_dump() for r in reviews]}
+
+
+@app.get("/marketplace/creator/{user_id}/earnings")
+async def marketplace_creator_earnings(user_id: str):
+    """Get creator earnings from marketplace."""
+    return skillhub.get_creator_earnings(user_id)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# WHATSAPP INTEGRATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/webhooks/whatsapp")
+async def whatsapp_verify(request: Request):
+    """WhatsApp webhook verification (GET challenge)."""
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
+    if mode == "subscribe" and token == whatsapp.verify_token:
+        return int(challenge)
+    raise HTTPException(403, "Verification failed")
+
+
+@app.post("/webhooks/whatsapp")
+async def whatsapp_webhook(request: Request):
+    """Receive inbound WhatsApp messages and delivery receipts."""
+    body = await request.json()
+    messages = whatsapp.parse_webhook(body)
+    for msg in messages:
+        response = await whatsapp.process_inbound(msg)
+        if response:
+            await whatsapp.send_text(msg.phone, response)
+    return {"status": "ok"}
+
+
+@app.post("/whatsapp/send")
+async def whatsapp_send(request: Request):
+    """Send a WhatsApp message."""
+    body = await request.json()
+    msg_type = body.get("type", "text")
+    if msg_type == "text":
+        result = await whatsapp.send_text(body["phone"], body["text"])
+    elif msg_type == "template":
+        result = await whatsapp.send_template(body["phone"], body["template"],
+                                               parameters=body.get("parameters"))
+    elif msg_type == "buttons":
+        result = await whatsapp.send_interactive_buttons(body["phone"], body["text"],
+                                                          body.get("buttons", []))
+    elif msg_type == "media":
+        result = await whatsapp.send_media(body["phone"], body.get("media_type", "image"),
+                                            body["media_url"], body.get("caption", ""))
+    else:
+        raise HTTPException(400, f"Unknown message type: {msg_type}")
+    return result
+
+
+@app.post("/whatsapp/briefing")
+async def whatsapp_send_briefing(request: Request):
+    """Send a daily briefing via WhatsApp."""
+    body = await request.json()
+    result = await whatsapp.send_daily_briefing(body["phone"], body.get("briefing", {}))
+    return result
+
+
+@app.post("/whatsapp/approval")
+async def whatsapp_send_approval(request: Request):
+    """Send an approval request via WhatsApp."""
+    body = await request.json()
+    result = await whatsapp.send_approval_request(body["phone"], body.get("approval", {}))
+    return result
+
+
+@app.get("/whatsapp/conversation/{phone}")
+async def whatsapp_conversation(phone: str, limit: int = 50):
+    """Get WhatsApp conversation history."""
+    return {"messages": whatsapp.get_conversation(phone, limit)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DYNAMIC RE-PLANNING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/replanner/stats")
+async def replanner_stats():
+    """Get re-planning statistics."""
+    return replanner.get_stats()
+
+
+@app.get("/replanner/history/{campaign_id}/{agent_id}")
+async def replanner_history(campaign_id: str, agent_id: str):
+    """Get re-planning history for an agent run."""
+    history = replanner.get_history(agent_id, campaign_id)
+    if not history:
+        return {"agent_id": agent_id, "campaign_id": campaign_id, "replans": 0}
+    return history.model_dump()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ON-PREM / LOCAL DEPLOYMENT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/deployment/status")
+async def deployment_status():
+    """Get current deployment mode and configuration."""
+    return onprem.health_check()
+
+
+@app.post("/deployment/configure")
+async def configure_deployment(request: Request):
+    """Update deployment mode (cloud/hybrid/onprem/airgap)."""
+    body = await request.json()
+    mode = onprem.configure_mode(body.pop("mode", "cloud"), **body)
+    return mode.model_dump()
+
+
+@app.post("/deployment/local-llm")
+async def register_local_llm(request: Request):
+    """Register a local LLM endpoint."""
+    body = await request.json()
+    from onprem import LocalLLMConfig
+    config = LocalLLMConfig(**body)
+    result = onprem.register_local_llm(config)
+    return result.model_dump()
+
+
+@app.post("/deployment/local-llm/preset/{preset_name}")
+async def register_llm_preset(preset_name: str):
+    """Register a pre-configured local LLM (ollama_llama3, ollama_mixtral, etc.)."""
+    result = onprem.register_preset(preset_name)
+    if not result:
+        raise HTTPException(404, f"Preset not found: {preset_name}")
+    return result.model_dump()
+
+
+@app.get("/deployment/local-llms")
+async def list_local_llms():
+    """List registered local LLMs."""
+    return {"llms": [l.model_dump() for l in onprem.get_local_llms()]}
+
+
+@app.get("/deployment/blocked-tools")
+async def get_blocked_tools():
+    """Get tools blocked by current deployment mode."""
+    return {"blocked": onprem.get_blocked_tools(), "mode": onprem.deployment_mode.mode}
+
+
+@app.post("/deployment/retention")
+async def set_retention_policy(request: Request):
+    """Set data retention policy."""
+    body = await request.json()
+    from onprem import DataRetentionPolicy
+    policy = DataRetentionPolicy(**body)
+    onprem.set_retention_policy(policy)
+    return policy.model_dump()
+
+
+@app.get("/deployment/export")
+async def export_deployment_config():
+    """Export on-prem configuration for backup."""
+    return onprem.export_config()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PII / PRIVACY ROUTER
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/privacy/scrub")
+async def scrub_pii(request: Request):
+    """Scrub PII from text."""
+    body = await request.json()
+    result = privacy_router.scrub(
+        body["text"], session_id=body.get("session_id", "default"),
+        agent_id=body.get("agent_id", ""),
+    )
+    return {
+        "scrubbed_text": result.scrubbed_text,
+        "pii_count": result.pii_count,
+        "has_critical": result.has_critical,
+        "detections": [d.model_dump() for d in result.detections],
+    }
+
+
+@app.post("/privacy/restore")
+async def restore_pii(request: Request):
+    """Restore PII placeholders back to originals."""
+    body = await request.json()
+    restored = privacy_router.restore(body["text"], body.get("session_id", "default"))
+    return {"restored_text": restored}
+
+
+@app.post("/privacy/configure")
+async def configure_privacy(request: Request):
+    """Update privacy router configuration."""
+    body = await request.json()
+    from privacy import PrivacyConfig
+    config = PrivacyConfig(**body)
+    privacy_router.configure(config)
+    return {"configured": True}
+
+
+@app.post("/privacy/agent-allowlist")
+async def set_agent_pii_allowlist(request: Request):
+    """Set PII types allowed for a specific agent."""
+    body = await request.json()
+    privacy_router.set_agent_pii_allowlist(body["agent_id"], body.get("allowed_types", []))
+    return {"agent_id": body["agent_id"], "allowed_types": body.get("allowed_types", [])}
+
+
+@app.get("/privacy/stats")
+async def privacy_stats():
+    """Get privacy router statistics."""
+    return privacy_router.get_stats()
+
+
+@app.get("/privacy/audit")
+async def privacy_audit(session_id: str = None):
+    """Get PII detection audit log."""
+    return {"audit": privacy_router.audit_log(session_id)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CUSTOM MODEL FINE-TUNING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/finetuning/dataset")
+async def create_training_dataset(request: Request):
+    """Create a training dataset from agent execution traces."""
+    body = await request.json()
+    ds = training_collector.create_dataset(
+        user_id=body.get("user_id", ""),
+        name=body["name"],
+        agent_ids=body.get("agent_ids", []),
+        min_score=body.get("min_score", 0.7),
+        description=body.get("description", ""),
+    )
+    return ds.model_dump()
+
+
+@app.post("/finetuning/dataset/{dataset_id}/build")
+async def build_training_dataset(dataset_id: str, request: Request):
+    """Build dataset from captured traces across campaigns."""
+    body = await request.json()
+    try:
+        ds = training_collector.build_dataset(dataset_id, body.get("campaign_ids", []))
+        return ds.model_dump()
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/finetuning/datasets")
+async def list_training_datasets(user_id: str = None):
+    """List training datasets."""
+    datasets = training_collector.list_datasets(user_id)
+    return {"datasets": [d.model_dump() for d in datasets]}
+
+
+@app.post("/finetuning/job")
+async def create_finetune_job(request: Request):
+    """Create a fine-tuning job."""
+    body = await request.json()
+    try:
+        job = finetune_manager.create_job(
+            user_id=body.get("user_id", ""),
+            dataset_id=body["dataset_id"],
+            provider=body.get("provider", "openai"),
+            base_model=body.get("base_model", ""),
+            hyperparameters=body.get("hyperparameters"),
+        )
+        return job.model_dump()
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/finetuning/job/{job_id}/submit")
+async def submit_finetune_job(job_id: str):
+    """Submit a fine-tuning job to the provider."""
+    try:
+        job = finetune_manager.submit_job(job_id)
+        return job.model_dump()
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/finetuning/jobs")
+async def list_finetune_jobs(user_id: str = None):
+    """List fine-tuning jobs."""
+    jobs = finetune_manager.list_jobs(user_id)
+    return {"jobs": [j.model_dump() for j in jobs]}
+
+
+@app.get("/finetuning/models/{user_id}")
+async def list_customer_models(user_id: str):
+    """List a customer's fine-tuned models."""
+    models = finetune_manager.list_customer_models(user_id)
+    return {"models": [m.model_dump() for m in models]}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# WIDE RESEARCH
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/research/wide")
+async def create_wide_research(request: Request):
+    """Create a wide research job with parallel sub-agents."""
+    body = await request.json()
+    job = wide_research.create_job(
+        topic=body["topic"],
+        campaign_id=body.get("campaign_id", ""),
+        user_id=body.get("user_id", ""),
+        strategy=body.get("strategy", "general"),
+        max_parallel=body.get("max_parallel", 5),
+        custom_queries=body.get("custom_queries"),
+        targets=body.get("targets"),
+    )
+    return job.model_dump()
+
+
+@app.post("/research/wide/{job_id}/execute")
+async def execute_wide_research(job_id: str):
+    """Execute a wide research job."""
+    from tools import registry
+    try:
+        job = await wide_research.execute(job_id, llm_router=model_router, tool_registry=registry)
+        return job.model_dump()
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/research/wide/{job_id}")
+async def get_wide_research(job_id: str):
+    """Get wide research job status and results."""
+    job = wide_research.get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    synthesis = wide_research.get_synthesis(job_id)
+    result = job.model_dump()
+    if synthesis:
+        result["synthesis"] = synthesis.model_dump()
+    return result
+
+
+@app.get("/research/wide")
+async def list_wide_research(campaign_id: str = None, user_id: str = None):
+    """List wide research jobs."""
+    jobs = wide_research.list_jobs(campaign_id, user_id)
+    return {"jobs": [j.model_dump() for j in jobs]}
+
+
+@app.get("/research/strategies")
+async def list_research_strategies():
+    """List available research decomposition strategies."""
+    return {"strategies": wide_research.get_available_strategies()}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DESIGN VIEW
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/design/canvas")
+async def create_design_canvas(request: Request):
+    """Create a new design canvas."""
+    body = await request.json()
+    canvas = design_view.create_canvas(
+        campaign_id=body["campaign_id"],
+        name=body.get("name", "Untitled"),
+        template_id=body.get("template_id", ""),
+        width=body.get("width", 1440),
+        height=body.get("height", 900),
+    )
+    return canvas.model_dump()
+
+
+@app.get("/design/canvas/{canvas_id}")
+async def get_design_canvas(canvas_id: str):
+    """Get a design canvas."""
+    canvas = design_view.get_canvas(canvas_id)
+    if not canvas:
+        raise HTTPException(404, "Canvas not found")
+    return canvas.model_dump()
+
+
+@app.get("/design/canvases/{campaign_id}")
+async def list_design_canvases(campaign_id: str):
+    """List canvases for a campaign."""
+    canvases = design_view.list_canvases(campaign_id)
+    return {"canvases": [c.model_dump() for c in canvases]}
+
+
+@app.post("/design/canvas/{canvas_id}/component")
+async def add_design_component(canvas_id: str, request: Request):
+    """Add a component from the library to a canvas."""
+    body = await request.json()
+    element = design_view.add_component(
+        canvas_id, body["component"],
+        x=body.get("x", 0), y=body.get("y", 0),
+        overrides=body.get("overrides"),
+    )
+    if not element:
+        raise HTTPException(400, "Canvas or component not found")
+    return element.model_dump()
+
+
+@app.patch("/design/canvas/{canvas_id}/element/{element_id}")
+async def update_design_element(canvas_id: str, element_id: str, request: Request):
+    """Update a design element's properties or styles."""
+    body = await request.json()
+    element = design_view.update_element(canvas_id, element_id, body)
+    if not element:
+        raise HTTPException(404, "Canvas or element not found")
+    return element.model_dump()
+
+
+@app.delete("/design/canvas/{canvas_id}/element/{element_id}")
+async def delete_design_element(canvas_id: str, element_id: str):
+    """Delete a design element."""
+    success = design_view.delete_element(canvas_id, element_id)
+    if not success:
+        raise HTTPException(404, "Canvas not found")
+    return {"deleted": True}
+
+
+@app.get("/design/canvas/{canvas_id}/export/html")
+async def export_design_html(canvas_id: str, responsive: bool = True):
+    """Export canvas as production HTML."""
+    html = design_view.export_html(canvas_id, responsive)
+    if not html:
+        raise HTTPException(404, "Canvas not found")
+    return {"html": html}
+
+
+@app.get("/design/canvas/{canvas_id}/export/react")
+async def export_design_react(canvas_id: str):
+    """Export canvas as a React component."""
+    react = design_view.export_react(canvas_id)
+    if not react:
+        raise HTTPException(404, "Canvas not found")
+    return {"react": react}
+
+
+@app.get("/design/templates")
+async def list_design_templates(category: str = ""):
+    """List available design templates."""
+    templates = design_view.get_templates(category)
+    return {"templates": [t.model_dump() for t in templates]}
+
+
+@app.get("/design/components")
+async def list_design_components():
+    """List the component library."""
+    return {"components": design_view.get_component_library()}
+
+
+@app.get("/design/canvas/{canvas_id}/history")
+async def get_design_history(canvas_id: str):
+    """Get edit history for undo/redo."""
+    return {"history": design_view.get_edit_history(canvas_id)}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

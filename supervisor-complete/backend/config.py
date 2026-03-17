@@ -170,6 +170,12 @@ class Settings:
     slack_bot_token: str = ""
     owner_email: str = ""
 
+    # WhatsApp Business
+    whatsapp_access_token: str = ""
+    whatsapp_phone_number_id: str = ""
+    whatsapp_verify_token: str = "supervisor_wa_verify"
+    whatsapp_app_secret: str = ""
+
     # Business Formation
     stripe_atlas_key: str = ""
     firstbase_api_key: str = ""
@@ -347,6 +353,11 @@ class Settings:
             telegram_owner_chat_id=os.getenv("TELEGRAM_OWNER_CHAT_ID", ""),
             slack_bot_token=os.getenv("SLACK_BOT_TOKEN", ""),
             owner_email=os.getenv("OWNER_EMAIL", ""),
+            # WhatsApp Business
+            whatsapp_access_token=os.getenv("WHATSAPP_ACCESS_TOKEN", ""),
+            whatsapp_phone_number_id=os.getenv("WHATSAPP_PHONE_NUMBER_ID", ""),
+            whatsapp_verify_token=os.getenv("WHATSAPP_VERIFY_TOKEN", "supervisor_wa_verify"),
+            whatsapp_app_secret=os.getenv("WHATSAPP_APP_SECRET", ""),
             # Business Formation
             stripe_atlas_key=os.getenv("STRIPE_ATLAS_KEY", ""),
             firstbase_api_key=os.getenv("FIRSTBASE_API_KEY", ""),

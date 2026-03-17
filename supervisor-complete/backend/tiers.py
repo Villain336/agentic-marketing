@@ -1,6 +1,7 @@
 """
 Supervisor Backend — Subscription Tier Definitions
 Gates agent access, LLM model quality, and usage limits by plan.
+Supports flat-rate AND revenue-share pricing (see revshare.py).
 """
 from __future__ import annotations
 from models import Tier
