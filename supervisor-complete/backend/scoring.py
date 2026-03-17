@@ -71,6 +71,11 @@ class AgentScorer:
             "knowledge_engine": self._score_knowledge_engine,
             "agent_ops": self._score_agent_ops,
             "world_model": self._score_world_model,
+            "formation": self._score_formation,
+            "advisor": self._score_advisor,
+            "design": self._score_design,
+            "supervisor": self._score_supervisor,
+            "vision_interview": self._score_vision_interview,
         }
 
         for agent_id, scorer in scorers.items():
@@ -772,6 +777,96 @@ class AgentScorer:
             "score": min(100, score),
             "reasoning": f"World model active, {freshness}hr freshness, {scenarios} scenarios modeled" if scenarios else "World model initialized, building spatial/temporal/social awareness",
             "metrics": wm,
+        }
+
+
+    def _score_formation(self, campaign: Campaign, metrics: dict) -> dict:
+        """Entity formed, EIN obtained, bank account opened, compliance filed."""
+        fm = metrics.get("formation_metrics", {})
+        entity_formed = fm.get("entity_formed", False)
+        ein_obtained = fm.get("ein_obtained", False)
+        bank_opened = fm.get("bank_account_opened", False)
+        if not entity_formed:
+            return {"score": 0, "reasoning": "Business entity not yet formed", "metrics": {}}
+        base = 40
+        ein_score = 25 if ein_obtained else 0
+        bank_score = 20 if bank_opened else 0
+        compliance = min(15, fm.get("compliance_filings", 0) * 5)
+        score = base + ein_score + bank_score + compliance
+        return {
+            "score": min(100, score),
+            "reasoning": f"Entity formed, EIN {'obtained' if ein_obtained else 'pending'}, bank {'opened' if bank_opened else 'pending'}",
+            "metrics": fm,
+        }
+
+    def _score_advisor(self, campaign: Campaign, metrics: dict) -> dict:
+        """Strategy adoption rate, recommendation actionability."""
+        adv = metrics.get("advisor_metrics", {})
+        recommendations = adv.get("recommendations_given", 0)
+        adopted = adv.get("recommendations_adopted", 0)
+        if not recommendations:
+            return {"score": 0, "reasoning": "No advisory recommendations yet", "metrics": {}}
+        adoption_rate = (adopted / recommendations * 100) if recommendations else 0
+        base = 35
+        adoption_score = min(40, adoption_rate * 0.4)
+        depth = min(25, recommendations * 5)
+        score = base + adoption_score + depth
+        return {
+            "score": min(100, score),
+            "reasoning": f"{recommendations} recommendations, {adoption_rate:.0f}% adoption rate",
+            "metrics": adv,
+        }
+
+    def _score_design(self, campaign: Campaign, metrics: dict) -> dict:
+        """Brand assets generated, design consistency, approval rate."""
+        ds = metrics.get("design_metrics", {})
+        assets = ds.get("assets_generated", 0)
+        if not assets:
+            return {"score": 0, "reasoning": "No design assets generated yet", "metrics": {}}
+        base = 35
+        asset_score = min(30, assets * 5)
+        consistency = min(20, ds.get("consistency_score_pct", 0) * 0.2)
+        approval = min(15, ds.get("approval_rate_pct", 0) * 0.15)
+        score = base + asset_score + consistency + approval
+        return {
+            "score": min(100, score),
+            "reasoning": f"{assets} assets generated, design system {'active' if assets > 3 else 'building'}",
+            "metrics": ds,
+        }
+
+    def _score_supervisor(self, campaign: Campaign, metrics: dict) -> dict:
+        """Campaign completion %, agent orchestration efficiency."""
+        sup = metrics.get("supervisor_metrics", {})
+        agents_run = sup.get("agents_completed", 0)
+        agents_total = sup.get("agents_total", 1)
+        errors = sup.get("agent_errors", 0)
+        completion_pct = (agents_run / agents_total * 100) if agents_total else 0
+        base = 30
+        completion_score = min(40, completion_pct * 0.4)
+        error_penalty = min(20, errors * 5)
+        efficiency = min(30, sup.get("avg_iterations_per_agent", 15) / 15 * 30)
+        score = base + completion_score - error_penalty + (30 - efficiency)
+        return {
+            "score": max(0, min(100, score)),
+            "reasoning": f"{agents_run}/{agents_total} agents completed, {errors} errors",
+            "metrics": sup,
+        }
+
+    def _score_vision_interview(self, campaign: Campaign, metrics: dict) -> dict:
+        """Business profile completeness, goal clarity."""
+        biz = campaign.memory.business
+        fields_filled = sum(1 for v in [biz.name, biz.description, biz.industry,
+                                         biz.audience, biz.service, biz.url] if v)
+        total_fields = 6
+        completeness = fields_filled / total_fields * 100
+        base = 20
+        profile_score = min(60, completeness * 0.6)
+        has_goals = 20 if (biz.description and len(biz.description) > 50) else 0
+        score = base + profile_score + has_goals
+        return {
+            "score": min(100, score),
+            "reasoning": f"Business profile {completeness:.0f}% complete ({fields_filled}/{total_fields} fields)",
+            "metrics": {"fields_filled": fields_filled, "total_fields": total_fields},
         }
 
 

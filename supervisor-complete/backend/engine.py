@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Any, AsyncGenerator
 
 from config import settings
+from costtracker import cost_tracker
 from models import (
     AgentRun, AgentStep, AgentStatus, AgentStreamEvent,
     CampaignMemory, StepType, Tier, ToolCall,
@@ -112,6 +113,19 @@ class AgentEngine:
                 yield AgentStreamEvent(event=StepType.ERROR, agent_id=agent.id, step=iteration,
                     content=f"All LLM providers failed: {e}", status=AgentStatus.ERROR)
                 return
+
+            # ── Record LLM cost ──
+            if provider_used and model_used and campaign_id:
+                try:
+                    input_len = sum(len(str(m.get("content", ""))) for m in messages)
+                    cost_tracker.record(
+                        campaign_id=campaign_id, agent_id=agent.id,
+                        provider=provider_used, model=model_used,
+                        input_tokens=input_len // 4,
+                        output_tokens=len(text_buffer) // 4,
+                    )
+                except Exception:
+                    pass  # Cost tracking is best-effort
 
             # ── Handle tool calls ──
             if tool_calls:

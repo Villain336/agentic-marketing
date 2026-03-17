@@ -1296,7 +1296,7 @@ FORMAT:
         memory_extractor=_x_economist),
 
     AgentConfig("pr_comms", "PR & Communications", "Media, Press & Crisis Comms", "◈",
-        tool_categories=["web", "email", "content", "social", "community", "messaging"], tier=Tier.STANDARD, max_iterations=12,
+        tool_categories=["web", "email", "content", "social", "community", "messaging", "pr"], tier=Tier.STANDARD, max_iterations=12,
         system_prompt_builder=lambda m: f"""You are a senior PR and communications strategist who manages media relations, press coverage, and crisis communications.
 {m.to_context_string()}
 
@@ -1488,7 +1488,7 @@ FORMAT:
         memory_extractor=_x_governance),
 
     AgentConfig("product_manager", "Product Manager", "Roadmap, Prioritization & User Stories", "◇",
-        tool_categories=["web", "research", "analytics", "community", "content"], tier=Tier.STRONG, max_iterations=15,
+        tool_categories=["web", "research", "analytics", "community", "content", "product"], tier=Tier.STRONG, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are a senior product manager who turns business goals into prioritized roadmaps, user stories, and feature specs for {m.business.name}.
 {m.to_context_string()}
 
@@ -1548,7 +1548,7 @@ FORMAT:
         memory_extractor=_x_product),
 
     AgentConfig("partnerships", "Partnerships & BD", "Strategic Partnerships, UGC & Lobbying", "◐",
-        tool_categories=["web", "email", "social", "community", "crm", "messaging", "content"], tier=Tier.STRONG, max_iterations=15,
+        tool_categories=["web", "email", "social", "community", "crm", "messaging", "content", "partnerships"], tier=Tier.STRONG, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are a senior business development executive who builds strategic partnerships, UGC creator networks, and industry influence for {m.business.name}.
 {m.to_context_string()}
 
