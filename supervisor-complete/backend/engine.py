@@ -30,6 +30,7 @@ _adaptation_engine = None
 _replanner = None
 _event_bus = None
 _autonomy_store = None
+_wallet = None
 
 
 def _get_event_bus():
@@ -46,6 +47,29 @@ def _get_autonomy_store():
         from autonomy import autonomy_store
         _autonomy_store = autonomy_store
     return _autonomy_store
+
+
+def _get_wallet():
+    global _wallet
+    if _wallet is None:
+        from wallet import wallet
+        _wallet = wallet
+    return _wallet
+
+
+# Estimated cost per tool execution (USD) for spend-tracking tools
+TOOL_COST_ESTIMATES: dict[str, float] = {
+    "send_email": 0.01, "schedule_email_sequence": 0.05, "send_sms": 0.05,
+    "make_phone_call": 0.50, "post_twitter": 0.00, "post_linkedin": 0.00,
+    "post_instagram": 0.00, "schedule_social_post": 0.00,
+    "create_meta_ad_campaign": 5.00, "create_google_ads_campaign": 5.00,
+    "create_linkedin_ad_campaign": 5.00, "deploy_to_vercel": 0.00,
+    "deploy_to_cloudflare": 0.00, "register_domain": 15.00,
+    "create_subscription": 0.00, "create_invoice": 0.00,
+    "send_payment_reminder": 0.01, "publish_to_cms": 0.00,
+    "create_referral_program": 0.00, "generate_image": 0.04,
+    "generate_logo": 0.04,
+}
 
 
 def _get_adaptation_engine():
@@ -157,7 +181,7 @@ async def _execute_tool_with_retry(tool_name: str, tool_input: dict, call_id: st
         alt_str = ", ".join(alternatives)
         last_result = type(last_result)(
             tool_call_id=last_result.tool_call_id,
-            tool_name=last_result.tool_name,
+            name=last_result.name,
             output=last_result.output,
             error=f"{last_result.error}. Alternative tools you can try: {alt_str}",
             success=False,
@@ -354,6 +378,7 @@ class AgentEngine:
             try:
                 text_buffer = ""
                 tool_calls: list[ToolCall] = []
+                _llm_usage: dict[str, int] = {}
 
                 async for chunk in router.complete_stream(
                     messages=messages, system=system,
@@ -377,6 +402,7 @@ class AgentEngine:
                     elif chunk["type"] == "done":
                         provider_used = chunk.get("provider", provider_used)
                         model_used = chunk.get("model", model_used)
+                        _llm_usage = chunk.get("usage", {})
 
             except AllProvidersFailedError as e:
                 # Emit failure event
@@ -389,16 +415,21 @@ class AgentEngine:
                     content=f"All LLM providers failed: {e}", status=AgentStatus.ERROR)
                 return
 
-            # ── Record LLM cost (using provider-reported tokens when available) ──
+            # ── Record LLM cost (using provider-reported tokens, fallback to estimate) ──
             if provider_used and model_used and campaign_id:
                 try:
-                    # Use character count / 4 as fallback estimate
-                    input_len = sum(len(str(m.get("content", ""))) for m in messages)
+                    real_input = _llm_usage.get("input_tokens", 0)
+                    real_output = _llm_usage.get("output_tokens", 0)
+                    if not real_input:
+                        # Fallback: character count / 4 as token estimate
+                        real_input = sum(len(str(m.get("content", ""))) for m in messages) // 4
+                    if not real_output:
+                        real_output = len(text_buffer) // 4
                     cost_tracker.record(
                         campaign_id=campaign_id, agent_id=agent.id,
                         provider=provider_used, model=model_used,
-                        input_tokens=input_len // 4,
-                        output_tokens=len(text_buffer) // 4,
+                        input_tokens=real_input,
+                        output_tokens=real_output,
                     )
                 except Exception:
                     pass
@@ -466,6 +497,26 @@ class AgentEngine:
                         except ImportError:
                             pass
 
+                    # ── Wallet: check budget before executing spending tools ──
+                    estimated_cost = TOOL_COST_ESTIMATES.get(tc.name, 0)
+                    if estimated_cost > 0 and campaign_id:
+                        try:
+                            w = _get_wallet()
+                            spend_check = await w.request_spend(
+                                campaign_id, agent.id, estimated_cost,
+                                description=f"{tc.name}({', '.join(f'{k}={v}' for k, v in list(tc.input.items())[:3])})",
+                            )
+                            if not spend_check.get("approved"):
+                                messages.append({
+                                    "role": "user",
+                                    "content": [{"type": "tool_result", "tool_use_id": tc.id,
+                                                 "content": f"BUDGET BLOCKED: {spend_check.get('reason', 'over budget')}. "
+                                                            f"Try a free alternative or request budget increase."}],
+                                })
+                                continue
+                        except Exception:
+                            pass  # wallet not available, allow execution
+
                     yield AgentStreamEvent(
                         event=StepType.TOOL_CALL, agent_id=agent.id, step=iteration,
                         content=f"Calling {tc.name}", tool_name=tc.name, tool_input=tc.input,
@@ -476,6 +527,17 @@ class AgentEngine:
 
                     if not result.success:
                         tool_failure_count += 1
+
+                    # ── Wallet: record actual spend after successful execution ──
+                    if result.success and estimated_cost > 0 and campaign_id:
+                        try:
+                            w = _get_wallet()
+                            await w.record_spend(
+                                campaign_id, agent.id, estimated_cost,
+                                tool=tc.name, description=result.output[:100] if result.output else "",
+                            )
+                        except Exception:
+                            pass
 
                     yield AgentStreamEvent(
                         event=StepType.TOOL_RESULT, agent_id=agent.id, step=iteration,

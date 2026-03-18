@@ -28,6 +28,17 @@ const AUTONOMY_LEVELS = [
   { value: "collaborative", label: "Collaborative", desc: "Step-by-step with your input at every stage.", icon: "🤝" },
 ];
 
+const API_KEY_FIELDS = [
+  { id: "SENDGRID_API_KEY", label: "SendGrid API Key", channel: "email", placeholder: "SG.xxxxx", desc: "For sending emails and sequences" },
+  { id: "HUBSPOT_API_KEY", label: "HubSpot API Key", channel: "crm", placeholder: "pat-xxxxx", desc: "For CRM contact management" },
+  { id: "STRIPE_API_KEY", label: "Stripe Secret Key", channel: "payments", placeholder: "sk_live_xxxxx", desc: "For invoicing and billing" },
+  { id: "SERPER_API_KEY", label: "Serper API Key", channel: "", placeholder: "xxxxx", desc: "For web search (prospecting, research)" },
+  { id: "TWITTER_BEARER_TOKEN", label: "Twitter Bearer Token", channel: "twitter", placeholder: "AAAAAxxxxx", desc: "For posting and social listening" },
+  { id: "APOLLO_API_KEY", label: "Apollo.io API Key", channel: "", placeholder: "xxxxx", desc: "For finding contacts and leads" },
+  { id: "OPENAI_API_KEY", label: "OpenAI API Key", channel: "", placeholder: "sk-xxxxx", desc: "For image generation (DALL-E)" },
+  { id: "VERCEL_TOKEN", label: "Vercel Token", channel: "domain", placeholder: "xxxxx", desc: "For website deployment" },
+];
+
 export default function OnboardingPage() {
   const router = useRouter();
   const [stage, setStage] = useState<OnboardingStage>("welcome");
@@ -43,6 +54,7 @@ export default function OnboardingPage() {
     brandContext: "",
   });
   const [channels, setChannels] = useState<Record<string, boolean>>({});
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [autonomy, setAutonomy] = useState("guided");
   const [provisionIdx, setProvisionIdx] = useState(0);
 
@@ -54,7 +66,7 @@ export default function OnboardingPage() {
   }, []);
 
   const next = useCallback(() => {
-    const stages: OnboardingStage[] = ["welcome", "business", "entity", "revenue", "channels", "autonomy", "provisioning"];
+    const stages: OnboardingStage[] = ["welcome", "business", "entity", "revenue", "channels", "integrations", "autonomy", "provisioning"];
     const idx = stages.indexOf(stage);
     if (idx < stages.length - 1) {
       setStage(stages[idx + 1]);
@@ -62,7 +74,7 @@ export default function OnboardingPage() {
   }, [stage]);
 
   const prev = useCallback(() => {
-    const stages: OnboardingStage[] = ["welcome", "business", "entity", "revenue", "channels", "autonomy", "provisioning"];
+    const stages: OnboardingStage[] = ["welcome", "business", "entity", "revenue", "channels", "integrations", "autonomy", "provisioning"];
     const idx = stages.indexOf(stage);
     if (idx > 0) {
       setStage(stages[idx - 1]);
@@ -73,6 +85,7 @@ export default function OnboardingPage() {
     setStage("provisioning");
     localStorage.setItem("sv_business", JSON.stringify(business));
     localStorage.setItem("sv_channels", JSON.stringify(channels));
+    localStorage.setItem("sv_api_keys", JSON.stringify(apiKeys));
     localStorage.setItem("sv_autonomy", autonomy);
 
     // Animate provisioning
@@ -86,7 +99,7 @@ export default function OnboardingPage() {
         setTimeout(() => router.push("/dashboard"), 800);
       }
     }, 600);
-  }, [business, channels, autonomy, router]);
+  }, [business, channels, apiKeys, autonomy, router]);
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -118,6 +131,7 @@ export default function OnboardingPage() {
           {stage === "entity" && <EntityStage value={business.entityType || "llc"} onChange={(v) => update("entityType", v)} onNext={next} onBack={prev} />}
           {stage === "revenue" && <RevenueStage business={business} onChange={update} onNext={next} onBack={prev} />}
           {stage === "channels" && <ChannelsStage channels={channels} onChange={setChannels} onNext={next} onBack={prev} />}
+          {stage === "integrations" && <IntegrationsStage apiKeys={apiKeys} onChange={setApiKeys} channels={channels} onNext={next} onBack={prev} />}
           {stage === "autonomy" && <AutonomyStage value={autonomy} onChange={setAutonomy} onNext={startProvisioning} onBack={prev} />}
           {stage === "provisioning" && <ProvisioningStage idx={provisionIdx} name={business.name || "your business"} />}
         </div>
@@ -336,6 +350,53 @@ function ChannelsStage({
               <div className="text-xs text-surface-500">{ch.desc}</div>
             </div>
           </button>
+        ))}
+      </div>
+      <div className="flex justify-between mt-8">
+        <button onClick={onBack} className="btn-ghost">Back</button>
+        <button onClick={onNext} className="btn-primary">Continue</button>
+      </div>
+    </div>
+  );
+}
+
+function IntegrationsStage({
+  apiKeys,
+  onChange,
+  channels,
+  onNext,
+  onBack,
+}: {
+  apiKeys: Record<string, string>;
+  onChange: (keys: Record<string, string>) => void;
+  channels: Record<string, boolean>;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  const relevantFields = API_KEY_FIELDS.filter(
+    (f) => !f.channel || channels[f.channel]
+  );
+  const setKey = (id: string, value: string) => onChange({ ...apiKeys, [id]: value });
+
+  return (
+    <div>
+      <h2 className="font-display font-bold text-2xl text-surface-900 mb-2">Connect your tools</h2>
+      <p className="text-surface-500 text-sm mb-8">
+        Paste API keys for the services you use. Skip any you don&apos;t have yet — agents will prompt you later.
+      </p>
+      <div className="space-y-4 max-h-[420px] overflow-y-auto pr-1">
+        {relevantFields.map((field) => (
+          <div key={field.id}>
+            <label className="block text-sm font-medium text-surface-700 mb-1">{field.label}</label>
+            <input
+              type="password"
+              value={apiKeys[field.id] || ""}
+              onChange={(e) => setKey(field.id, e.target.value)}
+              placeholder={field.placeholder}
+              className="input-field text-sm"
+            />
+            <p className="text-xs text-surface-400 mt-0.5">{field.desc}</p>
+          </div>
         ))}
       </div>
       <div className="flex justify-between mt-8">

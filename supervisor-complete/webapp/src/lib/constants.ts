@@ -171,6 +171,7 @@ export const ONBOARDING_STAGES = [
   { id: "entity", label: "Legal Entity", icon: "FileCheck" },
   { id: "revenue", label: "Revenue Goals", icon: "Target" },
   { id: "channels", label: "Channels", icon: "Plug" },
+  { id: "integrations", label: "API Keys", icon: "Key" },
   { id: "autonomy", label: "Control Level", icon: "Sliders" },
   { id: "provisioning", label: "Building...", icon: "Rocket" },
 ] as const;

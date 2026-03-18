@@ -87,6 +87,7 @@ export type OnboardingStage =
   | "entity"
   | "revenue"
   | "channels"
+  | "integrations"
   | "autonomy"
   | "provisioning";
 

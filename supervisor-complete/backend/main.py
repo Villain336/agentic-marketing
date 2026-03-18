@@ -1177,9 +1177,17 @@ async def batch_update_agent_settings(request: Request, campaign_id: str = ""):
 @app.get("/events")
 async def get_events(campaign_id: str = "", event_type: str = "",
                      limit: int = 50):
-    """Get recent events from the event bus."""
-    return event_bus.get_recent_events(limit=limit, campaign_id=campaign_id,
-                                       event_type=event_type)
+    """Get recent events from the event bus (in-memory + DB fallback)."""
+    results = event_bus.get_recent_events(limit=limit, campaign_id=campaign_id,
+                                          event_type=event_type)
+    # Fall back to DB if no in-memory events (e.g., after server restart)
+    if not results and db.is_persistent():
+        try:
+            results = await db.load_events(campaign_id=campaign_id,
+                                            event_type=event_type, limit=limit)
+        except Exception:
+            pass
+    return results
 
 
 @app.get("/triggers")

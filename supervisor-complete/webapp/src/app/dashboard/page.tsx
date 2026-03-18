@@ -45,6 +45,7 @@ export default function DashboardPage() {
   const [memory, setMemory] = useState<Record<string, unknown>>({});
   const [campaignId, setCampaignId] = useState<string>("");
   const [showSidebar, setShowSidebar] = useState(true);
+  const [scores, setScores] = useState<Record<string, { score: number; grade: string }>>({});
   const controllerRef = useRef<AbortController | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
 
@@ -75,6 +76,25 @@ export default function DashboardPage() {
     }));
   }, []);
 
+  // Fetch real scores from backend after agents complete
+  const refreshScores = useCallback(async (cid: string) => {
+    if (!cid) return;
+    try {
+      const s = await api.getCampaignScores(cid);
+      setScores(s);
+      // Apply real grades to agent runs
+      setAgentRuns((prev) => {
+        const updated = { ...prev };
+        for (const [agentId, scoreData] of Object.entries(s)) {
+          if (updated[agentId]) {
+            updated[agentId] = { ...updated[agentId], grade: (scoreData.grade || "—") as Grade, score: scoreData.score || 0 };
+          }
+        }
+        return updated;
+      });
+    } catch { /* backend offline */ }
+  }, []);
+
   // ── Run single agent ──
 
   const runAgent = useCallback(
@@ -102,13 +122,15 @@ export default function DashboardPage() {
             updateAgentRun(agentId, {
               output: evt.content,
               status: "done",
-              grade: "B+" as Grade,
+              grade: (scores[agentId]?.grade as Grade) || "—",
               provider: evt.provider,
               model: evt.model,
             });
             if (evt.memory_update) {
               setMemory((prev) => ({ ...prev, ...evt.memory_update }));
             }
+            // Fetch real scores from backend
+            refreshScores(campaignId);
           } else if (evt.event === "think" && evt.content) {
             setAgentRuns((prev) => {
               const existing = prev[agentId] || { output: "" };
@@ -178,7 +200,7 @@ export default function DashboardPage() {
               updateAgentRun(agentId, {
                 output: evt.content,
                 status: "done",
-                grade: "B+" as Grade,
+                grade: "—" as Grade,
                 provider: evt.provider,
               });
               if (evt.memory_update) {
@@ -193,7 +215,7 @@ export default function DashboardPage() {
               updateAgentRun(agentId, { status: "error", output: evt.content || "Failed" });
             }
           },
-          () => { setRunning(false); resolve(); },
+          () => { setRunning(false); refreshScores(cid); resolve(); },
           () => { setRunning(false); resolve(); }
         );
       });
