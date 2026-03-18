@@ -2183,6 +2183,281 @@ async def browser_stream_ws(websocket: WebSocket, session_id: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# HARDWARE MANUFACTURING — CAD, Procurement, CNC/3D Print, Production
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@app.post("/manufacturing/cad/generate")
+async def generate_cad_model(payload: dict):
+    """Generate a 3D CAD model from natural language description."""
+    from tools import _generate_cad_model
+    result = json.loads(await _generate_cad_model(
+        payload["description"], payload.get("format", "step"),
+        payload.get("parameters", ""), payload.get("material", ""),
+    ))
+    return result
+
+
+@app.post("/manufacturing/cad/{model_id}/optimize")
+async def optimize_cad(model_id: str, payload: dict):
+    """Run design optimization on a CAD model."""
+    from tools import _optimize_cad_design
+    result = json.loads(await _optimize_cad_design(
+        model_id, payload.get("optimization_type", "topology"), payload.get("constraints", ""),
+    ))
+    return result
+
+
+@app.post("/manufacturing/gcode/generate")
+async def generate_gcode(payload: dict):
+    """Generate CNC toolpaths from a CAD model."""
+    from tools import _generate_gcode
+    result = json.loads(await _generate_gcode(
+        payload["model_id"], payload.get("machine_type", "cnc_mill"),
+        payload.get("material", "aluminum_6061"), payload.get("strategy", "adaptive"),
+    ))
+    return result
+
+
+@app.post("/manufacturing/print/slice")
+async def slice_for_printing(payload: dict):
+    """Slice a 3D model for printing."""
+    from tools import _slice_3d_print
+    result = json.loads(await _slice_3d_print(
+        payload["model_id"], payload.get("printer_type", "fdm"),
+        payload.get("material", "pla"), payload.get("quality", "standard"),
+    ))
+    return result
+
+
+@app.post("/manufacturing/printer/{printer_id}/command")
+async def printer_command(printer_id: str, payload: dict):
+    """Send command to a 3D printer."""
+    from tools import _control_printer
+    result = json.loads(await _control_printer(printer_id, payload["command"], payload.get("file", "")))
+    return result
+
+
+@app.post("/manufacturing/cnc/{machine_id}/command")
+async def cnc_command(machine_id: str, payload: dict):
+    """Send command to a CNC machine."""
+    from tools import _control_cnc
+    result = json.loads(await _control_cnc(
+        machine_id, payload["command"], payload.get("gcode_file", ""), payload.get("manual_gcode", ""),
+    ))
+    return result
+
+
+@app.post("/manufacturing/suppliers/search")
+async def search_suppliers(payload: dict):
+    """Search suppliers for parts and materials."""
+    from tools import _search_suppliers
+    result = json.loads(await _search_suppliers(
+        payload["query"], payload.get("category", "all"), payload.get("max_results", "10"),
+    ))
+    return result
+
+
+@app.post("/manufacturing/bom/generate")
+async def generate_bom(payload: dict):
+    """Generate Bill of Materials."""
+    from tools import _generate_bom
+    result = json.loads(await _generate_bom(
+        payload["model_id"], payload.get("quantity", "1"), payload.get("include_alternatives", "true"),
+    ))
+    return result
+
+
+@app.post("/manufacturing/rfq/send")
+async def send_rfq(payload: dict):
+    """Send Request for Quotes to suppliers."""
+    from tools import _send_rfq
+    result = json.loads(await _send_rfq(
+        json.dumps(payload.get("suppliers", [])), json.dumps(payload.get("parts", [])),
+        payload.get("quantity", "100"), payload.get("deadline_days", "7"),
+    ))
+    return result
+
+
+@app.post("/manufacturing/inspect")
+async def inspect_part(payload: dict):
+    """Vision-based quality inspection of manufactured parts."""
+    from tools import _inspect_part_vision
+    result = json.loads(await _inspect_part_vision(
+        payload.get("image_b64", ""), payload.get("model_id", ""), payload.get("inspection_type", "visual"),
+    ))
+    return result
+
+
+@app.post("/manufacturing/pcb/generate")
+async def generate_pcb(payload: dict):
+    """Generate PCB layout from schematic."""
+    from tools import _generate_pcb_layout
+    result = json.loads(await _generate_pcb_layout(
+        payload["schematic"], payload.get("board_size", ""), payload.get("layers", "2"), payload.get("components", ""),
+    ))
+    return result
+
+
+@app.get("/manufacturing/print-farm/status")
+async def print_farm_status():
+    """Get print farm status."""
+    from tools import _manage_print_farm
+    result = json.loads(await _manage_print_farm("status"))
+    return result
+
+
+@app.post("/manufacturing/production/plan")
+async def create_production_plan(payload: dict):
+    """Create manufacturing production plan."""
+    from tools import _production_plan
+    result = json.loads(await _production_plan(
+        payload["product_id"], payload.get("quantity", "100"),
+        payload.get("deadline", ""), payload.get("process", "cnc"),
+    ))
+    return result
+
+
+@app.post("/manufacturing/drawing/generate")
+async def generate_drawing(payload: dict):
+    """Generate 2D manufacturing drawings from 3D model."""
+    from tools import _generate_technical_drawing
+    result = json.loads(await _generate_technical_drawing(
+        payload["model_id"], payload.get("views", "standard"), payload.get("include_gdt", "true"),
+    ))
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENTERPRISE SECURITY — Compliance, Threat Modeling, Pen Testing, Trust Center
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@app.post("/security/scan")
+async def run_security_scan(payload: dict):
+    """Execute automated security scan."""
+    from tools import _run_security_scan
+    result = json.loads(await _run_security_scan(
+        payload.get("scan_type", "owasp_top_10"), payload.get("target", ""), payload.get("scope", "full"),
+    ))
+    return result
+
+
+@app.post("/security/threat-model")
+async def create_threat_model(payload: dict):
+    """Generate STRIDE threat model."""
+    from tools import _threat_model
+    result = json.loads(await _threat_model(
+        payload["component"], payload.get("methodology", "stride"), payload.get("include_agent_threats", "true"),
+    ))
+    return result
+
+
+@app.post("/security/compliance/audit")
+async def run_compliance_audit(payload: dict):
+    """Check compliance posture against frameworks."""
+    from tools import _compliance_audit
+    result = json.loads(await _compliance_audit(payload.get("framework", "soc2"), payload.get("scope", "full")))
+    return result
+
+
+@app.get("/security/compliance/{framework}")
+async def get_compliance_status(framework: str):
+    """Get compliance status for a specific framework."""
+    from tools import _compliance_audit
+    result = json.loads(await _compliance_audit(framework, "full"))
+    return result
+
+
+@app.post("/security/report")
+async def generate_security_report(payload: dict):
+    """Generate security briefing."""
+    from tools import _generate_security_report
+    result = json.loads(await _generate_security_report(
+        payload.get("report_type", "executive"), payload.get("period", "monthly"),
+    ))
+    return result
+
+
+@app.post("/security/questionnaire")
+async def answer_questionnaire(payload: dict):
+    """Auto-answer vendor security questionnaire."""
+    from tools import _answer_security_questionnaire
+    result = json.loads(await _answer_security_questionnaire(
+        payload.get("questionnaire_type", "sig"), payload.get("custom_questions", ""),
+    ))
+    return result
+
+
+@app.post("/security/red-team/{agent_id}")
+async def red_team_agent(agent_id: str, payload: dict):
+    """Run adversarial tests against an agent."""
+    from tools import _red_team_agent
+    result = json.loads(await _red_team_agent(
+        agent_id, payload.get("attack_type", "prompt_injection"), payload.get("intensity", "moderate"),
+    ))
+    return result
+
+
+@app.get("/security/dependencies")
+async def scan_dependencies():
+    """Scan dependencies for vulnerabilities and generate SBOM."""
+    from tools import _scan_dependencies
+    result = json.loads(await _scan_dependencies("full"))
+    return result
+
+
+@app.get("/security/dlp")
+async def get_dlp_rules():
+    """Get DLP rules and enforcement stats."""
+    from tools import _configure_dlp
+    result = json.loads(await _configure_dlp("", "list"))
+    return result
+
+
+@app.post("/security/dlp")
+async def update_dlp_rules(payload: dict):
+    """Update DLP rules."""
+    from tools import _configure_dlp
+    result = json.loads(await _configure_dlp(json.dumps(payload.get("rules", [])), payload.get("action", "add")))
+    return result
+
+
+@app.get("/security/encryption-keys")
+async def get_encryption_key_status():
+    """Get encryption key management status."""
+    from tools import _manage_encryption_keys
+    result = json.loads(await _manage_encryption_keys("status"))
+    return result
+
+
+@app.post("/security/incidents")
+async def manage_incidents(payload: dict):
+    """Manage security incidents."""
+    from tools import _incident_response
+    result = json.loads(await _incident_response(
+        payload.get("action", "status"), payload.get("incident_id", ""), payload.get("severity", "medium"),
+    ))
+    return result
+
+
+@app.get("/security/threat-intel")
+async def get_threat_intel():
+    """Get current threat intelligence."""
+    from tools import _monitor_threat_intel
+    result = json.loads(await _monitor_threat_intel("relevant"))
+    return result
+
+
+@app.get("/security/trust")
+async def get_trust_portal():
+    """Public-facing security trust center."""
+    from tools import _build_trust_portal
+    result = json.loads(await _build_trust_portal("generate"))
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     import uvicorn

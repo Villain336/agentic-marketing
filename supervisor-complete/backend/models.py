@@ -678,3 +678,130 @@ class TreasuryTransaction(BaseModel):
     reason: str = ""                   # "revenue_allocation", "yield_sweep", "emergency_withdrawal"
     triggered_by: str = ""             # "auto", "treasury_agent", "owner"
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ── Hardware Manufacturing Models ───────────────────────────────────────────
+
+class CADModel(BaseModel):
+    """A generated 3D CAD model."""
+    model_id: str = Field(default_factory=lambda: f"CAD-{uuid.uuid4().hex[:10].upper()}")
+    description: str = ""
+    format: str = "step"                    # step, stl, iges, dxf, 3mf
+    parameters: dict[str, str] = {}
+    material: str = "aluminum_6061"
+    dfm_score: float = 0.0
+    mass_g: float = 0.0
+    bounding_box_mm: dict[str, float] = {}
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ManufacturingJob(BaseModel):
+    """A manufacturing job — CNC, 3D print, or other process."""
+    job_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    model_id: str = ""
+    process: str = ""                       # cnc_mill, 3d_print_fdm, injection_mold, sheet_metal, pcb
+    machine_id: str = ""
+    status: str = "queued"                  # queued, setup, running, inspection, completed, failed
+    quantity: int = 1
+    material: str = ""
+    estimated_time_min: float = 0.0
+    actual_time_min: float = 0.0
+    cost_per_unit: float = 0.0
+    quality_result: Optional[dict[str, Any]] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SupplierQuote(BaseModel):
+    """A quote from a supplier."""
+    quote_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    rfq_id: str = ""
+    supplier: str = ""
+    parts: list[dict[str, Any]] = []
+    unit_price: float = 0.0
+    total_price: float = 0.0
+    lead_time_days: int = 0
+    moq: int = 1
+    valid_until: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ProductionPlan(BaseModel):
+    """A manufacturing production plan."""
+    plan_id: str = Field(default_factory=lambda: f"PP-{uuid.uuid4().hex[:8].upper()}")
+    product_id: str = ""
+    quantity: int = 0
+    process: str = ""
+    schedule: dict[str, Any] = {}
+    resource_allocation: dict[str, Any] = {}
+    cost_per_unit: float = 0.0
+    total_cost: float = 0.0
+    status: str = "draft"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ── Enterprise Security Models ──────────────────────────────────────────────
+
+class SecurityScan(BaseModel):
+    """Result of an automated security scan."""
+    scan_id: str = Field(default_factory=lambda: f"SCAN-{uuid.uuid4().hex[:8].upper()}")
+    scan_type: str = ""
+    target: str = ""
+    findings_critical: int = 0
+    findings_high: int = 0
+    findings_medium: int = 0
+    findings_low: int = 0
+    compliance_impact: dict[str, str] = {}
+    status: str = "completed"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ThreatModelResult(BaseModel):
+    """A STRIDE threat model for a system component."""
+    component: str = ""
+    methodology: str = "stride"
+    threats: dict[str, list[dict[str, Any]]] = {}
+    agent_specific_threats: list[dict[str, Any]] = []
+    overall_risk_score: int = 0
+    risk_rating: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ComplianceStatus(BaseModel):
+    """Compliance posture for a specific framework."""
+    framework: str = ""
+    total_controls: int = 0
+    controls_met: int = 0
+    gaps: int = 0
+    compliance_pct: float = 0.0
+    status: str = ""
+    next_audit_date: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SecurityIncident(BaseModel):
+    """A security incident record."""
+    incident_id: str = Field(default_factory=lambda: f"INC-{uuid.uuid4().hex[:8].upper()}")
+    severity: str = "medium"
+    title: str = ""
+    description: str = ""
+    status: str = "open"
+    assigned_to: str = ""
+    mttr_hours: Optional[float] = None
+    forensic_data: dict[str, Any] = {}
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    resolved_at: Optional[datetime] = None
+
+
+class RedTeamResult(BaseModel):
+    """Result of adversarial testing against an agent."""
+    test_id: str = Field(default_factory=lambda: f"RT-{uuid.uuid4().hex[:8].upper()}")
+    agent_id: str = ""
+    attack_type: str = ""
+    tests_run: int = 0
+    blocked: int = 0
+    partial_bypass: int = 0
+    full_bypass: int = 0
+    block_rate_pct: float = 0.0
+    agent_hardening_score: int = 0
+    findings: list[dict[str, Any]] = []
+    created_at: datetime = Field(default_factory=datetime.utcnow)

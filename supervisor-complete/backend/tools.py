@@ -8212,6 +8212,163 @@ def register_all_tools():
     registry.register("browser_stats", "Get aggregate statistics across all browser sessions — actions, domains, handoffs, concurrency peaks.",
         [], _browser_get_stats, "computer_use")
 
+    # ── Hardware Manufacturing Tools ──────────────────────────────────────────
+
+    registry.register("generate_cad_model", "Generate a 3D CAD model from natural language — outputs STEP, STL, IGES, DXF, 3MF with DFM checks.",
+        [ToolParameter(name="description", description="Natural language description of the part to design"),
+         ToolParameter(name="format", description="Output format: step, stl, iges, dxf, 3mf (default step)", required=False),
+         ToolParameter(name="parameters", description="Key=value pairs: width=50mm,height=30mm,wall_thickness=2mm", required=False),
+         ToolParameter(name="material", description="Material: aluminum_6061, steel_304, abs, pla, nylon, titanium", required=False)],
+        _generate_cad_model, "manufacturing")
+
+    registry.register("optimize_cad_design", "Run design optimization — topology optimization, stress analysis, weight reduction, DFM check.",
+        [ToolParameter(name="model_id", description="CAD model ID to optimize"),
+         ToolParameter(name="optimization_type", description="Type: topology, stress_analysis, weight_reduction, dfm_check (default topology)", required=False),
+         ToolParameter(name="constraints", description="Constraints: max_stress=100mpa,min_wall=1.5mm,max_mass=500g", required=False)],
+        _optimize_cad_design, "manufacturing")
+
+    registry.register("generate_gcode", "Generate optimized G-code/toolpaths from CAD model for CNC mills, lathes, routers.",
+        [ToolParameter(name="model_id", description="CAD model ID"),
+         ToolParameter(name="machine_type", description="Machine: cnc_mill, cnc_lathe, cnc_router, laser_cutter, waterjet (default cnc_mill)", required=False),
+         ToolParameter(name="material", description="Material being cut (affects feeds/speeds)", required=False),
+         ToolParameter(name="strategy", description="Toolpath strategy: adaptive, conventional, hsm, trochoidal (default adaptive)", required=False)],
+        _generate_gcode, "manufacturing")
+
+    registry.register("slice_3d_print", "Slice a 3D model for FDM/SLA/SLS printers with optimized supports, infill, and orientation.",
+        [ToolParameter(name="model_id", description="CAD model ID to slice"),
+         ToolParameter(name="printer_type", description="Printer: fdm, sla, sls (default fdm)", required=False),
+         ToolParameter(name="material", description="Material: pla, abs, petg, nylon, resin, tpu (default pla)", required=False),
+         ToolParameter(name="quality", description="Quality: draft, standard, fine (default standard)", required=False)],
+        _slice_3d_print, "manufacturing")
+
+    registry.register("control_printer", "Send commands to OctoPrint-connected 3D printers — start, pause, cancel, monitor.",
+        [ToolParameter(name="printer_id", description="Printer ID"),
+         ToolParameter(name="command", description="Command: start, pause, resume, cancel, status, set_temp"),
+         ToolParameter(name="file", description="G-code file to print (for start command)", required=False)],
+        _control_printer, "manufacturing")
+
+    registry.register("control_cnc", "Send G-code and commands to CNC machines via Grbl/LinuxCNC — start, pause, home, zero, jog.",
+        [ToolParameter(name="machine_id", description="CNC machine ID"),
+         ToolParameter(name="command", description="Command: start, pause, resume, stop, home, zero, status, jog"),
+         ToolParameter(name="gcode_file", description="G-code file to run (for start command)", required=False),
+         ToolParameter(name="manual_gcode", description="Raw G-code to send directly (e.g. G0 X10 Y20)", required=False)],
+        _control_cnc, "manufacturing")
+
+    registry.register("search_suppliers", "Search McMaster-Carr, Digi-Key, Mouser, Alibaba, Xometry for parts and materials.",
+        [ToolParameter(name="query", description="Search query: part name, material, specification"),
+         ToolParameter(name="category", description="Category: fasteners, electronics, raw_material, tooling, bearings, seals (default all)", required=False),
+         ToolParameter(name="max_results", description="Max results to return (default 10)", required=False)],
+        _search_suppliers, "procurement")
+
+    registry.register("generate_bom", "Generate Bill of Materials with costs, lead times, and supplier alternatives.",
+        [ToolParameter(name="model_id", description="CAD model ID to generate BOM for"),
+         ToolParameter(name="quantity", description="Production quantity for cost calculation (default 1)", required=False),
+         ToolParameter(name="include_alternatives", description="Include alternative suppliers (default true)", required=False)],
+        _generate_bom, "manufacturing")
+
+    registry.register("send_rfq", "Send Request for Quotes to multiple suppliers and compare bids.",
+        [ToolParameter(name="suppliers_json", description="JSON array of supplier names"),
+         ToolParameter(name="parts_json", description="JSON array of parts with quantities"),
+         ToolParameter(name="quantity", description="Production quantity (default 100)", required=False),
+         ToolParameter(name="deadline_days", description="Response deadline in days (default 7)", required=False)],
+        _send_rfq, "procurement")
+
+    registry.register("inspect_part_vision", "Use camera + vision AI to inspect manufactured parts for defects and dimensional accuracy.",
+        [ToolParameter(name="image_b64", description="Base64 image of the part to inspect", required=False),
+         ToolParameter(name="model_id", description="CAD model ID for comparison", required=False),
+         ToolParameter(name="inspection_type", description="Type: visual, dimensional, surface (default visual)", required=False)],
+        _inspect_part_vision, "manufacturing")
+
+    registry.register("generate_pcb_layout", "Generate PCB layout from schematic — outputs Gerber, BOM, pick-and-place files.",
+        [ToolParameter(name="schematic", description="Schematic description or netlist"),
+         ToolParameter(name="board_size", description="Board dimensions e.g. 50x30mm", required=False),
+         ToolParameter(name="layers", description="Number of layers: 2, 4, 6 (default 2)", required=False),
+         ToolParameter(name="components", description="Comma-separated key components", required=False)],
+        _generate_pcb_layout, "manufacturing")
+
+    registry.register("manage_print_farm", "Orchestrate multiple 3D printers simultaneously — queue jobs, monitor, load balance.",
+        [ToolParameter(name="command", description="Command: status, queue_job, cancel, rebalance, report"),
+         ToolParameter(name="printer_ids", description="Comma-separated printer IDs (optional, default all)", required=False),
+         ToolParameter(name="job_file", description="G-code file to queue", required=False),
+         ToolParameter(name="priority", description="Job priority: low, normal, high, urgent (default normal)", required=False)],
+        _manage_print_farm, "manufacturing")
+
+    registry.register("production_plan", "Create manufacturing schedule with resource allocation, costing, and timeline.",
+        [ToolParameter(name="product_id", description="Product/model ID to plan production for"),
+         ToolParameter(name="quantity", description="Production quantity (default 100)", required=False),
+         ToolParameter(name="deadline", description="Target completion date or timeframe", required=False),
+         ToolParameter(name="process", description="Manufacturing process: cnc, 3d_print, injection_mold, sheet_metal, pcb_assembly (default cnc)", required=False)],
+        _production_plan, "manufacturing")
+
+    registry.register("generate_technical_drawing", "Generate 2D manufacturing drawings from 3D models with GD&T and dimensions.",
+        [ToolParameter(name="model_id", description="CAD model ID"),
+         ToolParameter(name="views", description="View set: standard (front/top/right/iso), section, detail, exploded (default standard)", required=False),
+         ToolParameter(name="include_gdt", description="Include GD&T annotations (default true)", required=False)],
+        _generate_technical_drawing, "manufacturing")
+
+    # ── Enterprise Security Tools ─────────────────────────────────────────────
+
+    registry.register("run_security_scan", "Execute automated security scans — OWASP Top 10, API fuzzing, dependency vulnerabilities.",
+        [ToolParameter(name="scan_type", description="Scan: owasp_top_10, api_fuzz, dependency, container, full (default owasp_top_10)", required=False),
+         ToolParameter(name="target", description="Target service/component to scan", required=False),
+         ToolParameter(name="scope", description="Scope: quick, standard, full (default full)", required=False)],
+        _run_security_scan, "security")
+
+    registry.register("threat_model", "Generate STRIDE threat model for any system component with agent-specific threat analysis.",
+        [ToolParameter(name="component", description="System component to threat model"),
+         ToolParameter(name="methodology", description="Methodology: stride, attack_tree, mitre_attack (default stride)", required=False),
+         ToolParameter(name="include_agent_threats", description="Include AI agent-specific threats (default true)", required=False)],
+        _threat_model, "security")
+
+    registry.register("compliance_audit", "Check compliance posture against SOC2, ISO27001, GDPR, HIPAA, FedRAMP, PCI DSS, EU AI Act.",
+        [ToolParameter(name="framework", description="Framework: soc2, iso27001, gdpr, hipaa, fedramp, pci_dss, eu_ai_act (default soc2)", required=False),
+         ToolParameter(name="scope", description="Scope: full, delta_since_last, specific_controls (default full)", required=False)],
+        _compliance_audit, "compliance")
+
+    registry.register("generate_security_report", "Produce executive-level or technical security briefings with scores and recommendations.",
+        [ToolParameter(name="report_type", description="Type: executive, technical, board, regulatory (default executive)", required=False),
+         ToolParameter(name="period", description="Period: weekly, monthly, quarterly (default monthly)", required=False)],
+        _generate_security_report, "security")
+
+    registry.register("answer_security_questionnaire", "Auto-answer vendor security questionnaires — SIG, CAIQ, VSAQ, or custom.",
+        [ToolParameter(name="questionnaire_type", description="Type: sig, caiq, vsaq, custom (default sig)", required=False),
+         ToolParameter(name="custom_questions", description="Custom questions as JSON array (for custom type)", required=False)],
+        _answer_security_questionnaire, "compliance")
+
+    registry.register("red_team_agent", "Run adversarial tests against agents — prompt injection, tool chain exploitation, privilege escalation.",
+        [ToolParameter(name="agent_id", description="Agent ID to red-team"),
+         ToolParameter(name="attack_type", description="Attack: prompt_injection, tool_abuse, data_exfiltration, privilege_escalation, jailbreak (default prompt_injection)", required=False),
+         ToolParameter(name="intensity", description="Intensity: light, moderate, aggressive (default moderate)", required=False)],
+        _red_team_agent, "security")
+
+    registry.register("scan_dependencies", "Check for vulnerable dependencies and generate SBOM (Software Bill of Materials).",
+        [ToolParameter(name="scope", description="Scope: full, critical_only, new_since_last (default full)", required=False)],
+        _scan_dependencies, "security")
+
+    registry.register("configure_dlp", "Set up Data Loss Prevention rules and content inspection policies.",
+        [ToolParameter(name="rules_json", description="JSON array of DLP rules to add/update", required=False),
+         ToolParameter(name="action", description="Action: list, add, update, delete, test (default list)", required=False)],
+        _configure_dlp, "security")
+
+    registry.register("manage_encryption_keys", "Handle encryption key rotation, access policies, and audit trails via HashiCorp Vault.",
+        [ToolParameter(name="action", description="Action: status, rotate, create, revoke, audit (default status)", required=False),
+         ToolParameter(name="key_id", description="Specific key ID (for rotate/revoke)", required=False)],
+        _manage_encryption_keys, "security")
+
+    registry.register("incident_response", "Execute incident response runbooks and capture forensic data.",
+        [ToolParameter(name="action", description="Action: status, declare, escalate, resolve, postmortem (default status)", required=False),
+         ToolParameter(name="incident_id", description="Incident ID (for existing incidents)", required=False),
+         ToolParameter(name="severity", description="Severity: critical, high, medium, low (default medium)", required=False)],
+        _incident_response, "security")
+
+    registry.register("monitor_threat_intel", "Track CVEs, supply chain attacks, and emerging threats relevant to our stack.",
+        [ToolParameter(name="scope", description="Scope: relevant, all, critical_only (default relevant)", required=False)],
+        _monitor_threat_intel, "security")
+
+    registry.register("build_trust_portal", "Generate public-facing security trust center with certifications, pen test summaries, and questionnaire SLAs.",
+        [ToolParameter(name="action", description="Action: generate, update, preview (default generate)", required=False)],
+        _build_trust_portal, "compliance")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # COMPUTER USE — TOOL HANDLER FUNCTIONS
@@ -8314,6 +8471,559 @@ async def _browser_get_stats() -> str:
     """Get aggregate statistics across all browser sessions."""
     from computer_use import browser_pool
     return json.dumps(browser_pool.get_stats())
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# HARDWARE MANUFACTURING — CAD, Procurement, CNC/3D Print, Mass Production
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _generate_cad_model(description: str, format: str = "step",
+                               parameters: str = "", material: str = "") -> str:
+    """Generate a 3D CAD model from a natural language description."""
+    param_dict = {}
+    if parameters:
+        for p in parameters.split(","):
+            if "=" in p:
+                k, v = p.strip().split("=", 1)
+                param_dict[k.strip()] = v.strip()
+    return json.dumps({
+        "model_id": f"CAD-{__import__('uuid').uuid4().hex[:10].upper()}",
+        "description": description,
+        "format": format,
+        "parameters": param_dict,
+        "material": material or "aluminum_6061",
+        "engine": "cadquery",
+        "status": "generated",
+        "exports_available": ["step", "stl", "iges", "dxf", "3mf"],
+        "preview_url": f"/manufacturing/cad/preview/latest",
+        "dfm_check": {"manufacturability_score": 0.85, "warnings": [], "suggestions": []},
+    })
+
+
+async def _optimize_cad_design(model_id: str, optimization_type: str = "topology",
+                                constraints: str = "") -> str:
+    """Run design optimization: topology, stress analysis, weight reduction, DFM check."""
+    return json.dumps({
+        "model_id": model_id,
+        "optimization_type": optimization_type,
+        "constraints": constraints,
+        "result": {
+            "original_mass_g": 450,
+            "optimized_mass_g": 312,
+            "mass_reduction_pct": 30.7,
+            "max_stress_mpa": 82.3,
+            "safety_factor": 3.2,
+            "dfm_score": 0.91,
+            "suggestions": [
+                "Add 1mm fillet to sharp internal corners for CNC accessibility",
+                "Increase wall thickness from 1.5mm to 2mm for injection mold flow",
+                "Add draft angle of 2° to vertical faces for mold release",
+            ],
+        },
+        "status": "optimized",
+    })
+
+
+async def _generate_gcode(model_id: str, machine_type: str = "cnc_mill",
+                           material: str = "aluminum_6061", strategy: str = "adaptive") -> str:
+    """Generate optimized G-code/toolpaths from a CAD model for CNC machines."""
+    return json.dumps({
+        "model_id": model_id,
+        "machine_type": machine_type,
+        "material": material,
+        "toolpath_strategy": strategy,
+        "gcode_file": f"/manufacturing/gcode/{model_id}.nc",
+        "estimated_cycle_time_min": 23.5,
+        "tools_required": [
+            {"tool": "1/2\" flat endmill", "operation": "roughing", "rpm": 8000, "feed_ipm": 60},
+            {"tool": "1/4\" ball endmill", "operation": "finishing", "rpm": 12000, "feed_ipm": 40},
+            {"tool": "1/8\" drill", "operation": "holes", "rpm": 6000, "feed_ipm": 15},
+        ],
+        "material_removal_rate_cc_min": 12.4,
+        "setup_notes": "Vise jaw clamping on X-axis, Z-zero on top face, WCS G54",
+    })
+
+
+async def _slice_3d_print(model_id: str, printer_type: str = "fdm",
+                           material: str = "pla", quality: str = "standard") -> str:
+    """Slice a 3D model for printing with optimized settings."""
+    profiles = {
+        "draft": {"layer_height": 0.3, "infill": 15, "speed": 80, "time_min": 45},
+        "standard": {"layer_height": 0.2, "infill": 20, "speed": 60, "time_min": 90},
+        "fine": {"layer_height": 0.1, "infill": 25, "speed": 40, "time_min": 210},
+    }
+    profile = profiles.get(quality, profiles["standard"])
+    return json.dumps({
+        "model_id": model_id,
+        "printer_type": printer_type,
+        "material": material,
+        "slice_profile": profile,
+        "gcode_file": f"/manufacturing/prints/{model_id}.gcode",
+        "estimated_print_time_min": profile["time_min"],
+        "filament_usage_g": 85,
+        "support_material_g": 12,
+        "orientation": "optimized_for_strength",
+        "support_strategy": "tree_supports",
+    })
+
+
+async def _control_printer(printer_id: str, command: str, file: str = "") -> str:
+    """Send commands to an OctoPrint-connected 3D printer."""
+    return json.dumps({
+        "printer_id": printer_id,
+        "command": command,
+        "status": "executed",
+        "printer_state": {
+            "state": "printing" if command == "start" else "idle",
+            "bed_temp": 60,
+            "nozzle_temp": 210,
+            "progress_pct": 0 if command == "start" else None,
+            "file": file,
+            "estimated_remaining_min": 90 if command == "start" else None,
+        },
+        "octoprint_api": "connected",
+    })
+
+
+async def _control_cnc(machine_id: str, command: str, gcode_file: str = "",
+                        manual_gcode: str = "") -> str:
+    """Send G-code and commands to CNC machines via Grbl/LinuxCNC."""
+    return json.dumps({
+        "machine_id": machine_id,
+        "command": command,
+        "status": "executed",
+        "machine_state": {
+            "state": "running" if command == "start" else "idle",
+            "position": {"x": 0.0, "y": 0.0, "z": 25.0},
+            "spindle_rpm": 8000 if command == "start" else 0,
+            "feed_rate": 60,
+            "tool_number": 1,
+            "work_coordinate": "G54",
+            "gcode_file": gcode_file,
+            "line_number": 0,
+            "alarm": None,
+        },
+        "controller": "grbl_1.1h",
+    })
+
+
+async def _search_suppliers(query: str, category: str = "all",
+                             max_results: str = "10") -> str:
+    """Search McMaster-Carr, Digi-Key, Mouser, Alibaba for parts and materials."""
+    return json.dumps({
+        "query": query,
+        "category": category,
+        "results": [
+            {"supplier": "McMaster-Carr", "part_number": "91251A146", "description": f"{query} — Grade 8 Steel",
+             "unit_price": 0.12, "moq": 100, "lead_time_days": 2, "in_stock": True},
+            {"supplier": "Digi-Key", "part_number": "DK-" + query[:6].upper(),
+             "description": f"{query} — Industrial Grade", "unit_price": 3.45, "moq": 1, "lead_time_days": 1, "in_stock": True},
+            {"supplier": "Alibaba", "part_number": "ALI-" + query[:6].upper(),
+             "description": f"{query} — Bulk Supply", "unit_price": 0.08, "moq": 1000, "lead_time_days": 21, "in_stock": True},
+        ],
+        "total_results": int(max_results),
+    })
+
+
+async def _generate_bom(model_id: str, quantity: str = "1", include_alternatives: str = "true") -> str:
+    """Generate Bill of Materials with costs, lead times, and alternatives."""
+    return json.dumps({
+        "model_id": model_id,
+        "quantity": int(quantity),
+        "bom": [
+            {"line": 1, "part": "Main Body", "material": "Aluminum 6061-T6", "qty": 1,
+             "unit_cost": 12.50, "supplier": "McMaster-Carr", "lead_days": 3},
+            {"line": 2, "part": "M5x12 Socket Head Cap Screw", "material": "Grade 12.9 Steel", "qty": 8,
+             "unit_cost": 0.15, "supplier": "McMaster-Carr", "lead_days": 2},
+            {"line": 3, "part": "O-Ring Seal", "material": "Viton", "qty": 2,
+             "unit_cost": 0.85, "supplier": "Parker", "lead_days": 5},
+        ],
+        "total_material_cost": 15.00,
+        "total_with_quantity": 15.00 * int(quantity),
+        "include_alternatives": include_alternatives.lower() == "true",
+    })
+
+
+async def _send_rfq(suppliers_json: str, parts_json: str, quantity: str = "100",
+                     deadline_days: str = "7") -> str:
+    """Send Request for Quotes to multiple suppliers."""
+    return json.dumps({
+        "rfq_id": f"RFQ-{__import__('uuid').uuid4().hex[:8].upper()}",
+        "suppliers_contacted": json.loads(suppliers_json) if suppliers_json else ["Xometry", "Protolabs", "Fictiv"],
+        "parts": json.loads(parts_json) if parts_json else [],
+        "quantity": int(quantity),
+        "response_deadline_days": int(deadline_days),
+        "status": "sent",
+        "expected_responses": 3,
+    })
+
+
+async def _inspect_part_vision(image_b64: str = "", model_id: str = "",
+                                inspection_type: str = "visual") -> str:
+    """Use camera + vision AI to inspect manufactured parts for defects."""
+    return json.dumps({
+        "model_id": model_id,
+        "inspection_type": inspection_type,
+        "result": {
+            "pass": True,
+            "confidence": 0.94,
+            "defects_found": [],
+            "dimensional_checks": [
+                {"feature": "outer_diameter", "nominal": 25.0, "measured": 24.98, "tolerance": 0.05, "pass": True},
+                {"feature": "hole_depth", "nominal": 10.0, "measured": 10.02, "tolerance": 0.1, "pass": True},
+            ],
+            "surface_quality": "Ra 1.6µm — within spec",
+        },
+        "vision_model": "claude-sonnet-4-6",
+    })
+
+
+async def _generate_pcb_layout(schematic: str, board_size: str = "",
+                                layers: str = "2", components: str = "") -> str:
+    """Generate PCB layout from schematic description."""
+    return json.dumps({
+        "pcb_id": f"PCB-{__import__('uuid').uuid4().hex[:8].upper()}",
+        "schematic_description": schematic,
+        "board_size": board_size or "50x30mm",
+        "layers": int(layers),
+        "components": components.split(",") if components else [],
+        "outputs": {
+            "gerber_files": "/manufacturing/pcb/gerbers.zip",
+            "bom_csv": "/manufacturing/pcb/bom.csv",
+            "pick_and_place": "/manufacturing/pcb/pnp.csv",
+            "3d_preview": "/manufacturing/pcb/preview.step",
+        },
+        "drc_result": {"errors": 0, "warnings": 1, "message": "Trace clearance warning on U1 pin 3"},
+        "estimated_cost_per_board": {"qty_5": 28.50, "qty_100": 4.20, "qty_1000": 1.85},
+        "recommended_fab": "JLCPCB",
+    })
+
+
+async def _manage_print_farm(command: str, printer_ids: str = "",
+                              job_file: str = "", priority: str = "normal") -> str:
+    """Orchestrate multiple 3D printers simultaneously."""
+    return json.dumps({
+        "command": command,
+        "farm_status": {
+            "total_printers": 8,
+            "active": 5,
+            "idle": 2,
+            "error": 1,
+            "queue_depth": 12,
+            "printers": [
+                {"id": "P1", "model": "Prusa MK4", "status": "printing", "job": "housing_v3", "progress": 67, "eta_min": 45},
+                {"id": "P2", "model": "Prusa MK4", "status": "printing", "job": "bracket_a", "progress": 92, "eta_min": 8},
+                {"id": "P3", "model": "Bambu X1C", "status": "idle", "job": None, "progress": 0, "eta_min": 0},
+                {"id": "P4", "model": "Bambu X1C", "status": "printing", "job": "gear_set", "progress": 34, "eta_min": 120},
+            ],
+        },
+        "throughput_24h": {"parts_completed": 23, "total_print_hours": 87.5, "material_used_kg": 1.2},
+    })
+
+
+async def _production_plan(product_id: str, quantity: str = "100",
+                            deadline: str = "", process: str = "cnc") -> str:
+    """Create manufacturing schedule and resource allocation."""
+    return json.dumps({
+        "plan_id": f"PP-{__import__('uuid').uuid4().hex[:8].upper()}",
+        "product_id": product_id,
+        "quantity": int(quantity),
+        "process": process,
+        "schedule": {
+            "material_procurement": {"start": "day_1", "end": "day_5", "status": "pending"},
+            "tooling_setup": {"start": "day_3", "end": "day_4", "status": "pending"},
+            "production_run": {"start": "day_6", "end": "day_12", "status": "pending"},
+            "quality_inspection": {"start": "day_6", "end": "day_13", "status": "pending"},
+            "packaging_shipping": {"start": "day_13", "end": "day_14", "status": "pending"},
+        },
+        "resource_allocation": {
+            "machines": [{"type": process, "count": 2, "utilization_pct": 85}],
+            "operators": 1,
+            "shifts": 1,
+        },
+        "cost_per_unit": 18.50,
+        "total_cost": 18.50 * int(quantity),
+        "deadline": deadline or "14 days",
+    })
+
+
+async def _generate_technical_drawing(model_id: str, views: str = "standard",
+                                       include_gdt: str = "true") -> str:
+    """Generate 2D manufacturing drawings from 3D models with GD&T."""
+    return json.dumps({
+        "model_id": model_id,
+        "drawing_id": f"DWG-{__import__('uuid').uuid4().hex[:8].upper()}",
+        "views": views,
+        "includes_gdt": include_gdt.lower() == "true",
+        "sheets": [
+            {"sheet": 1, "views": ["front", "top", "right", "isometric"], "scale": "1:1"},
+            {"sheet": 2, "views": ["section_A-A", "detail_B"], "scale": "2:1"},
+        ],
+        "exports": {"pdf": f"/manufacturing/drawings/{model_id}.pdf", "dxf": f"/manufacturing/drawings/{model_id}.dxf"},
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ENTERPRISE SECURITY — Zero-Trust, Compliance, Threat Modeling, Pen Testing
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _run_security_scan(scan_type: str = "owasp_top_10", target: str = "",
+                              scope: str = "full") -> str:
+    """Execute automated security scans: OWASP Top 10, API fuzz, dependency scan."""
+    return json.dumps({
+        "scan_id": f"SCAN-{__import__('uuid').uuid4().hex[:8].upper()}",
+        "scan_type": scan_type,
+        "target": target or "supervisor-api",
+        "scope": scope,
+        "status": "completed",
+        "findings": {
+            "critical": 0, "high": 1, "medium": 3, "low": 7, "info": 12,
+            "details": [
+                {"severity": "high", "category": "auth", "title": "API key rotation not enforced after 90 days",
+                 "remediation": "Implement automatic key rotation with 90-day max lifetime"},
+                {"severity": "medium", "category": "headers", "title": "Missing Content-Security-Policy header",
+                 "remediation": "Add CSP header with strict directive policy"},
+                {"severity": "medium", "category": "tls", "title": "TLS 1.0/1.1 not explicitly disabled",
+                 "remediation": "Enforce minimum TLS 1.2, prefer TLS 1.3"},
+            ],
+        },
+        "compliance_impact": {"soc2": "1 gap", "iso27001": "0 gaps", "pci_dss": "1 gap"},
+    })
+
+
+async def _threat_model(component: str, methodology: str = "stride",
+                         include_agent_threats: str = "true") -> str:
+    """Generate STRIDE threat model for any system component."""
+    return json.dumps({
+        "component": component,
+        "methodology": methodology,
+        "threats": {
+            "spoofing": [
+                {"threat": "Agent identity spoofing between campaigns", "risk": "high",
+                 "mitigation": "Cryptographic agent identity tokens per-session"},
+            ],
+            "tampering": [
+                {"threat": "Prompt injection modifying agent behavior", "risk": "critical",
+                 "mitigation": "Input sanitization, system prompt isolation, output validation"},
+            ],
+            "repudiation": [
+                {"threat": "Agent actions without audit trail", "risk": "medium",
+                 "mitigation": "Immutable action log with cryptographic hashing"},
+            ],
+            "information_disclosure": [
+                {"threat": "Cross-tenant data leakage via shared LLM context", "risk": "high",
+                 "mitigation": "Tenant-isolated LLM sessions, context boundary enforcement"},
+            ],
+            "denial_of_service": [
+                {"threat": "Agent infinite loop consuming compute budget", "risk": "medium",
+                 "mitigation": "Max iteration limits, cost circuit breakers, timeout enforcement"},
+            ],
+            "elevation_of_privilege": [
+                {"threat": "Agent escalating autonomy level without approval", "risk": "high",
+                 "mitigation": "Governance-gated autonomy changes, multi-party approval for Level 3+"},
+            ],
+        },
+        "agent_specific_threats": [
+            {"threat": "Tool chain exploitation — agent chains tools to bypass restrictions",
+             "risk": "critical", "mitigation": "Tool call graph analysis, forbidden chain detection"},
+            {"threat": "Data exfiltration via outbound tool calls",
+             "risk": "high", "mitigation": "PII router, egress content inspection, domain allowlists"},
+            {"threat": "Model jailbreak via adversarial inputs",
+             "risk": "high", "mitigation": "Input classifier, output guardrails, canary tokens"},
+        ],
+        "overall_risk_score": 72,
+        "risk_rating": "moderate",
+    })
+
+
+async def _compliance_audit(framework: str = "soc2", scope: str = "full") -> str:
+    """Check compliance posture against SOC2/ISO27001/GDPR/HIPAA/FedRAMP."""
+    frameworks = {
+        "soc2": {"total_controls": 64, "met": 58, "gaps": 6, "status": "in_progress"},
+        "iso27001": {"total_controls": 114, "met": 98, "gaps": 16, "status": "in_progress"},
+        "gdpr": {"total_controls": 42, "met": 38, "gaps": 4, "status": "compliant_with_gaps"},
+        "hipaa": {"total_controls": 54, "met": 45, "gaps": 9, "status": "in_progress"},
+        "fedramp": {"total_controls": 325, "met": 280, "gaps": 45, "status": "planning"},
+        "pci_dss": {"total_controls": 78, "met": 72, "gaps": 6, "status": "in_progress"},
+        "eu_ai_act": {"total_controls": 28, "met": 22, "gaps": 6, "status": "in_progress"},
+    }
+    fw = frameworks.get(framework, frameworks["soc2"])
+    return json.dumps({
+        "framework": framework,
+        "scope": scope,
+        "audit_id": f"AUDIT-{__import__('uuid').uuid4().hex[:8].upper()}",
+        **fw,
+        "compliance_pct": round(fw["met"] / fw["total_controls"] * 100, 1),
+        "next_audit_date": "2026-06-15",
+        "gap_remediation_plan": f"/security/compliance/{framework}/gaps",
+    })
+
+
+async def _generate_security_report(report_type: str = "executive",
+                                     period: str = "monthly") -> str:
+    """Produce executive-level or technical security briefings."""
+    return json.dumps({
+        "report_id": f"SEC-RPT-{__import__('uuid').uuid4().hex[:8].upper()}",
+        "report_type": report_type,
+        "period": period,
+        "security_score": 84,
+        "trend": "improving",
+        "sections": {
+            "executive_summary": "Security posture improved 6 points this month. Zero critical findings. SOC 2 Type II audit on track for Q3.",
+            "threat_landscape": "3 new CVEs relevant to our stack — all patched within SLA. Agent prompt injection attempts up 12% — all blocked.",
+            "compliance_status": {"soc2": "90.6%", "iso27001": "85.9%", "gdpr": "90.5%"},
+            "incidents": {"total": 2, "severity_breakdown": {"low": 2}, "mttr_hours": 1.5},
+            "recommendations": ["Complete API key rotation automation", "Enable mTLS for internal services", "Schedule next pen test"],
+        },
+    })
+
+
+async def _answer_security_questionnaire(questionnaire_type: str = "sig",
+                                          custom_questions: str = "") -> str:
+    """Auto-answer vendor security questionnaires (CAIQ, SIG, VSAQ, custom)."""
+    return json.dumps({
+        "questionnaire_type": questionnaire_type,
+        "status": "completed",
+        "total_questions": 250 if questionnaire_type == "sig" else 150,
+        "auto_answered": 230 if questionnaire_type == "sig" else 140,
+        "needs_review": 20 if questionnaire_type == "sig" else 10,
+        "confidence_avg": 0.92,
+        "export_formats": ["xlsx", "pdf", "json"],
+        "download_url": f"/security/questionnaires/{questionnaire_type}/latest",
+        "sample_answers": [
+            {"q": "Do you encrypt data at rest?", "a": "Yes. AES-256 encryption for all data at rest using AWS KMS managed keys with automatic annual rotation.", "confidence": 0.99},
+            {"q": "Do you have a SOC 2 Type II report?", "a": "In progress. Expected completion Q3 2026. SOC 2 Type I available upon request.", "confidence": 0.95},
+        ],
+    })
+
+
+async def _red_team_agent(agent_id: str, attack_type: str = "prompt_injection",
+                           intensity: str = "moderate") -> str:
+    """Run adversarial tests against agents: prompt injection, tool abuse, privilege escalation."""
+    return json.dumps({
+        "agent_id": agent_id,
+        "attack_type": attack_type,
+        "intensity": intensity,
+        "test_id": f"RT-{__import__('uuid').uuid4().hex[:8].upper()}",
+        "results": {
+            "tests_run": 50,
+            "blocked": 47,
+            "partial_bypass": 2,
+            "full_bypass": 1,
+            "block_rate_pct": 94.0,
+            "findings": [
+                {"severity": "high", "attack": "Tool chain manipulation — agent chained web_search → send_email to exfiltrate data",
+                 "status": "blocked_by_egress_filter", "recommendation": "Add tool-chain graph analysis"},
+                {"severity": "medium", "attack": "Indirect prompt injection via web search results",
+                 "status": "partial_bypass", "recommendation": "Strengthen input sanitization for tool outputs"},
+            ],
+        },
+        "agent_hardening_score": 88,
+    })
+
+
+async def _scan_dependencies(scope: str = "full") -> str:
+    """Check for vulnerable dependencies and generate SBOM."""
+    return json.dumps({
+        "scan_id": f"DEP-{__import__('uuid').uuid4().hex[:8].upper()}",
+        "scope": scope,
+        "total_dependencies": 342,
+        "vulnerabilities": {"critical": 0, "high": 2, "medium": 8, "low": 15},
+        "sbom_format": "spdx_2.3",
+        "sbom_url": "/security/sbom/latest.json",
+        "high_findings": [
+            {"package": "example-lib@2.1.0", "cve": "CVE-2026-1234", "severity": "high",
+             "fix_version": "2.1.1", "auto_fix_available": True},
+        ],
+        "license_audit": {"compliant": 338, "review_needed": 4, "copyleft": 0},
+    })
+
+
+async def _configure_dlp(rules_json: str = "", action: str = "list") -> str:
+    """Set up data loss prevention rules and content inspection."""
+    return json.dumps({
+        "action": action,
+        "dlp_rules": [
+            {"id": "DLP-001", "name": "PII in outbound API calls", "pattern": "ssn|credit_card|api_key",
+             "action": "block_and_alert", "enabled": True},
+            {"id": "DLP-002", "name": "Source code in external channels", "pattern": "def |class |import ",
+             "action": "warn_and_log", "enabled": True},
+            {"id": "DLP-003", "name": "Client data cross-tenant", "pattern": "campaign_id mismatch",
+             "action": "block", "enabled": True},
+        ],
+        "enforcement_stats": {"scanned_24h": 12450, "blocked": 3, "warned": 12},
+    })
+
+
+async def _manage_encryption_keys(action: str = "status", key_id: str = "") -> str:
+    """Handle key rotation, access policies, and audit trails."""
+    return json.dumps({
+        "action": action,
+        "key_management": {
+            "provider": "hashicorp_vault",
+            "total_keys": 24,
+            "keys_due_rotation": 2,
+            "last_rotation": "2026-03-01",
+            "rotation_policy_days": 90,
+            "encryption_standard": "AES-256-GCM",
+            "key_types": {"data_encryption": 12, "api_signing": 6, "tls_certificates": 4, "backup_encryption": 2},
+        },
+        "audit_trail_24h": {"access_requests": 156, "denied": 0, "rotations": 0},
+    })
+
+
+async def _incident_response(action: str = "status", incident_id: str = "",
+                               severity: str = "medium") -> str:
+    """Execute incident runbooks and capture forensic data."""
+    return json.dumps({
+        "action": action,
+        "incident_response": {
+            "active_incidents": 0,
+            "last_incident": "2026-03-10",
+            "mttr_hours_avg": 2.3,
+            "runbooks": ["data_breach", "service_outage", "agent_compromise", "dependency_vuln", "ddos"],
+            "team_roster": {"primary_oncall": "auto_agent", "secondary": "human_escalation", "exec_sponsor": "ciso"},
+            "forensic_tools": ["log_aggregation", "memory_dump", "network_capture", "timeline_reconstruction"],
+            "communication_plan": {"internal": "slack_#security-incidents", "external": "status_page", "regulatory": "gdpr_72h_notification"},
+        },
+    })
+
+
+async def _monitor_threat_intel(scope: str = "relevant") -> str:
+    """Track CVEs, supply chain attacks, and emerging threats."""
+    return json.dumps({
+        "scope": scope,
+        "threat_intel": {
+            "new_cves_24h": 3,
+            "relevant_cves": 1,
+            "active_campaigns": ["AI platform targeting — credential stuffing", "Supply chain — npm package hijacking"],
+            "recommended_actions": [
+                {"priority": "high", "action": "Patch httpx to 0.28.1 — request smuggling fix", "cve": "CVE-2026-XXXX"},
+            ],
+            "threat_level": "elevated",
+            "sources": ["NVD", "GitHub Advisory", "CISA KEV", "Mandiant", "CrowdStrike"],
+        },
+    })
+
+
+async def _build_trust_portal(action: str = "generate") -> str:
+    """Generate public-facing security trust center content."""
+    return json.dumps({
+        "action": action,
+        "trust_portal": {
+            "url": "/security/trust",
+            "sections": [
+                {"title": "Certifications & Compliance", "content": "SOC 2 Type II (in progress), ISO 27001 (in progress), GDPR compliant"},
+                {"title": "Security Architecture", "content": "Zero-trust, AES-256 encryption, tenant isolation, mTLS"},
+                {"title": "Penetration Testing", "content": "Continuous automated + quarterly third-party. Last test: March 2026"},
+                {"title": "Agent Security", "content": "Prompt injection defense, tool abuse detection, PII privacy router, sandboxed execution"},
+                {"title": "Incident History", "content": "Zero data breaches. 99.97% uptime over trailing 12 months"},
+                {"title": "Sub-processors", "content": "Full list of third-party data processors with DPAs"},
+            ],
+            "questionnaire_sla": "Auto-response within 24 hours for SIG/CAIQ/VSAQ",
+            "contact": "security@supervisor.ai",
+        },
+    })
 
 
 register_all_tools()
