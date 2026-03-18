@@ -8,7 +8,7 @@ This is the moat — the more campaigns run, the smarter future campaigns start.
 from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from models import Campaign
@@ -286,15 +286,23 @@ _run_snapshots: dict[str, list[dict]] = {}  # key: "{campaign_id}:{agent_id}"
 class AdaptationEngine:
     """Builds adaptive context for agent runs based on real outcome data."""
 
-    def build_context(
+    async def build_context(
         self,
         agent_id: str,
         campaign: Campaign,
         trigger_reason: str = "",
     ) -> AdaptiveContext:
-        """Assemble all available intelligence for this agent run."""
+        """Assemble all available intelligence for this agent run.
+
+        Ensures sensing metrics and adaptation snapshots are loaded from
+        the database before scoring, so the feedback loop has real data.
+        """
         from scoring import scorer
         from genome import genome
+
+        # Ensure metrics and snapshots are hydrated from DB
+        await self.ensure_metrics_loaded(campaign)
+        await self.load_snapshots_from_db(campaign.id, agent_id)
 
         ctx = AdaptiveContext(
             agent_id=agent_id,
@@ -382,20 +390,50 @@ class AdaptationEngine:
         return {k: v for k, v in scoring_metrics.items() if isinstance(v, (int, float))}
 
     def _compute_trend(self, campaign_id: str, agent_id: str) -> str:
-        """Determine if this agent's performance is improving, declining, or stable."""
+        """Determine if this agent's performance is improving, declining, or stable.
+
+        Uses weighted linear regression over the last N snapshots so a single
+        outlier doesn't flip the trend. Recent data points get more weight.
+        """
         snap_key = f"{campaign_id}:{agent_id}"
         snapshots = _run_snapshots.get(snap_key, [])
 
         if len(snapshots) < 2:
             return "unknown"
 
-        # Compare last 2 scores
-        recent = snapshots[-1]["score"]
-        previous = snapshots[-2]["score"]
+        # Use up to last 10 snapshots
+        recent = snapshots[-10:]
+        scores = [s["score"] for s in recent]
+        n = len(scores)
 
-        if recent > previous + 5:
+        if n == 2:
+            # Simple comparison for 2 data points
+            diff = scores[-1] - scores[-0]
+            if diff > 5:
+                return "improving"
+            elif diff < -5:
+                return "declining"
+            return "stable"
+
+        # Weighted linear regression: recent points matter more
+        # Weights: [1, 2, 3, ..., n]
+        weights = list(range(1, n + 1))
+        sum_w = sum(weights)
+        sum_wx = sum(w * i for w, i in zip(weights, range(n)))
+        sum_wy = sum(w * y for w, y in zip(weights, scores))
+        sum_wxy = sum(w * i * y for w, i, y in zip(weights, range(n), scores))
+        sum_wx2 = sum(w * i * i for w, i in zip(weights, range(n)))
+
+        denom = sum_w * sum_wx2 - sum_wx * sum_wx
+        if denom == 0:
+            return "stable"
+
+        slope = (sum_w * sum_wxy - sum_wx * sum_wy) / denom
+
+        # Slope > 2 points per iteration = improving, < -2 = declining
+        if slope > 2.0:
             return "improving"
-        elif recent < previous - 5:
+        elif slope < -2.0:
             return "declining"
         return "stable"
 
@@ -528,7 +566,7 @@ class AdaptationEngine:
 
         return "\n".join(lines)
 
-    def record_run_snapshot(
+    async def record_run_snapshot(
         self,
         agent_id: str,
         campaign_id: str,
@@ -536,7 +574,11 @@ class AdaptationEngine:
         metrics: dict[str, Any],
         strategies_applied: list[str] | None = None,
     ) -> dict:
-        """Store a snapshot for trend computation and persist to database."""
+        """Store a snapshot for trend computation and persist to database.
+
+        Persistence is awaited (not fire-and-forget) so failures are visible
+        and callers know if their data was actually saved.
+        """
         snap_key = f"{campaign_id}:{agent_id}"
         snapshots = _run_snapshots.setdefault(snap_key, [])
 
@@ -547,7 +589,7 @@ class AdaptationEngine:
             "metrics": metrics,
             "strategies_applied": strategies_applied or [],
             "iteration_number": len(snapshots) + 1,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
         snapshots.append(snapshot)
@@ -556,32 +598,131 @@ class AdaptationEngine:
         if len(snapshots) > 20:
             _run_snapshots[snap_key] = snapshots[-20:]
 
-        # Persist to database (non-blocking)
-        try:
-            import asyncio
-            from db import save_run_snapshot
-            asyncio.create_task(save_run_snapshot(snapshot))
-        except Exception:
-            pass  # Best-effort persistence
+        # Persist to Supabase — awaited, with retries and error surfacing
+        persisted = await self._persist_snapshot(snapshot)
+        if not persisted:
+            logger.warning(f"Snapshot for {agent_id}/{campaign_id} saved in-memory only (DB write failed)")
 
         logger.info(
             f"Snapshot recorded: {agent_id} in {campaign_id} — "
-            f"score={score:.0f}, iteration={snapshot['iteration_number']}"
+            f"score={score:.0f}, iteration={snapshot['iteration_number']}, persisted={persisted}"
         )
         return snapshot
 
-    async def load_snapshots_from_db(self, campaign_id: str, agent_id: str):
-        """Hydrate in-memory snapshots from database on startup."""
+    async def _persist_snapshot(self, snapshot: dict, retries: int = 2) -> bool:
+        """Persist a single snapshot to Supabase with retries. Returns True on success."""
         try:
-            from db import load_run_snapshots
-            snap_key = f"{campaign_id}:{agent_id}"
-            if snap_key not in _run_snapshots:
-                db_snapshots = await load_run_snapshots(campaign_id, agent_id, limit=20)
-                if db_snapshots:
-                    _run_snapshots[snap_key] = db_snapshots
-                    logger.info(f"Loaded {len(db_snapshots)} snapshots for {agent_id} in {campaign_id}")
+            from config import settings
+            if not settings.supabase_url or not settings.supabase_key:
+                return False
+        except Exception:
+            return False
+
+        import httpx
+        url = f"{settings.supabase_url}/rest/v1/adaptation_snapshots"
+        headers = {
+            "apikey": settings.supabase_key,
+            "Authorization": f"Bearer {settings.supabase_key}",
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates",
+        }
+
+        for attempt in range(retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(url, headers=headers, json=snapshot)
+                    if resp.status_code in (200, 201):
+                        return True
+                    logger.error(f"Snapshot persist attempt {attempt + 1} failed: {resp.status_code} {resp.text}")
+            except Exception as e:
+                logger.error(f"Snapshot persist attempt {attempt + 1} error: {e}")
+
+        return False
+
+    async def load_snapshots_from_db(self, campaign_id: str, agent_id: str) -> int:
+        """Hydrate in-memory snapshots from Supabase. Returns count loaded."""
+        snap_key = f"{campaign_id}:{agent_id}"
+        if snap_key in _run_snapshots and _run_snapshots[snap_key]:
+            return len(_run_snapshots[snap_key])  # Already loaded
+
+        try:
+            from config import settings
+            if not settings.supabase_url or not settings.supabase_key:
+                return 0
+            import httpx
+            url = f"{settings.supabase_url}/rest/v1/adaptation_snapshots"
+            headers = {
+                "apikey": settings.supabase_key,
+                "Authorization": f"Bearer {settings.supabase_key}",
+            }
+            params = {
+                "campaign_id": f"eq.{campaign_id}",
+                "agent_id": f"eq.{agent_id}",
+                "order": "created_at.desc",
+                "limit": "20",
+            }
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(url, headers=headers, params=params)
+                if resp.status_code == 200:
+                    rows = resp.json()
+                    if rows:
+                        # Reverse so oldest is first (DB returned newest first)
+                        _run_snapshots[snap_key] = list(reversed(rows))
+                        logger.info(f"Loaded {len(rows)} snapshots for {agent_id} in {campaign_id}")
+                        return len(rows)
+                else:
+                    logger.error(f"Failed to load snapshots: {resp.status_code} {resp.text}")
         except Exception as e:
-            logger.debug(f"Failed to load snapshots from DB: {e}")
+            logger.error(f"Failed to load snapshots from DB for {agent_id}/{campaign_id}: {e}")
+        return 0
+
+    async def load_all_snapshots_for_campaign(self, campaign_id: str) -> int:
+        """Load snapshots for all agents in a campaign. Called on campaign load."""
+        total = 0
+        try:
+            from config import settings
+            if not settings.supabase_url or not settings.supabase_key:
+                return 0
+            import httpx
+            url = f"{settings.supabase_url}/rest/v1/adaptation_snapshots"
+            headers = {
+                "apikey": settings.supabase_key,
+                "Authorization": f"Bearer {settings.supabase_key}",
+            }
+            params = {
+                "campaign_id": f"eq.{campaign_id}",
+                "order": "created_at.asc",
+                "limit": "500",
+            }
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(url, headers=headers, params=params)
+                if resp.status_code == 200:
+                    rows = resp.json()
+                    # Group by agent_id
+                    by_agent: dict[str, list[dict]] = {}
+                    for row in rows:
+                        aid = row.get("agent_id", "")
+                        by_agent.setdefault(aid, []).append(row)
+                    for aid, snaps in by_agent.items():
+                        snap_key = f"{campaign_id}:{aid}"
+                        _run_snapshots[snap_key] = snaps[-20:]  # Keep last 20
+                        total += len(snaps)
+                    logger.info(f"Loaded {total} snapshots across {len(by_agent)} agents for campaign {campaign_id}")
+        except Exception as e:
+            logger.error(f"Failed to load campaign snapshots: {e}")
+        return total
+
+    async def ensure_metrics_loaded(self, campaign: Campaign) -> None:
+        """Ensure campaign._metrics is populated from sensing DB before scoring.
+
+        This bridges the gap where campaign objects are loaded from DB but
+        _metrics (accumulated by the sensing engine) are not yet hydrated.
+        """
+        if hasattr(campaign, "_metrics") and campaign._metrics:  # type: ignore[attr-defined]
+            return  # Already populated
+
+        from sensing import sensing
+        await sensing.load_metrics_from_db(campaign)
 
 
 # Singleton

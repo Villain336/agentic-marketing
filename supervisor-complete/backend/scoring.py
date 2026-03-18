@@ -234,29 +234,99 @@ class AgentScorer:
     def _score_sitelaunch(self, campaign: Campaign, metrics: dict) -> dict:
         has_brief = bool(campaign.memory.site_launch_brief)
         site = metrics.get("site_metrics", {})
+        if not has_brief:
+            return {"score": 0, "reasoning": "No site brief yet", "metrics": {}}
+        if not site:
+            return {"score": 30, "reasoning": "Site brief ready, no live traffic data yet", "metrics": {}}
+        # Real scoring from live site metrics
+        base = 30  # brief exists
+        sessions = site.get("sessions", 0)
+        bounce_rate = site.get("bounce_rate", 50)
+        conversion_rate = site.get("conversion_rate", 0)
+        traffic_score = min(20, sessions / 5)  # 100 sessions = 20 pts
+        bounce_score = min(25, max(0, (100 - bounce_rate) * 0.5))  # low bounce = high score
+        conversion_score = min(25, conversion_rate * 5)  # 5% conversion = 25 pts
+        score = base + traffic_score + bounce_score + conversion_score
         return {
-            "score": 50 if has_brief and not site else min(100, 50 + site.get("conversion_rate", 0) * 10) if site else (30 if has_brief else 0),
-            "reasoning": "Site launched with live metrics" if site else ("Site brief ready" if has_brief else "No site brief yet"),
+            "score": min(100, score),
+            "reasoning": f"Site live: {sessions} sessions, {bounce_rate}% bounce, {conversion_rate}% conversion",
             "metrics": site,
         }
 
     def _score_legal(self, campaign: Campaign, metrics: dict) -> dict:
         has_playbook = bool(campaign.memory.legal_playbook)
-        return {"score": 70 if has_playbook else 0,
-                "reasoning": "Legal playbook complete" if has_playbook else "No legal playbook yet",
-                "metrics": {}}
+        if not has_playbook:
+            return {"score": 0, "reasoning": "No legal playbook yet", "metrics": {}}
+        # Score based on playbook completeness — count substantive sections
+        playbook = campaign.memory.legal_playbook
+        sections_present = 0
+        key_sections = ["privacy", "terms", "compliance", "contract", "ip", "liability",
+                        "incorporation", "gdpr", "employment", "nda"]
+        playbook_lower = playbook.lower() if isinstance(playbook, str) else ""
+        for section in key_sections:
+            if section in playbook_lower:
+                sections_present += 1
+        coverage_pct = (sections_present / len(key_sections)) * 100
+        base = 35  # playbook exists
+        depth_score = min(35, len(playbook) / 100) if isinstance(playbook, str) else 0  # longer = more thorough
+        coverage_score = min(30, sections_present * 3)
+        score = base + depth_score + coverage_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Legal playbook covers {sections_present}/{len(key_sections)} key areas ({coverage_pct:.0f}% coverage)",
+            "metrics": {"sections_covered": sections_present, "total_sections": len(key_sections),
+                        "coverage_pct": coverage_pct, "playbook_length": len(playbook) if isinstance(playbook, str) else 0},
+        }
 
     def _score_marketing_expert(self, campaign: Campaign, metrics: dict) -> dict:
         has_strategy = bool(campaign.memory.gtm_strategy)
-        return {"score": 70 if has_strategy else 0,
-                "reasoning": "GTM strategy built" if has_strategy else "No GTM strategy yet",
-                "metrics": {}}
+        if not has_strategy:
+            return {"score": 0, "reasoning": "No GTM strategy yet", "metrics": {}}
+        # Score strategy quality by checking for key GTM components
+        strategy = campaign.memory.gtm_strategy
+        strategy_lower = strategy.lower() if isinstance(strategy, str) else ""
+        components = ["icp", "positioning", "pricing", "channel", "messaging",
+                      "competitor", "timeline", "metric", "budget", "launch"]
+        components_found = sum(1 for c in components if c in strategy_lower)
+        # Check if strategy references real campaign data
+        has_data_refs = any(kw in strategy_lower for kw in ["conversion", "revenue", "pipeline", "growth", "roi"])
+        base = 30
+        component_score = min(40, components_found * 4)
+        depth_score = min(20, len(strategy) / 150) if isinstance(strategy, str) else 0
+        data_bonus = 10 if has_data_refs else 0
+        score = base + component_score + depth_score + data_bonus
+        return {
+            "score": min(100, score),
+            "reasoning": f"GTM strategy covers {components_found}/{len(components)} components, {'data-informed' if has_data_refs else 'needs data validation'}",
+            "metrics": {"components_covered": components_found, "total_components": len(components),
+                        "data_informed": has_data_refs, "strategy_length": len(strategy) if isinstance(strategy, str) else 0},
+        }
 
     def _score_procurement(self, campaign: Campaign, metrics: dict) -> dict:
         has_stack = bool(campaign.memory.tool_stack)
-        return {"score": 70 if has_stack else 0,
-                "reasoning": "Tool stack defined" if has_stack else "No tool stack yet",
-                "metrics": {}}
+        if not has_stack:
+            return {"score": 0, "reasoning": "No tool stack yet", "metrics": {}}
+        # Score tool stack by counting tools, categories, and integration depth
+        stack = campaign.memory.tool_stack
+        stack_lower = stack.lower() if isinstance(stack, str) else ""
+        categories = ["crm", "email", "analytics", "payment", "hosting", "social",
+                      "advertising", "seo", "design", "communication"]
+        categories_covered = sum(1 for c in categories if c in stack_lower)
+        # Check for cost analysis
+        has_costs = any(kw in stack_lower for kw in ["$", "cost", "pricing", "free", "month"])
+        has_alternatives = any(kw in stack_lower for kw in ["alternative", "vs", "compare", "option"])
+        base = 30
+        category_score = min(35, categories_covered * 3.5)
+        cost_score = 15 if has_costs else 0
+        alt_score = 10 if has_alternatives else 0
+        depth_score = min(10, len(stack) / 200) if isinstance(stack, str) else 0
+        score = base + category_score + cost_score + alt_score + depth_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Tool stack covers {categories_covered}/{len(categories)} categories, {'with cost analysis' if has_costs else 'needs cost analysis'}",
+            "metrics": {"categories_covered": categories_covered, "total_categories": len(categories),
+                        "has_cost_analysis": has_costs, "has_alternatives": has_alternatives},
+        }
 
     def _score_newsletter(self, campaign: Campaign, metrics: dict) -> dict:
         has_system = bool(campaign.memory.newsletter_system)
@@ -533,16 +603,52 @@ class AgentScorer:
         has_intel = bool(campaign.memory.competitive_intel)
         if not has_intel:
             return {"score": 0, "reasoning": "No competitive intelligence yet", "metrics": {}}
-        return {"score": 65, "reasoning": "Competitive intelligence briefing complete",
-                "metrics": {}}
+        intel = campaign.memory.competitive_intel
+        intel_lower = intel.lower() if isinstance(intel, str) else ""
+        # Score by depth of competitive analysis
+        dimensions = ["pricing", "feature", "strength", "weakness", "positioning",
+                      "market share", "differentiat", "threat", "opportunity", "swot"]
+        dimensions_covered = sum(1 for d in dimensions if d in intel_lower)
+        competitors_mentioned = intel_lower.count("competitor") + intel_lower.count(" vs ")
+        has_actionable = any(kw in intel_lower for kw in ["recommend", "action", "strategy", "counter", "advantage"])
+        base = 30
+        dimension_score = min(30, dimensions_covered * 3)
+        depth_score = min(20, len(intel) / 150) if isinstance(intel, str) else 0
+        action_score = 10 if has_actionable else 0
+        competitor_score = min(10, competitors_mentioned * 2)
+        score = base + dimension_score + depth_score + action_score + competitor_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Competitive intel covers {dimensions_covered} dimensions, {'actionable' if has_actionable else 'needs action items'}",
+            "metrics": {"dimensions_covered": dimensions_covered, "competitors_analyzed": competitors_mentioned,
+                        "has_actionable_recommendations": has_actionable},
+        }
 
     def _score_client_portal(self, campaign: Campaign, metrics: dict) -> dict:
         """Dashboard completeness, report automation, client satisfaction."""
         has_portal = bool(campaign.memory.client_portal)
         if not has_portal:
             return {"score": 0, "reasoning": "No client portal spec yet", "metrics": {}}
-        return {"score": 60, "reasoning": "Client portal specification complete",
-                "metrics": {}}
+        portal = campaign.memory.client_portal
+        portal_lower = portal.lower() if isinstance(portal, str) else ""
+        # Score by portal feature completeness
+        features = ["dashboard", "report", "metric", "chart", "notification",
+                     "permission", "export", "automation", "template", "branding"]
+        features_present = sum(1 for f in features if f in portal_lower)
+        has_real_time = any(kw in portal_lower for kw in ["real-time", "live", "websocket", "streaming"])
+        has_self_serve = any(kw in portal_lower for kw in ["self-serve", "self-service", "customize", "configur"])
+        base = 25
+        feature_score = min(35, features_present * 3.5)
+        depth_score = min(20, len(portal) / 150) if isinstance(portal, str) else 0
+        realtime_bonus = 10 if has_real_time else 0
+        selfserve_bonus = 10 if has_self_serve else 0
+        score = base + feature_score + depth_score + realtime_bonus + selfserve_bonus
+        return {
+            "score": min(100, score),
+            "reasoning": f"Portal spec covers {features_present}/{len(features)} features, {'real-time' if has_real_time else 'batch'} data",
+            "metrics": {"features_present": features_present, "total_features": len(features),
+                        "has_real_time": has_real_time, "has_self_service": has_self_serve},
+        }
 
     def _score_voice_receptionist(self, campaign: Campaign, metrics: dict) -> dict:
         """Call handling rate, qualification accuracy, booking conversion."""
