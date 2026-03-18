@@ -257,35 +257,89 @@ async def run_campaign(req: RunCampaignRequest):
         agent_ids = agent_ids[agent_ids.index(req.start_from):]
 
     async def stream():
+        from engine import run_agents_parallel, AGENT_DEPENDENCIES
         yield f"data: {json.dumps({'event': 'campaign_start', 'campaign_id': campaign_id, 'agents': agent_ids})}\n\n"
 
-        for i, aid in enumerate(agent_ids):
-            agent = get_agent(aid)
-            if not agent:
-                continue
+        # Build agent list and event queue for parallel execution
+        agent_list = [get_agent(aid) for aid in agent_ids if get_agent(aid)]
+        event_queue = asyncio.Queue()
+        parallel_mode = req.__dict__.get("parallel", True) if hasattr(req, '__dict__') else True
 
-            yield f"data: {json.dumps({'event': 'agent_start', 'agent_id': aid, 'label': agent.label, 'index': i, 'total': len(agent_ids)})}\n\n"
+        if parallel_mode and len(agent_list) > 1:
+            # ── PARALLEL EXECUTION — agents run concurrently based on dependency DAG ──
+            async def _drain_events():
+                """Yield events from queue as agents produce them."""
+                while True:
+                    try:
+                        event = await asyncio.wait_for(event_queue.get(), timeout=0.5)
+                        if event.memory_update:
+                            for k, v in event.memory_update.items():
+                                if hasattr(campaign.memory, k):
+                                    setattr(campaign.memory, k, v)
+                        yield event
+                    except asyncio.TimeoutError:
+                        continue
+                    except Exception:
+                        break
 
-            try:
-                async for event in engine.run(agent=agent, memory=campaign.memory, campaign_id=campaign_id, tier=req.tier, campaign=campaign):
+            # Launch parallel orchestrator in background
+            parallel_task = asyncio.create_task(
+                run_agents_parallel(
+                    agents=agent_list, memory=campaign.memory,
+                    campaign_id=campaign_id, campaign=campaign,
+                    tier=req.tier, event_queue=event_queue,
+                )
+            )
+
+            # Stream events as they arrive
+            completed_agents = set()
+            while not parallel_task.done() or not event_queue.empty():
+                try:
+                    event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
                     if event.memory_update:
                         for k, v in event.memory_update.items():
                             if hasattr(campaign.memory, k):
                                 setattr(campaign.memory, k, v)
                     yield f"data: {event.model_dump_json()}\n\n"
-            except Exception as e:
-                logger.error(f"Campaign agent {aid} failed: {e}", exc_info=True)
-                yield f"data: {json.dumps({'event': 'agent_error', 'agent_id': aid, 'error': str(e)})}\n\n"
-                continue
 
-            # Snapshot memory version after agent completes
-            versioner.snapshot(campaign_id, aid, _serialize_memory(campaign.memory))
-            # Push live status via WebSocket
-            asyncio.create_task(ws_manager.send_agent_status(
-                campaign_id, aid, "complete"))
+                    # Track agent completions
+                    if event.status == AgentStatus.DONE and event.agent_id not in completed_agents:
+                        completed_agents.add(event.agent_id)
+                        versioner.snapshot(campaign_id, event.agent_id, _serialize_memory(campaign.memory))
+                        asyncio.create_task(ws_manager.send_agent_status(campaign_id, event.agent_id, "complete"))
+                        yield f"data: {json.dumps({'event': 'agent_complete', 'agent_id': event.agent_id, 'memory': _serialize_memory(campaign.memory)})}\n\n"
+                except asyncio.TimeoutError:
+                    continue
 
-            yield f"data: {json.dumps({'event': 'agent_complete', 'agent_id': aid, 'memory': _serialize_memory(campaign.memory)})}\n\n"
-            await asyncio.sleep(1)
+            # Get final results
+            results = await parallel_task
+            yield f"data: {json.dumps({'event': 'parallel_results', 'results': results})}\n\n"
+
+        else:
+            # ── SEQUENTIAL EXECUTION — fallback for single-agent or explicit request ──
+            for i, aid in enumerate(agent_ids):
+                agent = get_agent(aid)
+                if not agent:
+                    continue
+
+                yield f"data: {json.dumps({'event': 'agent_start', 'agent_id': aid, 'label': agent.label, 'index': i, 'total': len(agent_ids)})}\n\n"
+
+                try:
+                    async for event in engine.run(agent=agent, memory=campaign.memory, campaign_id=campaign_id, tier=req.tier, campaign=campaign):
+                        if event.memory_update:
+                            for k, v in event.memory_update.items():
+                                if hasattr(campaign.memory, k):
+                                    setattr(campaign.memory, k, v)
+                        yield f"data: {event.model_dump_json()}\n\n"
+                except Exception as e:
+                    logger.error(f"Campaign agent {aid} failed: {e}", exc_info=True)
+                    yield f"data: {json.dumps({'event': 'agent_error', 'agent_id': aid, 'error': str(e)})}\n\n"
+                    continue
+
+                versioner.snapshot(campaign_id, aid, _serialize_memory(campaign.memory))
+                asyncio.create_task(ws_manager.send_agent_status(campaign_id, aid, "complete"))
+                yield f"data: {json.dumps({'event': 'agent_complete', 'agent_id': aid, 'memory': _serialize_memory(campaign.memory)})}\n\n"
+                await asyncio.sleep(0.5)
 
         # Record campaign DNA for cross-campaign learning
         genome.record_campaign_dna(campaign, getattr(campaign, '_metrics', {}))

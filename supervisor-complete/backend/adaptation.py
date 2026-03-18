@@ -536,7 +536,7 @@ class AdaptationEngine:
         metrics: dict[str, Any],
         strategies_applied: list[str] | None = None,
     ) -> dict:
-        """Store a snapshot for trend computation."""
+        """Store a snapshot for trend computation and persist to database."""
         snap_key = f"{campaign_id}:{agent_id}"
         snapshots = _run_snapshots.setdefault(snap_key, [])
 
@@ -556,11 +556,32 @@ class AdaptationEngine:
         if len(snapshots) > 20:
             _run_snapshots[snap_key] = snapshots[-20:]
 
+        # Persist to database (non-blocking)
+        try:
+            import asyncio
+            from db import save_run_snapshot
+            asyncio.create_task(save_run_snapshot(snapshot))
+        except Exception:
+            pass  # Best-effort persistence
+
         logger.info(
             f"Snapshot recorded: {agent_id} in {campaign_id} — "
             f"score={score:.0f}, iteration={snapshot['iteration_number']}"
         )
         return snapshot
+
+    async def load_snapshots_from_db(self, campaign_id: str, agent_id: str):
+        """Hydrate in-memory snapshots from database on startup."""
+        try:
+            from db import load_run_snapshots
+            snap_key = f"{campaign_id}:{agent_id}"
+            if snap_key not in _run_snapshots:
+                db_snapshots = await load_run_snapshots(campaign_id, agent_id, limit=20)
+                if db_snapshots:
+                    _run_snapshots[snap_key] = db_snapshots
+                    logger.info(f"Loaded {len(db_snapshots)} snapshots for {agent_id} in {campaign_id}")
+        except Exception as e:
+            logger.debug(f"Failed to load snapshots from DB: {e}")
 
 
 # Singleton
