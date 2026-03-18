@@ -64,10 +64,21 @@ app.add_middleware(RateLimitMiddleware)
 
 @app.on_event("startup")
 async def startup_event():
-    """Start background scheduler with default jobs."""
+    """Start background scheduler and load persisted campaigns from DB."""
     register_default_jobs()
     scheduler.start()
     logger.info("Background scheduler started")
+
+    # Load persisted data from Supabase into memory
+    try:
+        if db.is_persistent():
+            # Load genome DNA for cross-campaign intelligence
+            dna_count = await genome.load_from_db()
+            logger.info(f"Startup: loaded {dna_count} genome DNA entries from DB")
+        else:
+            logger.info("No persistent DB configured — starting with empty campaign store")
+    except Exception as e:
+        logger.warning(f"Failed to load persisted data on startup: {e}")
 
 
 @app.on_event("shutdown")
@@ -232,14 +243,18 @@ async def run_agent(agent_id: str, req: RunAgentRequest):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.post("/campaign/run")
-async def run_campaign(req: RunCampaignRequest):
+async def run_campaign(req: RunCampaignRequest, request: Request):
     campaign_id = str(uuid.uuid4())
+    user_id = get_user_id(request)
     biz = req.business
     if req.brand_docs and not biz.brand_context:
         biz = BusinessProfile(**{**biz.model_dump(), "brand_context": "\n".join(req.brand_docs)})
 
-    campaign = Campaign(id=campaign_id, memory=CampaignMemory(business=biz))
+    campaign = Campaign(id=campaign_id, user_id=user_id, memory=CampaignMemory(business=biz))
     campaigns[campaign_id] = campaign
+
+    # Persist campaign to DB immediately so it survives restarts
+    await db.save_campaign(campaign_id, user_id, _serialize_memory(campaign.memory), "active")
 
     # Inject cross-campaign intelligence from genome engine
     recs = genome.get_recommendations(campaign)
@@ -307,6 +322,8 @@ async def run_campaign(req: RunCampaignRequest):
                         completed_agents.add(event.agent_id)
                         versioner.snapshot(campaign_id, event.agent_id, _serialize_memory(campaign.memory))
                         asyncio.create_task(ws_manager.send_agent_status(campaign_id, event.agent_id, "complete"))
+                        # Persist memory to DB after each agent completes
+                        asyncio.create_task(db.update_campaign_memory(campaign_id, _serialize_memory(campaign.memory)))
                         yield f"data: {json.dumps({'event': 'agent_complete', 'agent_id': event.agent_id, 'memory': _serialize_memory(campaign.memory)})}\n\n"
                 except asyncio.TimeoutError:
                     continue
@@ -338,6 +355,8 @@ async def run_campaign(req: RunCampaignRequest):
 
                 versioner.snapshot(campaign_id, aid, _serialize_memory(campaign.memory))
                 asyncio.create_task(ws_manager.send_agent_status(campaign_id, aid, "complete"))
+                # Persist memory to DB after each agent completes
+                await db.update_campaign_memory(campaign_id, _serialize_memory(campaign.memory))
                 yield f"data: {json.dumps({'event': 'agent_complete', 'agent_id': aid, 'memory': _serialize_memory(campaign.memory)})}\n\n"
                 await asyncio.sleep(0.5)
 
@@ -368,6 +387,96 @@ async def get_memory(campaign_id: str):
     if not c:
         raise HTTPException(404, "Campaign not found")
     return _serialize_memory(c.memory)
+
+@app.get("/campaigns")
+async def list_campaigns(request: Request):
+    """Return all campaigns for the authenticated user from DB."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
+    rows = await db.load_user_campaigns(user_id)
+    result = []
+    for row in rows:
+        memory_raw = row.get("memory", {})
+        if isinstance(memory_raw, str):
+            try:
+                memory_raw = json.loads(memory_raw)
+            except Exception:
+                memory_raw = {}
+        biz = memory_raw.get("business", {})
+        result.append({
+            "id": row.get("id", ""),
+            "status": row.get("status", "active"),
+            "created_at": row.get("created_at", ""),
+            "business_name": biz.get("name", ""),
+            "agent_count": sum(1 for k, v in memory_raw.items() if k.startswith("has_") and v),
+        })
+    return {"campaigns": result, "count": len(result)}
+
+
+@app.get("/campaign/{campaign_id}/resume")
+async def resume_campaign(campaign_id: str, request: Request):
+    """Load a campaign from DB into memory so the frontend can resume it."""
+    user_id = get_user_id(request)
+
+    # Check in-memory first
+    if campaign_id in campaigns:
+        c = campaigns[campaign_id]
+        return {
+            "id": c.id, "status": c.status,
+            "memory": _serialize_memory(c.memory),
+            "created_at": c.created_at.isoformat(),
+            "source": "memory",
+        }
+
+    # Load from DB
+    row = await db.load_campaign(campaign_id)
+    if not row:
+        raise HTTPException(404, "Campaign not found in database")
+
+    # Verify ownership
+    if user_id and row.get("user_id") and row["user_id"] != user_id:
+        raise HTTPException(403, "Not your campaign")
+
+    # Reconstruct Campaign object from DB row
+    from models import BusinessProfile
+    memory_raw = row.get("memory", {})
+    if isinstance(memory_raw, str):
+        memory_raw = json.loads(memory_raw)
+
+    biz_data = memory_raw.get("business", {})
+    biz = BusinessProfile(**biz_data) if biz_data else BusinessProfile(
+        name="", service="", icp="", geography="", goal=""
+    )
+    mem_fields = {
+        k: v for k, v in memory_raw.items()
+        if k != "business" and not k.startswith("has_") and hasattr(CampaignMemory, k)
+    }
+    mem = CampaignMemory(business=biz, **mem_fields)
+
+    campaign = Campaign(
+        id=row["id"],
+        user_id=row.get("user_id", ""),
+        memory=mem,
+        status=row.get("status", "active"),
+    )
+    if row.get("created_at"):
+        try:
+            campaign.created_at = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
+        except Exception:
+            pass
+
+    # Populate in-memory dict so subsequent requests find it
+    campaigns[campaign_id] = campaign
+
+    return {
+        "id": campaign.id, "status": campaign.status,
+        "memory": _serialize_memory(campaign.memory),
+        "created_at": campaign.created_at.isoformat(),
+        "source": "database",
+    }
+
 
 @app.delete("/campaign/{campaign_id}")
 async def delete_campaign(campaign_id: str):

@@ -104,6 +104,50 @@ async def load_user_campaigns(user_id: str) -> list[dict]:
         return []
 
 
+async def load_all_campaigns(user_id: str) -> list:
+    """Fetch all campaigns for a user from Supabase and return as Campaign objects."""
+    from models import Campaign, CampaignMemory, BusinessProfile
+    rows = await load_user_campaigns(user_id)
+    campaigns_out = []
+    for row in rows:
+        try:
+            memory_raw = row.get("memory", {})
+            if isinstance(memory_raw, str):
+                memory_raw = json.loads(memory_raw)
+
+            # Reconstruct BusinessProfile from stored memory
+            biz_data = memory_raw.get("business", {})
+            biz = BusinessProfile(**biz_data) if biz_data else BusinessProfile(
+                name="", service="", icp="", geography="", goal=""
+            )
+
+            # Build CampaignMemory from stored fields
+            mem_fields = {k: v for k, v in memory_raw.items() if k != "business" and not k.startswith("has_")}
+            mem = CampaignMemory(business=biz, **{
+                k: v for k, v in mem_fields.items()
+                if hasattr(CampaignMemory, k) and k != "business"
+            })
+
+            campaign = Campaign(
+                id=row["id"],
+                user_id=row.get("user_id", user_id),
+                memory=mem,
+                status=row.get("status", "active"),
+            )
+            # Preserve created_at from DB if present
+            if row.get("created_at"):
+                try:
+                    from datetime import datetime as _dt
+                    campaign.created_at = _dt.fromisoformat(row["created_at"].replace("Z", "+00:00"))
+                except Exception:
+                    pass
+            campaigns_out.append(campaign)
+        except Exception as e:
+            logger.error(f"Failed to reconstruct campaign {row.get('id', '?')}: {e}")
+            continue
+    return campaigns_out
+
+
 async def update_campaign_memory(campaign_id: str, memory: dict) -> bool:
     """Update just the memory JSONB for a campaign."""
     client = _get_client()

@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: supervisor-config
+  namespace: supervisor
+  labels:
+    app.kubernetes.io/part-of: supervisor
+data:
+  # Backend API URL (internal service DNS)
+  NEXT_PUBLIC_API_URL: "http://backend.supervisor.svc.cluster.local:8000"
+
+  # Application environment
+  APP_ENV: "production"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+
+  # CORS settings
+  CORS_ORIGINS: "https://supervisor.example.com"
+
+  # Redis connection (update if using external Redis)
+  REDIS_URL: "redis://redis.supervisor.svc.cluster.local:6379/0"
+
+  # Rate limiting
+  RATE_LIMIT_REQUESTS: "100"
+  RATE_LIMIT_WINDOW_SECONDS: "60"
+
+  # Uvicorn workers (set based on container CPU limits)
+  UVICORN_WORKERS: "2"
