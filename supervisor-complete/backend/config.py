@@ -153,6 +153,30 @@ class Settings:
     alpha_vantage_api_key: str = ""
     fred_api_key: str = ""
     polygon_api_key: str = ""
+    newsapi_key: str = ""
+
+    # Knowledge & Vectors
+    pinecone_api_key: str = ""
+    pinecone_environment: str = ""
+
+    # Code Sandbox
+    e2b_api_key: str = ""
+
+    # Helpdesk
+    zendesk_subdomain: str = ""
+    zendesk_api_key: str = ""
+    zendesk_email: str = ""
+
+    # Project Management
+    linear_api_key: str = ""
+
+    # Security Scanning
+    snyk_api_key: str = ""
+
+    # Manufacturing
+    octoprint_url: str = ""
+    octoprint_api_key: str = ""
+    xometry_api_key: str = ""
 
     # Research
     similarweb_api_key: str = ""
@@ -372,6 +396,24 @@ class Settings:
             alpha_vantage_api_key=os.getenv("ALPHA_VANTAGE_API_KEY", ""),
             fred_api_key=os.getenv("FRED_API_KEY", ""),
             polygon_api_key=os.getenv("POLYGON_API_KEY", ""),
+            newsapi_key=os.getenv("NEWSAPI_KEY", ""),
+            # Knowledge & Vectors
+            pinecone_api_key=os.getenv("PINECONE_API_KEY", ""),
+            pinecone_environment=os.getenv("PINECONE_ENVIRONMENT", ""),
+            # Code Sandbox
+            e2b_api_key=os.getenv("E2B_API_KEY", ""),
+            # Helpdesk
+            zendesk_subdomain=os.getenv("ZENDESK_SUBDOMAIN", ""),
+            zendesk_api_key=os.getenv("ZENDESK_API_KEY", ""),
+            zendesk_email=os.getenv("ZENDESK_EMAIL", ""),
+            # Project Management
+            linear_api_key=os.getenv("LINEAR_API_KEY", ""),
+            # Security Scanning
+            snyk_api_key=os.getenv("SNYK_API_KEY", ""),
+            # Manufacturing
+            octoprint_url=os.getenv("OCTOPRINT_URL", ""),
+            octoprint_api_key=os.getenv("OCTOPRINT_API_KEY", ""),
+            xometry_api_key=os.getenv("XOMETRY_API_KEY", ""),
             # Research
             similarweb_api_key=os.getenv("SIMILARWEB_API_KEY", ""),
             builtwith_api_key=os.getenv("BUILTWITH_API_KEY", ""),
