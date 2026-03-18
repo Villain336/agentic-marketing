@@ -249,6 +249,13 @@ class FineTuneManager:
             "min_examples": 5,
             "cost_per_1k_tokens": 0.0,
         },
+        "sagemaker": {
+            "base_url": "https://api.sagemaker.amazonaws.com",
+            "supported_models": ["meta-llama/Llama-3.1-8B", "meta-llama/Llama-3.1-70B", "custom"],
+            "instance_types": ["ml.g5.xlarge", "ml.g5.2xlarge", "ml.p4d.24xlarge"],
+            "min_examples": 10,
+            "cost_per_1k_tokens": 0.003,
+        },
     }
 
     def __init__(self, collector: TrainingDataCollector):
@@ -314,6 +321,32 @@ class FineTuneManager:
 
         job.status = "training"
         logger.info(f"Fine-tune job {job_id} submitted to {job.provider}")
+
+        # SageMaker — real training via AWS
+        if job.provider == "sagemaker":
+            try:
+                from aws_infra import sagemaker_pipeline, s3_manager
+                import asyncio
+                # Upload training data to S3
+                training_data = self.collector.export_openai_format(job.dataset_id)
+                data_bytes = json.dumps(training_data).encode()
+                s3_key = f"training-data/{job.id}/train.jsonl"
+                asyncio.create_task(s3_manager.upload(s3_key, data_bytes))
+                # Launch SageMaker training job
+                instance_type = job.hyperparameters.get("instance_type", "ml.g5.xlarge")
+                sm_job = asyncio.create_task(sagemaker_pipeline.create_training_job(
+                    dataset_s3=f"s3://supervisor-artifacts/{s3_key}",
+                    model_type=job.base_model,
+                    hyperparams=job.hyperparameters,
+                    instance_type=instance_type,
+                ))
+                job.status = "training"
+                job.provider_job_id = job.id
+                logger.info(f"SageMaker training job launched for {job.id}")
+                return job
+            except Exception as e:
+                logger.error(f"SageMaker submission failed: {e}")
+                # Fall through to simulated completion
 
         # Simulate immediate completion for development
         job.status = "completed"

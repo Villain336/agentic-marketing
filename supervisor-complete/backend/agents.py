@@ -46,6 +46,7 @@ def _x_fulfillment(o):  return {"client_fulfillment": o}
 def _x_workspace(o):    return {"agent_workspace": o}
 def _x_hardware(o):     return {"hardware_manufacturing": o}
 def _x_enterprise_sec(o): return {"enterprise_security": o}
+def _x_reindustrialization(o): return {"reindustrialization": o}
 
 
 AGENTS: list[AgentConfig] = [
@@ -2025,7 +2026,7 @@ FORMAT:
     # ── Hardware Manufacturing Agent ──────────────────────────────────────────
 
     AgentConfig("hardware_mfg", "Hardware Mfg", "CAD Design, Procurement, CNC/3D Print & Mass Production", "⚙",
-        tool_categories=["web", "development", "research", "manufacturing", "procurement", "computer_use"], tier=Tier.STRONG, max_iterations=20,
+        tool_categories=["web", "development", "research", "manufacturing", "procurement", "computer_use", "nvidia", "aws"], tier=Tier.STRONG, max_iterations=20,
         system_prompt_builder=lambda m: f"""You are the Hardware Manufacturing Director for {m.business.name}. You bridge the gap between digital AI agents and PHYSICAL PRODUCTION — designing parts in CAD, ordering materials, controlling CNC machines and 3D printers, managing supply chains, and scaling to mass production.
 
 {m.to_context_string()}
@@ -2235,6 +2236,56 @@ FORMAT:
 [Priority 1 (critical): ... | Priority 2 (high): ... | Priority 3 (medium): ... with owners and deadlines]""",
         goal_prompt_builder=lambda m: f"Build enterprise-grade security architecture for {m.business.name}'s Supervisor platform. Implement zero-trust architecture with SAML SSO, RBAC, and mutual TLS. Achieve compliance readiness for SOC 2 Type II, ISO 27001, GDPR, HIPAA, and FedRAMP. Run STRIDE threat modeling with agent-specific threat analysis (prompt injection, tool abuse, data exfiltration). Set up continuous penetration testing and agent red-teaming. Build data security controls with classification, DLP, and encryption. Create enterprise trust center with auto-answered security questionnaires. Make this the most secure AI platform any enterprise CISO has ever evaluated.",
         memory_extractor=_x_enterprise_sec),
+
+    # ── REINDUSTRIALIZATION AGENT ──────────────────────────────────────────
+    AgentConfig(
+        id="reindustrialization",
+        name="American Industrial Revival",
+        tier=Tier.STRONG,
+        tool_categories=["reindustrialization", "nvidia", "aws", "manufacturing"],
+        system_prompt="""You are the Reindustrialization Agent — an AI strategist dedicated to rebuilding American manufacturing, infrastructure, and industrial capacity. You orchestrate NVIDIA GPU infrastructure and AWS cloud services to bridge AI from bits to atoms.
+
+## YOUR 10 DOMAINS
+
+### 1. Factory Planning & Site Selection
+Analyze locations by labor pool, tax incentives, supply chain proximity, energy costs, transportation. Score and rank factory sites. Interface with state economic development incentive databases.
+
+### 2. Robotics Fleet Management
+Manage industrial robots via AWS RoboMaker + NVIDIA Isaac Sim. Simulate tasks before physical deployment. Monitor fleet health, schedule preventive maintenance, optimize cycle times.
+
+### 3. Supply Chain Reshoring
+Identify domestic supplier alternatives. Compare landed cost (domestic vs. overseas + tariffs + shipping + risk + quality defects). Track Buy American Act compliance. Map supplier tier networks.
+
+### 4. Digital Twin Factory Operations
+Create NVIDIA Omniverse digital twins of factories. Simulate production changes before physical implementation. Live-sync with IoT sensor data for real-time optimization.
+
+### 5. Energy Infrastructure
+Model energy consumption and costs. Optimize solar/wind/grid mix. Manage battery storage. Demand response programs. Calculate carbon footprint and sustainability metrics.
+
+### 6. Workforce Development
+Map skills gaps for manufacturing roles. Generate training curricula. Match apprenticeship programs. Track certifications. Calculate ROI on training investment.
+
+### 7. Defense & Government Contracting
+ITAR compliance checking. DFARS/NIST 800-171 compliance. SAM.gov opportunity monitoring. Buy American Act verification. SBIR/STTR grant identification.
+
+### 8. Agriculture Automation
+Precision farming: soil analysis, crop planning, autonomous equipment coordination. Weather integration, commodity market tracking, yield optimization.
+
+### 9. Construction & Modular Building
+Modular building design. Construction scheduling with weather and supply chain constraints. Equipment fleet management. OSHA compliance. BIM integration.
+
+### 10. Logistics & Warehouse Automation
+Fleet routing optimization. Warehouse robot coordination. Last-mile delivery optimization. Customs and tariff calculation. Inventory management.
+
+## APPROACH
+- Always provide data-driven analysis with specific numbers
+- Compare domestic vs. overseas with full cost accounting (tariffs, risk, shipping, quality)
+- Prioritize Buy American Act compliance and ITAR where relevant
+- Use digital twins and simulation before recommending physical changes
+- Track reshoring metrics and economic impact
+- Focus on practical, implementable recommendations""",
+        goal_prompt_builder=lambda m: f"Drive American reindustrialization for {m.business.name}. Analyze factory sites, reshore supply chains, manage robot fleets, build digital twins, optimize energy, develop workforce, monitor government contracts, automate agriculture, plan construction, and optimize logistics. Use NVIDIA GPU infrastructure for simulation and AI inference, AWS for cloud-scale operations. Provide data-driven recommendations with specific numbers and ROI projections. Make American manufacturing competitive through AI-powered efficiency.",
+        memory_extractor=_x_reindustrialization),
 ]
 
 AGENT_MAP = {a.id: a for a in AGENTS}
@@ -2247,6 +2298,7 @@ DIFFERENTIATION_LAYER = ["competitive_intel", "client_portal", "voice_receptioni
 COMMUNICATIONS_LAYER = ["pr_comms", "partnerships"]
 CLIENT_LAYER = ["client_fulfillment"]
 BUILDER_LAYER = ["fullstack_dev", "data_engineer", "hardware_mfg"]
+INDUSTRIAL_LAYER = ["reindustrialization"]
 INTELLIGENCE_LAYER = ["economist", "governance", "product_manager", "enterprise_security"]
 COGNITION_LAYER = ["knowledge_engine", "world_model", "agent_ops"]
 ONBOARDING_AGENTS = ["vision_interview"]
