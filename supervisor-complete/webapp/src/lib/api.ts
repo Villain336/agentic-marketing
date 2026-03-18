@@ -1,5 +1,9 @@
 import { API_URL } from "./constants";
-import type { SSEEvent, BusinessProfile, Campaign } from "@/types";
+import type {
+  SSEEvent, BusinessProfile, Campaign,
+  AutonomySettingsResponse, AgentAutonomySettings,
+  EventEntry, TriggerRule, ApprovalItemResponse,
+} from "@/types";
 
 // ── API Client ──────────────────────────────────────────────────────────
 
@@ -37,6 +41,25 @@ class ApiClient {
     return res.json();
   }
 
+  async put<T>(path: string, body: unknown): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "PUT",
+      headers: this.headers(),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`PUT ${path}: ${res.status}`);
+    return res.json();
+  }
+
+  async delete<T>(path: string): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "DELETE",
+      headers: this.headers(),
+    });
+    if (!res.ok) throw new Error(`DELETE ${path}: ${res.status}`);
+    return res.json();
+  }
+
   async health(): Promise<{ status: string; providers: string[]; agents: number; tools: number }> {
     try {
       return await this.get("/health");
@@ -57,6 +80,72 @@ class ApiClient {
 
   async getCampaigns(): Promise<Campaign[]> {
     return this.get("/campaigns");
+  }
+
+  // ── Autonomy & Settings ──
+
+  async getAutonomySettings(campaignId: string = ""): Promise<AutonomySettingsResponse> {
+    const q = campaignId ? `?campaign_id=${campaignId}` : "";
+    return this.get(`/settings/autonomy${q}`);
+  }
+
+  async updateAutonomySettings(settings: Partial<AutonomySettingsResponse>, campaignId: string = ""): Promise<AutonomySettingsResponse> {
+    const q = campaignId ? `?campaign_id=${campaignId}` : "";
+    return this.put(`/settings/autonomy${q}`, settings);
+  }
+
+  async getAgentSettings(campaignId: string = ""): Promise<Record<string, AgentAutonomySettings>> {
+    const q = campaignId ? `?campaign_id=${campaignId}` : "";
+    return this.get(`/settings/agents${q}`);
+  }
+
+  async updateAgentSettings(agentId: string, settings: Partial<AgentAutonomySettings>, campaignId: string = ""): Promise<AgentAutonomySettings> {
+    const q = campaignId ? `?campaign_id=${campaignId}` : "";
+    return this.put(`/settings/agents/${agentId}${q}`, settings);
+  }
+
+  async batchUpdateAgentSettings(batch: Record<string, Partial<AgentAutonomySettings>>, campaignId: string = ""): Promise<Record<string, AgentAutonomySettings>> {
+    const q = campaignId ? `?campaign_id=${campaignId}` : "";
+    return this.post(`/settings/agents/batch${q}`, batch);
+  }
+
+  // ── Events & Triggers ──
+
+  async getEvents(campaignId: string = "", limit: number = 50): Promise<EventEntry[]> {
+    const params = new URLSearchParams();
+    if (campaignId) params.set("campaign_id", campaignId);
+    params.set("limit", String(limit));
+    return this.get(`/events?${params}`);
+  }
+
+  async getTriggers(): Promise<TriggerRule[]> {
+    return this.get("/triggers");
+  }
+
+  async createTrigger(rule: Partial<TriggerRule>): Promise<{ id: string }> {
+    return this.post("/triggers", rule);
+  }
+
+  async updateTrigger(ruleId: string, updates: Partial<TriggerRule>): Promise<{ id: string }> {
+    return this.put(`/triggers/${ruleId}`, updates);
+  }
+
+  async deleteTrigger(ruleId: string): Promise<{ id: string }> {
+    return this.delete(`/triggers/${ruleId}`);
+  }
+
+  async getEventTypes(): Promise<{ value: string; label: string }[]> {
+    return this.get("/triggers/event-types");
+  }
+
+  // ── Approvals ──
+
+  async getApprovals(status: string = "pending"): Promise<ApprovalItemResponse[]> {
+    return this.get(`/approvals?status=${status}`);
+  }
+
+  async decideApproval(itemId: string, decision: "approved" | "rejected"): Promise<{ id: string; status: string }> {
+    return this.post(`/approvals/${itemId}/decide`, { decision });
   }
 
   // ── Agent SSE streaming ──

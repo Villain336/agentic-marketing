@@ -28,6 +28,24 @@ logger = logging.getLogger("supervisor.engine")
 
 _adaptation_engine = None
 _replanner = None
+_event_bus = None
+_autonomy_store = None
+
+
+def _get_event_bus():
+    global _event_bus
+    if _event_bus is None:
+        from eventbus import event_bus
+        _event_bus = event_bus
+    return _event_bus
+
+
+def _get_autonomy_store():
+    global _autonomy_store
+    if _autonomy_store is None:
+        from autonomy import autonomy_store
+        _autonomy_store = autonomy_store
+    return _autonomy_store
 
 
 def _get_adaptation_engine():
@@ -250,10 +268,27 @@ class AgentEngine:
     async def run(self, agent: AgentConfig, memory: CampaignMemory,
                   campaign_id: str = "", tier: Tier = None,
                   campaign: "Campaign | None" = None,
-                  trigger_reason: str = "") -> AsyncGenerator[AgentStreamEvent, None]:
+                  trigger_reason: str = "",
+                  autonomy_settings: "AutonomySettings | None" = None,
+                  ) -> AsyncGenerator[AgentStreamEvent, None]:
         tier = tier or agent.tier
         system = agent.system_prompt_builder(memory)
         goal = agent.goal_prompt_builder(memory)
+
+        # ── Emit agent.started event ──
+        try:
+            bus = _get_event_bus()
+            await bus.agent_started(agent.id, campaign_id)
+        except Exception:
+            pass
+
+        # ── Load autonomy settings ──
+        if autonomy_settings is None:
+            try:
+                store = _get_autonomy_store()
+                autonomy_settings = store.get(campaign_id)
+            except Exception:
+                autonomy_settings = None
 
         # ── Adaptive Intelligence Injection ──
         adaptive_block = ""
@@ -344,6 +379,12 @@ class AgentEngine:
                         model_used = chunk.get("model", model_used)
 
             except AllProvidersFailedError as e:
+                # Emit failure event
+                try:
+                    bus = _get_event_bus()
+                    await bus.agent_failed(agent.id, campaign_id, str(e))
+                except Exception:
+                    pass
                 yield AgentStreamEvent(event=StepType.ERROR, agent_id=agent.id, step=iteration,
                     content=f"All LLM providers failed: {e}", status=AgentStatus.ERROR)
                 return
@@ -375,8 +416,56 @@ class AgentEngine:
                     })
                 messages.append({"role": "assistant", "content": assistant_content})
 
-                # Execute each tool with retry
+                # Execute each tool with retry + autonomy check
                 for tc in tool_calls:
+                    # ── Autonomy gate: check if tool needs approval ──
+                    if autonomy_settings:
+                        try:
+                            from autonomy import check_tool_approval
+                            decision = check_tool_approval(
+                                tool_name=tc.name, agent_id=agent.id,
+                                settings=autonomy_settings,
+                            )
+                            if not decision.approved and decision.requires_approval:
+                                # Emit approval request event
+                                try:
+                                    bus = _get_event_bus()
+                                    await bus.approval_requested(
+                                        agent_id=agent.id, campaign_id=campaign_id,
+                                        action_type=decision.approval_type,
+                                        content={"tool": tc.name, "input": tc.input,
+                                                 "reason": decision.reason},
+                                    )
+                                except Exception:
+                                    pass
+
+                                yield AgentStreamEvent(
+                                    event=StepType.STATUS, agent_id=agent.id, step=iteration,
+                                    content=f"Approval required: {decision.reason}",
+                                    tool_name=tc.name, status=AgentStatus.PAUSED,
+                                )
+                                # Feed approval-pending result back to LLM
+                                messages.append({
+                                    "role": "user",
+                                    "content": [{"type": "tool_result", "tool_use_id": tc.id,
+                                                 "content": f"APPROVAL REQUIRED: {decision.reason}. "
+                                                            f"This action has been queued for human approval. "
+                                                            f"Continue with other tasks or use alternative approaches."}],
+                                })
+                                continue
+
+                            elif not decision.approved:
+                                # Blocked (not approval-gated, just blocked)
+                                messages.append({
+                                    "role": "user",
+                                    "content": [{"type": "tool_result", "tool_use_id": tc.id,
+                                                 "content": f"BLOCKED: {decision.reason}. "
+                                                            f"Use an alternative tool or approach."}],
+                                })
+                                continue
+                        except ImportError:
+                            pass
+
                     yield AgentStreamEvent(
                         event=StepType.TOOL_CALL, agent_id=agent.id, step=iteration,
                         content=f"Calling {tc.name}", tool_name=tc.name, tool_input=tc.input,
@@ -410,6 +499,17 @@ class AgentEngine:
                             "tool": tc.name, "success": result.success,
                             "error": result.error if not result.success else None,
                         })
+                    except Exception:
+                        pass
+
+                    # Emit tool execution event
+                    try:
+                        bus = _get_event_bus()
+                        await bus.tool_executed(
+                            tool_name=tc.name, agent_id=agent.id,
+                            campaign_id=campaign_id, success=result.success,
+                            output=result.output[:200] if result.output else "",
+                        )
                     except Exception:
                         pass
 
@@ -457,6 +557,13 @@ class AgentEngine:
         if campaign and campaign_id:
             await _persist_run_snapshot(agent.id, campaign_id, campaign)
             await _persist_campaign_memory(campaign_id, memory)
+
+        # ── Emit agent.completed event ──
+        try:
+            bus = _get_event_bus()
+            await bus.agent_completed(agent.id, campaign_id, memory_update)
+        except Exception:
+            pass
 
         logger.info(
             f"Agent {agent.id} done: {iteration} iterations, {total_ms}ms, "
