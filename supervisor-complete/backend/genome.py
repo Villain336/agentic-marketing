@@ -159,7 +159,49 @@ class CampaignGenome:
 
         self._dna_store[campaign.id] = dna
         logger.info(f"Recorded DNA for campaign {campaign.id}: {biz.name}")
+
+        # Persist to database (non-blocking)
+        try:
+            import asyncio
+            from db import save_genome_dna
+            dna_dict = {
+                "campaign_id": campaign.id,
+                "icp_type": dna.icp_type,
+                "service_type": dna.service_type,
+                "geography": dna.geography,
+                "industry": dna.industry,
+                "channel_mix": dna.channel_mix,
+                "messaging_angles": dna.messaging_angles,
+                "outcomes": dna.outcomes,
+                "lessons": dna.lessons.__dict__ if hasattr(dna.lessons, '__dict__') else {},
+                "created_at": dna.created_at.isoformat() if hasattr(dna.created_at, 'isoformat') else str(dna.created_at),
+            }
+            asyncio.create_task(save_genome_dna(dna_dict))
+        except Exception:
+            pass  # Best-effort persistence
+
         return dna
+
+    async def load_from_db(self):
+        """Hydrate in-memory DNA store from database on startup."""
+        try:
+            from db import load_all_genome_dna
+            db_dna = await load_all_genome_dna()
+            for entry in db_dna:
+                cid = entry.get("campaign_id", "")
+                if cid and cid not in self._dna_store:
+                    self._dna_store[cid] = CampaignDNA(
+                        icp_type=entry.get("icp_type", ""),
+                        service_type=entry.get("service_type", ""),
+                        geography=entry.get("geography", ""),
+                        industry=entry.get("industry", ""),
+                        channel_mix=entry.get("channel_mix", {}),
+                        messaging_angles=entry.get("messaging_angles", []),
+                        outcomes=entry.get("outcomes", {}),
+                    )
+            logger.info(f"Loaded {len(db_dna)} campaign DNA entries from database")
+        except Exception as e:
+            logger.debug(f"Failed to load genome from DB: {e}")
 
     def query_intelligence(
         self,
