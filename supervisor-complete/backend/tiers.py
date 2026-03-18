@@ -66,31 +66,38 @@ ENTERPRISE_AGENTS = "__all__"  # Sentinel: all agents allowed
 
 PLANS = {
     "starter": {
-        "price_monthly": 49,
-        "max_campaigns": 3,
-        "max_agent_runs_monthly": 100,
+        "price_monthly": 1250,
+        "price_original": 2500,
+        "max_campaigns": 5,
+        "max_agent_runs_monthly": 500,
         "llm_tier_cap": Tier.FAST,
         "agents": STARTER_AGENTS,
         "features": {
             "genome_intelligence": False,
             "ab_testing": False,
             "white_label": False,
+            "on_prem": False,
+            "sso": False,
         },
     },
-    "pro": {
-        "price_monthly": 149,
-        "max_campaigns": 10,
-        "max_agent_runs_monthly": 500,
+    "growth": {
+        "price_monthly": 3500,
+        "price_original": 7000,
+        "max_campaigns": 25,
+        "max_agent_runs_monthly": 2500,
         "llm_tier_cap": Tier.STANDARD,
         "agents": PRO_AGENTS,
         "features": {
             "genome_intelligence": True,
             "ab_testing": True,
             "white_label": False,
+            "on_prem": False,
+            "sso": False,
         },
     },
     "enterprise": {
-        "price_monthly": 499,
+        "price_monthly": 7500,
+        "price_original": 15000,
         "max_campaigns": -1,       # unlimited
         "max_agent_runs_monthly": -1,
         "llm_tier_cap": Tier.STRONG,
@@ -99,6 +106,8 @@ PLANS = {
             "genome_intelligence": True,
             "ab_testing": True,
             "white_label": True,
+            "on_prem": True,
+            "sso": True,
         },
     },
 }
