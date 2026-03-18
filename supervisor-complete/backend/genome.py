@@ -2,10 +2,12 @@
 Supervisor Backend — Campaign Genome
 Cross-campaign intelligence: stores structured campaign DNA,
 queries similar campaigns, and generates data-driven recommendations.
+
+Persistence is through Supabase with retries and error surfacing.
 """
 from __future__ import annotations
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from models import Campaign, CampaignMemory
@@ -40,7 +42,7 @@ class CampaignDNA:
         self.messaging_angles = messaging_angles or []
         self.outcomes = outcomes or {}
         self.lessons = lessons or {"what_worked": [], "what_didnt": []}
-        self.created_at = created_at or datetime.utcnow()
+        self.created_at = created_at or datetime.now(timezone.utc)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -54,7 +56,7 @@ class CampaignDNA:
             "messaging_angles": self.messaging_angles,
             "outcomes": self.outcomes,
             "lessons": self.lessons,
-            "created_at": self.created_at.isoformat(),
+            "created_at": self.created_at.isoformat() if hasattr(self.created_at, "isoformat") else str(self.created_at),
         }
 
     def similarity_score(self, icp_type: str = "", service_type: str = "", geography: str = "", industry: str = "") -> float:
@@ -96,9 +98,13 @@ class CampaignGenome:
 
     def __init__(self):
         self._dna_store: dict[str, CampaignDNA] = {}
+        self._loaded_from_db: bool = False
 
-    def record_campaign_dna(self, campaign: Campaign, metrics: dict[str, Any] | None = None) -> CampaignDNA:
-        """Extract campaign DNA from a completed (or running) campaign."""
+    async def record_campaign_dna(self, campaign: Campaign, metrics: dict[str, Any] | None = None) -> CampaignDNA:
+        """Extract campaign DNA from a completed (or running) campaign.
+
+        Persists to Supabase with retries. Errors are surfaced, not swallowed.
+        """
         mem = campaign.memory
         biz = mem.business
 
@@ -160,48 +166,110 @@ class CampaignGenome:
         self._dna_store[campaign.id] = dna
         logger.info(f"Recorded DNA for campaign {campaign.id}: {biz.name}")
 
-        # Persist to database (non-blocking)
-        try:
-            import asyncio
-            from db import save_genome_dna
-            dna_dict = {
-                "campaign_id": campaign.id,
-                "icp_type": dna.icp_type,
-                "service_type": dna.service_type,
-                "geography": dna.geography,
-                "industry": dna.industry,
-                "channel_mix": dna.channel_mix,
-                "messaging_angles": dna.messaging_angles,
-                "outcomes": dna.outcomes,
-                "lessons": dna.lessons.__dict__ if hasattr(dna.lessons, '__dict__') else {},
-                "created_at": dna.created_at.isoformat() if hasattr(dna.created_at, 'isoformat') else str(dna.created_at),
-            }
-            asyncio.create_task(save_genome_dna(dna_dict))
-        except Exception:
-            pass  # Best-effort persistence
+        # Persist to Supabase with retries
+        persisted = await self._persist_dna(dna)
+        if not persisted:
+            logger.warning(f"DNA for {campaign.id} saved in-memory only (DB write failed)")
 
         return dna
 
-    async def load_from_db(self):
-        """Hydrate in-memory DNA store from database on startup."""
+    async def _persist_dna(self, dna: CampaignDNA, retries: int = 2) -> bool:
+        """Persist DNA to Supabase with retries. Returns True on success."""
         try:
-            from db import load_all_genome_dna
-            db_dna = await load_all_genome_dna()
-            for entry in db_dna:
-                cid = entry.get("campaign_id", "")
-                if cid and cid not in self._dna_store:
-                    self._dna_store[cid] = CampaignDNA(
-                        icp_type=entry.get("icp_type", ""),
-                        service_type=entry.get("service_type", ""),
-                        geography=entry.get("geography", ""),
-                        industry=entry.get("industry", ""),
-                        channel_mix=entry.get("channel_mix", {}),
-                        messaging_angles=entry.get("messaging_angles", []),
-                        outcomes=entry.get("outcomes", {}),
-                    )
-            logger.info(f"Loaded {len(db_dna)} campaign DNA entries from database")
+            from config import settings
+            if not settings.supabase_url or not settings.supabase_key:
+                return False
+        except Exception:
+            return False
+
+        import httpx
+        url = f"{settings.supabase_url}/rest/v1/campaign_genome"
+        headers = {
+            "apikey": settings.supabase_key,
+            "Authorization": f"Bearer {settings.supabase_key}",
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates",
+        }
+
+        payload = {
+            "campaign_id": dna.campaign_id,
+            "icp_type": dna.icp_type,
+            "service_type": dna.service_type,
+            "geography": dna.geography,
+            "entity_type": dna.entity_type,
+            "industry": dna.industry,
+            "channel_mix": dna.channel_mix,
+            "messaging_angles": dna.messaging_angles,
+            "outcomes": dna.outcomes,
+            "lessons": dna.lessons,
+            "created_at": dna.created_at.isoformat() if hasattr(dna.created_at, "isoformat") else str(dna.created_at),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Validate before sending
+        if not payload["campaign_id"]:
+            logger.error("Cannot persist DNA: missing campaign_id")
+            return False
+
+        for attempt in range(retries + 1):
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(url, headers=headers, json=payload)
+                    if resp.status_code in (200, 201):
+                        return True
+                    logger.error(f"DNA persist attempt {attempt + 1} failed: {resp.status_code} {resp.text}")
+            except Exception as e:
+                logger.error(f"DNA persist attempt {attempt + 1} error: {e}")
+
+        return False
+
+    async def load_from_db(self) -> int:
+        """Hydrate in-memory DNA store from Supabase on startup. Returns count loaded."""
+        if self._loaded_from_db:
+            return len(self._dna_store)
+
+        try:
+            from config import settings
+            if not settings.supabase_url or not settings.supabase_key:
+                return 0
+            import httpx
+            url = f"{settings.supabase_url}/rest/v1/campaign_genome"
+            headers = {
+                "apikey": settings.supabase_key,
+                "Authorization": f"Bearer {settings.supabase_key}",
+            }
+            params = {"order": "created_at.desc", "limit": "500"}
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(url, headers=headers, params=params)
+                if resp.status_code == 200:
+                    rows = resp.json()
+                    loaded = 0
+                    for entry in rows:
+                        cid = entry.get("campaign_id", "")
+                        if not cid:
+                            continue
+                        if cid not in self._dna_store:
+                            self._dna_store[cid] = CampaignDNA(
+                                campaign_id=cid,
+                                icp_type=entry.get("icp_type", ""),
+                                service_type=entry.get("service_type", ""),
+                                geography=entry.get("geography", ""),
+                                entity_type=entry.get("entity_type", ""),
+                                industry=entry.get("industry", ""),
+                                channel_mix=entry.get("channel_mix", {}),
+                                messaging_angles=entry.get("messaging_angles", []),
+                                outcomes=entry.get("outcomes", {}),
+                                lessons=entry.get("lessons", {"what_worked": [], "what_didnt": []}),
+                            )
+                            loaded += 1
+                    self._loaded_from_db = True
+                    logger.info(f"Loaded {loaded} campaign DNA entries from database")
+                    return loaded
+                else:
+                    logger.error(f"Failed to load genome: {resp.status_code} {resp.text}")
         except Exception as e:
-            logger.debug(f"Failed to load genome from DB: {e}")
+            logger.error(f"Failed to load genome from DB: {e}")
+        return 0
 
     def query_intelligence(
         self,
@@ -227,23 +295,27 @@ class CampaignGenome:
         if not scored:
             return {"matches": 0, "message": "No similar campaigns found"}
 
-        # Aggregate outcomes across matches
-        agg_outcomes: dict[str, list[float]] = {}
+        # Aggregate outcomes across matches (weighted by similarity)
+        agg_outcomes: dict[str, list[tuple[float, float]]] = {}  # key -> [(weight, value)]
         all_worked: list[str] = []
         all_didnt: list[str] = []
         channel_counts: dict[str, int] = {}
 
-        for _sim, dna in scored:
+        for sim, dna in scored:
             for key, val in dna.outcomes.items():
-                agg_outcomes.setdefault(key, []).append(val)
+                agg_outcomes.setdefault(key, []).append((sim, val))
             all_worked.extend(dna.lessons.get("what_worked", []))
             all_didnt.extend(dna.lessons.get("what_didnt", []))
             for ch, active in dna.channel_mix.items():
                 if active:
                     channel_counts[ch] = channel_counts.get(ch, 0) + 1
 
-        # Calculate averages
-        avg_outcomes = {k: round(sum(v) / len(v), 4) for k, v in agg_outcomes.items()}
+        # Calculate similarity-weighted averages
+        avg_outcomes = {}
+        for k, pairs in agg_outcomes.items():
+            total_weight = sum(w for w, _ in pairs)
+            if total_weight > 0:
+                avg_outcomes[k] = round(sum(w * v for w, v in pairs) / total_weight, 4)
 
         # Rank channels by popularity
         total = len(scored)
@@ -320,22 +392,27 @@ class CampaignGenome:
             "similar_campaigns": intel.get("similar_campaigns", []),
         }
 
-    def update_outcomes(self, campaign_id: str, outcomes: dict[str, float]) -> bool:
-        """Update outcomes for an existing campaign DNA entry."""
+    async def update_outcomes(self, campaign_id: str, outcomes: dict[str, float]) -> bool:
+        """Update outcomes for an existing campaign DNA entry and persist."""
         dna = self._dna_store.get(campaign_id)
         if not dna:
             return False
         dna.outcomes.update(outcomes)
         logger.info(f"Updated outcomes for campaign {campaign_id}")
+        await self._persist_dna(dna)
         return True
 
-    def add_lesson(self, campaign_id: str, category: str, lesson: str) -> bool:
-        """Add a lesson learned to a campaign's DNA."""
+    async def add_lesson(self, campaign_id: str, category: str, lesson: str) -> bool:
+        """Add a lesson learned to a campaign's DNA and persist."""
         dna = self._dna_store.get(campaign_id)
         if not dna:
             return False
         if category in ("what_worked", "what_didnt"):
-            dna.lessons.setdefault(category, []).append(lesson)
+            if lesson not in dna.lessons.get(category, []):
+                dna.lessons.setdefault(category, []).append(lesson)
+                # Cap at 20 lessons per category
+                dna.lessons[category] = dna.lessons[category][-20:]
+                await self._persist_dna(dna)
             return True
         return False
 
@@ -347,7 +424,6 @@ class CampaignGenome:
         """Get DNA for a specific campaign."""
         dna = self._dna_store.get(campaign_id)
         return dna.to_dict() if dna else None
-
 
     # ── Adaptive Loop Methods ─────────────────────────────────────────────
 
@@ -362,14 +438,15 @@ class CampaignGenome:
             industry=biz.industry,
         )
 
-    def record_scoring_outcomes(
+    async def record_scoring_outcomes(
         self, campaign: Campaign, scores: dict[str, dict],
     ) -> None:
         """Feed scoring grades + sensing metrics back into campaign DNA.
-        Called by the health_check scheduler job to keep genome current."""
+        Called by the health_check scheduler job to keep genome current.
+        Persists updates to DB."""
         dna = self._dna_store.get(campaign.id)
         if not dna:
-            dna = self.record_campaign_dna(campaign)
+            dna = await self.record_campaign_dna(campaign)
 
         # Update outcomes from raw sensing metrics
         raw_metrics = getattr(campaign, '_metrics', {})
@@ -379,7 +456,7 @@ class CampaignGenome:
             "site_metrics": ["bounce_rate", "conversion_rate"],
             "social_metrics": ["engagement_rate"],
             "crm_metrics": ["close_rate"],
-            "revenue_metrics": ["mrr", "total_revenue"],
+            "revenue_metrics": ["mrr", "total_revenue", "churn_rate"],
             "billing_metrics": ["collection_rate"],
         }
         for source, keys in outcome_map.items():
@@ -396,16 +473,20 @@ class CampaignGenome:
                 continue
             lesson = f"{agent_id}: {reasoning}"
             if grade in ("A+", "A", "A-"):
-                if lesson not in dna.lessons["what_worked"]:
-                    dna.lessons["what_worked"].append(lesson)
-                    # Cap at 20 lessons
+                if lesson not in dna.lessons.get("what_worked", []):
+                    dna.lessons.setdefault("what_worked", []).append(lesson)
                     dna.lessons["what_worked"] = dna.lessons["what_worked"][-20:]
             elif grade in ("D", "D-", "F"):
-                if lesson not in dna.lessons["what_didnt"]:
-                    dna.lessons["what_didnt"].append(lesson)
+                if lesson not in dna.lessons.get("what_didnt", []):
+                    dna.lessons.setdefault("what_didnt", []).append(lesson)
                     dna.lessons["what_didnt"] = dna.lessons["what_didnt"][-20:]
 
-        logger.info(f"Scoring outcomes recorded for campaign {campaign.id}")
+        # Persist updated DNA
+        persisted = await self._persist_dna(dna)
+        if persisted:
+            logger.info(f"Scoring outcomes persisted for campaign {campaign.id}")
+        else:
+            logger.warning(f"Scoring outcomes for {campaign.id} saved in-memory only")
 
 
 # Singleton
