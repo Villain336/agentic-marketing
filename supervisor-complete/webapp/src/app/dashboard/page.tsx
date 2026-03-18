@@ -234,6 +234,12 @@ export default function DashboardPage() {
           <span className="text-surface-300">|</span>
           <span className="text-surface-500">{doneCount}/{AGENTS.length} agents complete</span>
           <button
+            onClick={() => router.push("/settings")}
+            className="btn-ghost text-xs text-surface-500"
+          >
+            Settings
+          </button>
+          <button
             onClick={() => { localStorage.clear(); router.push("/"); }}
             className="btn-ghost text-xs text-surface-400"
           >

@@ -62,12 +62,112 @@ app.add_middleware(AuthMiddleware)
 app.add_middleware(RateLimitMiddleware)
 
 
+def _register_event_bus_actions():
+    """Register action handlers for event bus trigger rules."""
+    from eventbus import event_bus, Event
+
+    async def _handle_run_agent(event: Event):
+        """Trigger action: run an agent in response to an event."""
+        target_agent_id = event.data.get("_target_agent", "")
+        campaign_id = event.campaign_id
+        if not target_agent_id or not campaign_id:
+            return
+        campaign = campaigns.get(campaign_id)
+        if not campaign:
+            return
+        agent = get_agent(target_agent_id)
+        if not agent:
+            logger.warning(f"Event trigger: agent '{target_agent_id}' not found")
+            return
+
+        # Don't re-trigger if already running or recently completed
+        existing_run = campaign.agent_runs.get(target_agent_id)
+        if existing_run and existing_run.status in ("running",):
+            logger.info(f"Event trigger: {target_agent_id} already running, skipping")
+            return
+
+        logger.info(
+            f"Event trigger: running {target_agent_id} "
+            f"(triggered by {event.source_agent} via {event.data.get('_trigger_name', '?')})"
+        )
+
+        # Run agent asynchronously
+        try:
+            from engine import engine as eng
+            from models import AgentRun, AgentStatus
+            async for ev in eng.run(
+                agent=agent, memory=campaign.memory,
+                campaign_id=campaign_id, campaign=campaign,
+                trigger_reason=f"event:{event.data.get('_trigger_name', '')}",
+            ):
+                if ev.memory_update:
+                    for k, v in ev.memory_update.items():
+                        if hasattr(campaign.memory, k):
+                            setattr(campaign.memory, k, v)
+                # Broadcast via WebSocket
+                try:
+                    await ws_manager.broadcast({
+                        "type": "agent_event",
+                        "campaign_id": campaign_id,
+                        "agent_id": target_agent_id,
+                        "event": ev.model_dump(),
+                        "triggered_by": event.source_agent,
+                    })
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"Event-triggered agent {target_agent_id} failed: {e}")
+
+    async def _handle_notify(event: Event):
+        """Trigger action: send notification to owner."""
+        target_data = event.data.get("_target_data", {})
+        channel = target_data.get("channel", "owner")
+        template = target_data.get("template", "generic")
+        campaign_id = event.campaign_id
+
+        msg = (
+            f"[{template.upper()}] Agent: {event.source_agent} | "
+            f"Campaign: {campaign_id} | "
+            f"Event: {event.type.value if hasattr(event.type, 'value') else event.type}"
+        )
+
+        # Try to notify via configured channels
+        from tools import registry
+        for tool_name in ["send_slack_message", "send_telegram_message", "send_email"]:
+            try:
+                if tool_name == "send_slack_message":
+                    await registry.execute(tool_name, {"channel": "#alerts", "message": msg}, "notify")
+                elif tool_name == "send_telegram_message":
+                    await registry.execute(tool_name, {"message": msg}, "notify")
+                break
+            except Exception:
+                continue
+
+    async def _handle_pause_agent(event: Event):
+        """Trigger action: pause an agent."""
+        target_agent_id = event.data.get("_target_agent", "")
+        campaign_id = event.campaign_id
+        logger.info(f"Event trigger: pausing {target_agent_id} in campaign {campaign_id}")
+        # Update campaign status
+        campaign = campaigns.get(campaign_id)
+        if campaign and target_agent_id in campaign.agent_runs:
+            campaign.agent_runs[target_agent_id].status = "paused"
+
+    event_bus.register_action("run_agent", _handle_run_agent)
+    event_bus.register_action("notify", _handle_notify)
+    event_bus.register_action("pause_agent", _handle_pause_agent)
+    logger.info("Event bus action handlers registered")
+
+
 @app.on_event("startup")
 async def startup_event():
-    """Start background scheduler and load persisted campaigns from DB."""
+    """Start background scheduler, register event handlers, load persisted data."""
     register_default_jobs()
     scheduler.start()
     logger.info("Background scheduler started")
+
+    # ── Register event bus action handlers ──
+    _register_event_bus_actions()
 
     # Load persisted data from Supabase into memory
     try:
@@ -998,6 +1098,138 @@ async def decide_approval(item_id: str, request: Request):
     item.decided_at = datetime.utcnow()
 
     return {"id": item_id, "status": item.status, "decided_by": item.decided_by}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUTONOMY & AGENT SETTINGS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from autonomy import autonomy_store, AutonomySettings, AgentAutonomySettings
+from eventbus import event_bus, EventType, TriggerRule
+
+
+@app.get("/settings/autonomy")
+async def get_autonomy_settings(campaign_id: str = ""):
+    """Get current autonomy settings (global or per-campaign)."""
+    return autonomy_store.to_dict(campaign_id)
+
+
+@app.put("/settings/autonomy")
+async def update_autonomy_settings(request: Request, campaign_id: str = ""):
+    """Update autonomy settings (global or per-campaign)."""
+    body = await request.json()
+    current = autonomy_store.get(campaign_id)
+
+    # Update top-level fields
+    for field in ["global_level", "spending_approval_threshold",
+                  "outbound_approval_required", "content_approval_required",
+                  "infrastructure_approval_required", "escalation_channel"]:
+        if field in body:
+            setattr(current, field, body[field])
+
+    if campaign_id:
+        autonomy_store.set(campaign_id, current)
+    else:
+        autonomy_store.set_global(current)
+
+    return autonomy_store.to_dict(campaign_id)
+
+
+@app.get("/settings/agents")
+async def get_all_agent_settings(campaign_id: str = ""):
+    """Get per-agent autonomy settings."""
+    return autonomy_store.get_all_agent_settings(campaign_id)
+
+
+@app.get("/settings/agents/{agent_id}")
+async def get_agent_settings(agent_id: str, campaign_id: str = ""):
+    """Get autonomy settings for a specific agent."""
+    settings_obj = autonomy_store.get(campaign_id)
+    agent_cfg = settings_obj.per_agent.get(agent_id)
+    if agent_cfg:
+        return agent_cfg.model_dump()
+    return AgentAutonomySettings(agent_id=agent_id).model_dump()
+
+
+@app.put("/settings/agents/{agent_id}")
+async def update_agent_settings(agent_id: str, request: Request, campaign_id: str = ""):
+    """Update autonomy settings for a specific agent."""
+    body = await request.json()
+    agent_cfg = autonomy_store.update_agent(campaign_id, agent_id, body)
+    return agent_cfg.model_dump()
+
+
+@app.post("/settings/agents/batch")
+async def batch_update_agent_settings(request: Request, campaign_id: str = ""):
+    """Batch update settings for multiple agents at once."""
+    body = await request.json()
+    results = {}
+    for agent_id, updates in body.items():
+        agent_cfg = autonomy_store.update_agent(campaign_id, agent_id, updates)
+        results[agent_id] = agent_cfg.model_dump()
+    return results
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# EVENT BUS & TRIGGERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/events")
+async def get_events(campaign_id: str = "", event_type: str = "",
+                     limit: int = 50):
+    """Get recent events from the event bus."""
+    return event_bus.get_recent_events(limit=limit, campaign_id=campaign_id,
+                                       event_type=event_type)
+
+
+@app.get("/triggers")
+async def list_triggers():
+    """List all trigger rules."""
+    return [t.model_dump() for t in event_bus.get_triggers()]
+
+
+@app.post("/triggers")
+async def create_trigger(request: Request):
+    """Create a new trigger rule."""
+    body = await request.json()
+    # Convert event_type string to enum
+    if "event_type" in body and isinstance(body["event_type"], str):
+        try:
+            body["event_type"] = EventType(body["event_type"])
+        except ValueError:
+            raise HTTPException(400, f"Invalid event_type: {body['event_type']}")
+    rule = TriggerRule(**body)
+    rule_id = event_bus.add_trigger(rule)
+    return {"id": rule_id, "status": "created"}
+
+
+@app.put("/triggers/{rule_id}")
+async def update_trigger(rule_id: str, request: Request):
+    """Update an existing trigger rule."""
+    body = await request.json()
+    rule = event_bus.get_trigger(rule_id)
+    if not rule:
+        raise HTTPException(404, "Trigger not found")
+    if "event_type" in body and isinstance(body["event_type"], str):
+        try:
+            body["event_type"] = EventType(body["event_type"])
+        except ValueError:
+            raise HTTPException(400, f"Invalid event_type: {body['event_type']}")
+    event_bus.update_trigger(rule_id, body)
+    return {"id": rule_id, "status": "updated"}
+
+
+@app.delete("/triggers/{rule_id}")
+async def delete_trigger(rule_id: str):
+    """Delete a trigger rule."""
+    event_bus.remove_trigger(rule_id)
+    return {"id": rule_id, "status": "deleted"}
+
+
+@app.get("/triggers/event-types")
+async def list_event_types():
+    """List all available event types for trigger configuration."""
+    return [{"value": et.value, "label": et.name} for et in EventType]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

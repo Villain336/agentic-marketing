@@ -112,6 +112,63 @@ export interface PricingTier {
   cta: string;
 }
 
+// ── Autonomy & Settings Types ────────────────────────────────────────────
+
+export interface AutonomySettingsResponse {
+  global_level: "autonomous" | "guided" | "human_override";
+  spending_approval_threshold: number;
+  outbound_approval_required: boolean;
+  content_approval_required: boolean;
+  infrastructure_approval_required: boolean;
+  escalation_channel: string;
+  per_agent: Record<string, AgentAutonomySettings>;
+}
+
+export interface AgentAutonomySettings {
+  agent_id: string;
+  autonomy_level: string;
+  enabled: boolean;
+  max_iterations: number;
+  spending_limit: number;
+  allowed_tools: string[];
+  blocked_tools: string[];
+  auto_approve_tools: string[];
+  notes: string;
+}
+
+export interface EventEntry {
+  id: string;
+  type: string;
+  source_agent: string;
+  campaign_id: string;
+  data: Record<string, unknown>;
+  timestamp: string;
+}
+
+export interface TriggerRule {
+  id: string;
+  name: string;
+  event_type: string;
+  source_agent: string;
+  condition: Record<string, unknown>;
+  action: string;
+  target_agent: string;
+  target_data: Record<string, unknown>;
+  enabled: boolean;
+  cooldown_seconds: number;
+}
+
+export interface ApprovalItemResponse {
+  id: string;
+  campaign_id: string;
+  agent_id: string;
+  action_type: string;
+  content: Record<string, unknown>;
+  status: string;
+  decided_by: string;
+  created_at: string;
+}
+
 // ── User Session ────────────────────────────────────────────────────────
 
 export interface UserSession {
