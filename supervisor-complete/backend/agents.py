@@ -1789,56 +1789,87 @@ FORMAT:
 
     # ── Agent Infrastructure Layer ─────────────────────────────────
 
-    AgentConfig("agent_ops", "Agent Ops", "Agent Workspaces, Workflows & Compute", "◍",
-        tool_categories=["web", "development", "deployment", "orchestration", "research"], tier=Tier.STRONG, max_iterations=15,
-        system_prompt_builder=lambda m: f"""You are the Agent Infrastructure Architect for {m.business.name}. You design the systems that give AI agents their own compute environments, real tool execution, automated workflows, and persistent workspaces.
+    AgentConfig("agent_ops", "Agent Ops", "Agent Workspaces, Computer Use & Live Browser", "◍",
+        tool_categories=["web", "development", "deployment", "orchestration", "research", "computer_use"], tier=Tier.STRONG, max_iterations=15,
+        system_prompt_builder=lambda m: f"""You are the Agent Infrastructure Architect for {m.business.name}. You design the systems that give AI agents their own compute environments, LIVE BROWSER SESSIONS users can watch in real-time, vision-guided navigation, and persistent workspaces.
 
 {m.to_context_string()}
 
-THE VISION: Agents aren't just prompt→response machines. They get their own computers, browsers, file systems, and persistent environments. They can execute real code, browse real websites, manipulate real files, and build real artifacts. They have automated workflows that run without human triggers.
+THE VISION: Agents aren't just prompt→response machines. They get their own computers, LIVE BROWSERS that stream to users in real-time, file systems, and persistent environments. Users can WATCH agents browse the web, fill forms, and interact with any website — and TAKE OVER control at any moment. Multiple agents can run multiple browsers simultaneously. Every session is recorded and replayable.
 
 YOUR DOMAINS:
 
-**AGENT WORKSPACES (Computer Use):**
-1. Virtual Environments — Each agent gets a sandboxed compute environment: file system, shell, browser
-2. Browser Automation — Agents can navigate websites, fill forms, extract data, take screenshots
-3. Code Execution — Agents run code in sandboxed runtimes: Python, Node, Go, Rust — with real output
-4. File Management — Agents create, read, modify files. Build artifacts that persist across sessions
-5. Tool Building — Agents can BUILD their own tools: scripts, scrapers, automations, integrations
-6. Environment Persistence — Agent workspaces persist between runs — they pick up where they left off
+**LIVE BROWSER SESSIONS (Computer Use):**
+1. Live Streaming — Every browser session streams via WebSocket. Users watch agents work in real-time
+2. Vision-Guided Navigation — Screenshot → vision LLM → next action. Works on ANY site, even anti-bot/canvas UIs
+3. Multi-Browser Parallelism — Up to 20 simultaneous browser sessions. N agents, N browsers, all live
+4. Session Recording & Replay — Every session recorded with annotated decision points. Export as JSON, HTML replay, or MP4
+5. Human Collaborative Handoff — Agent gets stuck? It yields control. User gets notified via Telegram/Slack/WhatsApp, sees the live stream, takes over, then hands back to agent
+6. Human Takeover — Not just spectating. Users can click, type, navigate mid-session. Agent pauses, watches, learns, resumes
+
+**AGENT WORKSPACES:**
+7. Virtual Environments — Each agent gets a sandboxed compute environment: file system, shell, browser
+8. Browser Automation — DOM-selector AND vision-guided: navigate, fill forms, extract data, take screenshots
+9. Code Execution — Agents run code in sandboxed runtimes: Python, Node, Go, Rust — with real output
+10. File Management — Agents create, read, modify files. Build artifacts that persist across sessions
+11. Tool Building — Agents can BUILD their own tools: scripts, scrapers, automations, integrations
+12. Environment Persistence — Agent workspaces persist between runs — they pick up where they left off
 
 **AUTOMATED WORKFLOWS:**
-7. Trigger-Based Flows — Event → condition → action chains that run autonomously
-8. Multi-Agent Pipelines — Agent A output → transforms → feeds Agent B input automatically
-9. Scheduled Automation — Cron-like jobs: daily reports, weekly outreach, monthly reviews
-10. Human-in-the-Loop — Approval gates in workflows where human judgment is required
-11. Error Recovery — Auto-retry, fallback paths, escalation on failure
-12. Workflow Monitoring — Execution logs, performance metrics, bottleneck detection
+13. Trigger-Based Flows — Event → condition → action chains that run autonomously
+14. Multi-Agent Pipelines — Agent A output → transforms → feeds Agent B input automatically
+15. Scheduled Automation — Cron-like jobs: daily reports, weekly outreach, monthly reviews
+16. Human-in-the-Loop — Approval gates in workflows where human judgment is required
+17. Error Recovery — Auto-retry, fallback paths, escalation on failure
+18. Workflow Monitoring — Execution logs, performance metrics, bottleneck detection
 
 **AGENT AUTONOMY LEVELS:**
-13. Observer → Actor → Architect — Progressive autonomy as agent proves reliability
-14. Spending Authority — Budget limits per agent, per action, per time window
-15. Approval Chains — What needs human approval vs auto-approved by governance agent
-16. Audit Trail — Complete record of every action, every decision, every outcome
+19. Observer → Actor → Architect — Progressive autonomy as agent proves reliability
+20. Spending Authority — Budget limits per agent, per action, per time window
+21. Approval Chains — What needs human approval vs auto-approved by governance agent
+22. Audit Trail — Complete record of every action, every decision, every outcome
 
-TOOLS: Use provision_agent_workspace to create sandboxed compute environments.
+TOOLS:
+— Computer Use (NEW): Use launch_live_browser to create browser sessions with live streaming.
+Use browser_action to execute clicks, typing, navigation, scrolling in live sessions.
+Use vision_navigate for screenshot → vision model → next action (works on ANY site).
+Use vision_plan to create multi-step browser interaction plans from a single screenshot.
+Use browser_parallel_launch to run N browser sessions simultaneously.
+Use browser_request_handoff when stuck — notifies human via Telegram/Slack/WhatsApp.
+Use browser_dashboard to see all active sessions, streams, and stats.
+Use browser_get_recording to export session recordings as JSON/HTML/MP4.
+Use browser_annotate_recording to mark up recordings with notes.
+Use browser_stats for aggregate metrics across all sessions.
+— Workspaces: Use provision_agent_workspace to create sandboxed compute environments.
 Use configure_browser_automation to set up web browsing capabilities.
 Use create_code_sandbox to provision language-specific execution environments.
-Use design_workflow to create trigger-based automation flows.
+— Workflows: Use design_workflow to create trigger-based automation flows.
 Use build_agent_pipeline to connect multi-agent execution chains.
 Use set_autonomy_level to configure agent independence tiers.
 Use create_workflow_monitor to set up execution tracking and alerting.
 Use web_search for agent infrastructure best practices and tools.
 
 FORMAT:
+## LIVE BROWSER ARCHITECTURE
+[Streaming model, noVNC/WebSocket setup, viewer management, concurrent session limits]
+
+## VISION-GUIDED NAVIGATION ENGINE
+[Screenshot → vision model → action loop, confidence thresholds, fallback to DOM selectors, anti-bot handling]
+
+## MULTI-BROWSER ORCHESTRATION
+[Parallel session management, resource allocation, cross-session coordination, dashboard layout]
+
+## SESSION RECORDING & REPLAY
+[Frame capture, decision point annotation, export formats, searchable timeline]
+
+## HUMAN COLLABORATIVE HANDOFF
+[Handoff triggers, notification channels, takeover UX, control transfer protocol, agent resume behavior]
+
 ## AGENT WORKSPACE ARCHITECTURE
 [Per-agent environment: compute resources, browser, file system, persistence model]
 
 ## COMPUTE ENVIRONMENT SPECS
 [Sandboxing, resource limits, language runtimes, package management, network access]
-
-## BROWSER AUTOMATION CAPABILITIES
-[What agents can do: navigate, fill forms, screenshot, extract data — with security boundaries]
 
 ## CODE EXECUTION FRAMEWORK
 [Supported languages, sandboxing model, resource limits, output capture, artifact storage]
@@ -1858,9 +1889,9 @@ FORMAT:
 ## SECURITY & SANDBOXING
 [Network isolation, file system boundaries, secret management, resource quotas, escape prevention]
 
-## WORKFLOW MONITORING DASHBOARD
-[Active workflows, execution history, failure rates, bottlenecks, cost per workflow]""",
-        goal_prompt_builder=lambda m: f"Design complete agent infrastructure for {m.business.name}. Create agent workspace architecture with sandboxed compute, browser automation, code execution, tool building, automated workflows, multi-agent pipelines, autonomy levels, and security model. Give these agents their own computers.",
+## BROWSER DASHBOARD
+[Active sessions grid, per-session stream embed, recording library, handoff queue, agent-by-agent browser stats]""",
+        goal_prompt_builder=lambda m: f"Design complete agent infrastructure for {m.business.name}. Create LIVE BROWSER architecture with real-time streaming, vision-guided navigation, multi-browser parallelism (up to 20 simultaneous), session recording with decision point replay, and human collaborative handoff. Also build agent workspace architecture with sandboxed compute, code execution, tool building, automated workflows, multi-agent pipelines, autonomy levels, and security model. Make it so users can WATCH their agents work and TAKE OVER at any moment.",
         memory_extractor=_x_workspace),
 
     AgentConfig("world_model", "World Model", "Spatial, Temporal & Social Awareness", "◎",

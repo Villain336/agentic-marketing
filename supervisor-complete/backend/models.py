@@ -581,6 +581,93 @@ class TreasuryConfig(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+# ── Computer Use / Live Browser Models ──────────────────────────────────────
+
+class BrowserSessionModel(BaseModel):
+    """A live browser session with streaming and recording."""
+    session_id: str = Field(default_factory=lambda: f"BS-{uuid.uuid4().hex[:12].upper()}")
+    agent_id: str = ""
+    campaign_id: str = ""
+    status: str = "initializing"            # initializing, running, paused, human_control, completed, error
+    current_url: str = ""
+    page_title: str = ""
+    viewport: dict[str, int] = {"width": 1440, "height": 900}
+    stream_url: str = ""                    # WebSocket URL for live viewing
+    stream_viewers: int = 0
+    recording_id: str = ""
+    recording_enabled: bool = True
+    human_control: bool = False
+    handoff_reason: str = ""
+    action_count: int = 0
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_activity: Optional[datetime] = None
+
+
+class BrowserActionModel(BaseModel):
+    """A single browser interaction step."""
+    action_type: str = ""                   # navigate, click, type, scroll, select, hover, etc.
+    selector: str = ""                      # CSS/XPath selector
+    value: str = ""                         # URL, text, key
+    coordinates: Optional[list[int]] = None # [x, y] for vision-guided clicks
+    description: str = ""                   # Human-readable explanation
+    vision_reasoning: str = ""              # LLM vision model reasoning
+    success: bool = True
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SessionRecordingModel(BaseModel):
+    """A recorded browser session with decision points and annotations."""
+    recording_id: str = Field(default_factory=lambda: f"REC-{uuid.uuid4().hex[:12].upper()}")
+    session_id: str = ""
+    agent_id: str = ""
+    campaign_id: str = ""
+    frame_count: int = 0
+    decision_point_count: int = 0
+    annotation_count: int = 0
+    total_actions: int = 0
+    pages_visited: list[str] = []
+    duration_seconds: float = 0.0
+    status: str = "recording"               # recording, completed, exported
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class VisionAnalysisResult(BaseModel):
+    """Result of a vision-guided navigation step."""
+    action_type: str = ""                    # Recommended action
+    target_description: str = ""             # Human-readable target
+    coordinates: Optional[list[int]] = None  # [x, y] pixel coordinates
+    value: str = ""                          # Input value
+    reasoning: str = ""                      # Why this action
+    confidence: float = 0.0                  # 0.0-1.0
+    goal_progress: str = ""                  # Progress toward goal
+    needs_human: bool = False                # True if stuck
+    human_reason: str = ""                   # Why human needed
+
+
+class HumanHandoffRequest(BaseModel):
+    """A request for human takeover of a browser session."""
+    session_id: str = ""
+    agent_id: str = ""
+    campaign_id: str = ""
+    reason: str = ""
+    current_url: str = ""
+    stream_url: str = ""
+    notify_channels: list[str] = ["telegram", "slack", "whatsapp"]
+    handoff_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class BrowserDashboard(BaseModel):
+    """Multi-browser control panel state."""
+    active_sessions: list[BrowserSessionModel] = []
+    active_count: int = 0
+    completed_count: int = 0
+    max_concurrent: int = 20
+    slots_available: int = 20
+    recordings_available: int = 0
+    total_actions_executed: int = 0
+    human_handoffs_active: int = 0
+
+
 class TreasuryTransaction(BaseModel):
     """Record of money movement between pools."""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
