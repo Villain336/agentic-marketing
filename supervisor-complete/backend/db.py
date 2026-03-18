@@ -304,6 +304,59 @@ async def load_approvals(status: str = "pending") -> list[dict]:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# EVENT BUS EVENTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def save_event(event: dict) -> bool:
+    """Persist an event bus event to the events table."""
+    client = _get_client()
+    if not client:
+        return False
+
+    try:
+        client.table("events").insert({
+            "id": event.get("id", ""),
+            "event_type": event.get("type", ""),
+            "source_agent": event.get("source_agent", ""),
+            "campaign_id": event.get("campaign_id", ""),
+            "data": json.dumps(event.get("data", {})),
+            "created_at": event.get("timestamp", datetime.utcnow().isoformat()),
+        }).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save event: {e}")
+        return False
+
+
+async def load_events(campaign_id: str = "", event_type: str = "",
+                      limit: int = 100) -> list[dict]:
+    """Load recent events from the events table."""
+    client = _get_client()
+    if not client:
+        return []
+
+    try:
+        query = client.table("events").select("*").order("created_at", desc=True).limit(limit)
+        if campaign_id:
+            query = query.eq("campaign_id", campaign_id)
+        if event_type:
+            query = query.eq("event_type", event_type)
+        result = query.execute()
+        rows = result.data or []
+        # Deserialize data JSON
+        for row in rows:
+            if isinstance(row.get("data"), str):
+                try:
+                    row["data"] = json.loads(row["data"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        return rows
+    except Exception as e:
+        logger.error(f"Failed to load events: {e}")
+        return []
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # PERFORMANCE EVENTS
 # ═══════════════════════════════════════════════════════════════════════════════
 

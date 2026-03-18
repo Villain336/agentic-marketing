@@ -141,6 +141,7 @@ class AnthropicAdapter(ProviderAdapter):
 
                 current_tc = None
                 tc_json = ""
+                _stream_usage: dict[str, int] = {}
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue
@@ -169,8 +170,15 @@ class AnthropicAdapter(ProviderAdapter):
                             yield {"type": "tool_call", "tool_call": ToolCall(id=current_tc["id"], name=current_tc["name"], input=inp), "provider": self.config.name, "model": model}
                             current_tc = None
                             tc_json = ""
+                    elif et == "message_delta":
+                        usage = ev.get("usage", {})
+                        if usage:
+                            _stream_usage["output_tokens"] = usage.get("output_tokens", 0)
+                    elif et == "message_start":
+                        msg = ev.get("message", {})
+                        _stream_usage.update(msg.get("usage", {}))
                     elif et == "message_stop":
-                        yield {"type": "done", "provider": self.config.name, "model": model}
+                        yield {"type": "done", "provider": self.config.name, "model": model, "usage": _stream_usage}
                 self._mark_success()
         except httpx.TimeoutException:
             self._mark_error("timeout")
@@ -270,7 +278,8 @@ class OpenAIAdapter(ProviderAdapter):
     async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
         model = self.get_model(tier, model_override)
         converted = self._convert_msgs(messages, system)
-        body: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "messages": converted, "stream": True}
+        body: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "messages": converted, "stream": True,
+                                "stream_options": {"include_usage": True}}
         if tools:
             body["tools"] = [t.to_openai_schema() for t in tools]
         try:
@@ -287,6 +296,7 @@ class OpenAIAdapter(ProviderAdapter):
                     raise ProviderError(f"server_{resp.status_code}", self.config.name)
 
                 tc_buf: dict[int, dict] = {}
+                _stream_usage: dict[str, int] = {}
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue
@@ -299,12 +309,16 @@ class OpenAIAdapter(ProviderAdapter):
                             except json.JSONDecodeError:
                                 parsed = {}
                             yield {"type": "tool_call", "tool_call": ToolCall(id=tc["id"], name=tc["name"], input=parsed), "provider": self.config.name, "model": model}
-                        yield {"type": "done", "provider": self.config.name, "model": model}
+                        yield {"type": "done", "provider": self.config.name, "model": model, "usage": _stream_usage}
                         break
                     try:
                         ev = json.loads(raw)
                     except json.JSONDecodeError:
                         continue
+                    # OpenAI includes usage in the final chunk when stream_options.include_usage is set
+                    if ev.get("usage"):
+                        u = ev["usage"]
+                        _stream_usage = {"input_tokens": u.get("prompt_tokens", 0), "output_tokens": u.get("completion_tokens", 0)}
                     choices = ev.get("choices", [])
                     if not choices:
                         continue
@@ -415,6 +429,7 @@ class GoogleAdapter(ProviderAdapter):
                 if resp.status_code == 429:
                     self._mark_error("rate_limited")
                     raise ProviderError("rate_limited", self.config.name)
+                _stream_usage: dict[str, int] = {}
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue
@@ -422,6 +437,10 @@ class GoogleAdapter(ProviderAdapter):
                         ev = json.loads(line[6:])
                     except json.JSONDecodeError:
                         continue
+                    # Google returns usageMetadata in the final chunk
+                    um = ev.get("usageMetadata")
+                    if um:
+                        _stream_usage = {"input_tokens": um.get("promptTokenCount", 0), "output_tokens": um.get("candidatesTokenCount", 0)}
                     cands = ev.get("candidates", [])
                     if not cands:
                         continue
@@ -431,7 +450,7 @@ class GoogleAdapter(ProviderAdapter):
                         elif "functionCall" in p:
                             fc = p["functionCall"]
                             yield {"type": "tool_call", "tool_call": ToolCall(name=fc["name"], input=fc.get("args", {})), "provider": self.config.name, "model": model}
-                yield {"type": "done", "provider": self.config.name, "model": model}
+                yield {"type": "done", "provider": self.config.name, "model": model, "usage": _stream_usage}
                 self._mark_success()
         except httpx.TimeoutException:
             self._mark_error("timeout")
@@ -528,14 +547,19 @@ class BedrockAdapter(ProviderAdapter):
                     body["tools"] = [t.to_anthropic_schema() for t in tools]
 
                 resp = client.invoke_model_with_response_stream(modelId=model_id, body=json.dumps(body), contentType="application/json")
+                _stream_usage: dict[str, int] = {}
                 for event in resp.get("body", []):
                     chunk = json.loads(event.get("chunk", {}).get("bytes", b"{}"))
                     if chunk.get("type") == "content_block_delta":
                         delta = chunk.get("delta", {})
                         if delta.get("type") == "text_delta":
                             yield {"type": "text", "text": delta["text"], "provider": self.config.name, "model": model_id}
+                    elif chunk.get("type") == "message_delta":
+                        _stream_usage["output_tokens"] = chunk.get("usage", {}).get("output_tokens", 0)
+                    elif chunk.get("type") == "message_start":
+                        _stream_usage.update(chunk.get("message", {}).get("usage", {}))
                     elif chunk.get("type") == "message_stop":
-                        yield {"type": "done", "provider": self.config.name, "model": model_id}
+                        yield {"type": "done", "provider": self.config.name, "model": model_id, "usage": _stream_usage}
                 self._mark_success()
         except Exception as e:
             self._mark_error(str(e))

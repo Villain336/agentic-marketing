@@ -82,6 +82,12 @@ class ApiClient {
     return this.get("/campaigns");
   }
 
+  // ── Scoring ──
+
+  async getCampaignScores(campaignId: string): Promise<Record<string, { score: number; grade: string; metrics: Record<string, unknown> }>> {
+    return this.get(`/campaign/${campaignId}/scores`);
+  }
+
   // ── Autonomy & Settings ──
 
   async getAutonomySettings(campaignId: string = ""): Promise<AutonomySettingsResponse> {

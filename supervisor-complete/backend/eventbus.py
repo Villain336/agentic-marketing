@@ -367,10 +367,17 @@ class EventBus:
 
     async def emit(self, event: Event):
         """Publish an event. Fires subscribers and matching trigger rules."""
-        # Log event
+        # Log event in memory
         self._event_log.append(event)
         if len(self._event_log) > self._max_log_size:
             self._event_log = self._event_log[-self._max_log_size:]
+
+        # Persist to database
+        try:
+            import db
+            asyncio.create_task(db.save_event(event.model_dump()))
+        except Exception:
+            pass
 
         logger.info(
             f"Event: {event.type.value} from={event.source_agent} "
@@ -477,7 +484,20 @@ class EventBus:
             events = [e for e in events if e.campaign_id == campaign_id]
         if event_type:
             events = [e for e in events if e.type.value == event_type]
-        return [e.model_dump() for e in events[-limit:]]
+        results = [e.model_dump() for e in events[-limit:]]
+        # If no in-memory events, try loading from DB (post-restart)
+        if not results:
+            try:
+                import db
+                if db.is_persistent():
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # Can't await in sync context; return empty and let API endpoint handle it
+                        pass
+            except Exception:
+                pass
+        return results
 
     def get_pending_agents(self, campaign_id: str) -> set[str]:
         """Get agents that have been triggered but not yet started for a campaign."""
