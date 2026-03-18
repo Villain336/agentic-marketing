@@ -2512,6 +2512,283 @@ async def get_trust_portal():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# NVIDIA GPU INFRASTRUCTURE ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/nvidia/gpus")
+async def get_gpu_status():
+    """GPU cluster status — available GPUs, utilization, allocations."""
+    from nvidia_infra import gpu_cluster
+    return await gpu_cluster.get_cluster_status()
+
+
+@app.post("/nvidia/gpus/allocate")
+async def allocate_gpu(payload: dict):
+    """Allocate a GPU for an agent task."""
+    from nvidia_infra import gpu_cluster
+    result = await gpu_cluster.allocate_gpu(
+        payload.get("agent_id", ""), payload.get("gpu_type", ""),
+        payload.get("vram_gb", 0),
+    )
+    if result:
+        return result.model_dump()
+    return {"error": "No GPU available"}
+
+
+@app.post("/nvidia/gpus/release")
+async def release_gpu(payload: dict):
+    """Release a GPU allocation."""
+    from nvidia_infra import gpu_cluster
+    ok = await gpu_cluster.release_gpu(payload.get("allocation_id", ""))
+    return {"released": ok}
+
+
+@app.get("/nvidia/models")
+async def list_nvidia_models():
+    """List TensorRT-optimized and Triton-deployed models."""
+    from nvidia_infra import tensorrt_optimizer, triton_server
+    return {
+        "tensorrt_engines": await tensorrt_optimizer.list_optimized_models(),
+        "triton_models": await triton_server.list_deployed_models(),
+    }
+
+
+@app.post("/nvidia/models/optimize")
+async def optimize_model(payload: dict):
+    """Optimize a model with TensorRT."""
+    from nvidia_infra import tensorrt_optimizer
+    engine = await tensorrt_optimizer.optimize_model(
+        payload.get("model_path", ""), payload.get("precision", "fp16"),
+        payload.get("target_gpu", ""), payload.get("model_name", ""),
+    )
+    return engine.model_dump()
+
+
+@app.post("/nvidia/models/deploy")
+async def deploy_triton_model(payload: dict):
+    """Deploy a model on Triton Inference Server."""
+    from nvidia_infra import triton_server
+    model = await triton_server.deploy_model(
+        payload.get("model_name", ""), payload.get("model_path", ""),
+        payload.get("instances", 1), payload.get("gpu_ids", []),
+    )
+    return model.model_dump()
+
+
+@app.get("/nvidia/digital-twins")
+async def list_digital_twins():
+    """List all digital twins."""
+    from nvidia_infra import omniverse_connector
+    return {"twins": [t.model_dump() for t in omniverse_connector._twins.values()]}
+
+
+@app.post("/nvidia/digital-twins")
+async def create_digital_twin(payload: dict):
+    """Create a digital twin."""
+    from nvidia_infra import omniverse_connector
+    twin = await omniverse_connector.create_digital_twin(
+        payload.get("factory_config", {}), payload.get("name", ""),
+    )
+    return twin.model_dump()
+
+
+@app.post("/nvidia/digital-twins/{twin_id}/simulate")
+async def simulate_twin(twin_id: str, payload: dict):
+    """Run simulation on a digital twin."""
+    from nvidia_infra import omniverse_connector
+    return await omniverse_connector.simulate(twin_id, payload.get("scenario", {}))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AWS INFRASTRUCTURE ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/aws/eks")
+async def get_eks_status():
+    """EKS cluster metrics."""
+    from aws_infra import eks_manager
+    return await eks_manager.get_cluster_metrics()
+
+
+@app.post("/aws/eks/clusters")
+async def create_eks_cluster(payload: dict):
+    """Create an EKS cluster."""
+    from aws_infra import eks_manager
+    return await eks_manager.create_cluster(
+        payload.get("name", ""), payload.get("node_type", "m5.xlarge"),
+        payload.get("gpu_nodes", 0),
+    )
+
+
+@app.post("/aws/eks/workspaces")
+async def deploy_workspace(payload: dict):
+    """Deploy an agent workspace on EKS."""
+    from aws_infra import eks_manager
+    return await eks_manager.deploy_agent_workspace(
+        payload.get("cluster", ""), payload.get("agent_id", ""),
+        payload.get("resources", {}),
+    )
+
+
+@app.get("/aws/sagemaker/jobs")
+async def list_sagemaker_jobs():
+    """List SageMaker training jobs."""
+    from aws_infra import sagemaker_pipeline
+    return {"jobs": list(sagemaker_pipeline._jobs.values())}
+
+
+@app.post("/aws/sagemaker/train")
+async def create_training_job(payload: dict):
+    """Launch a SageMaker training job."""
+    from aws_infra import sagemaker_pipeline
+    return await sagemaker_pipeline.create_training_job(
+        payload.get("dataset_s3", ""), payload.get("model_type", ""),
+        payload.get("hyperparams", {}), payload.get("instance_type", "ml.g5.xlarge"),
+    )
+
+
+@app.get("/aws/sagemaker/endpoints")
+async def list_sagemaker_endpoints():
+    """List SageMaker endpoints."""
+    from aws_infra import sagemaker_pipeline
+    return {"endpoints": await sagemaker_pipeline.list_endpoints()}
+
+
+@app.post("/aws/sagemaker/deploy")
+async def deploy_sagemaker_endpoint(payload: dict):
+    """Deploy a model as a SageMaker endpoint."""
+    from aws_infra import sagemaker_pipeline
+    return await sagemaker_pipeline.deploy_endpoint(
+        payload.get("model_artifact", ""), payload.get("instance_type", "ml.g5.xlarge"),
+        payload.get("auto_scaling", True),
+    )
+
+
+@app.get("/aws/iot/devices")
+async def list_iot_devices(factory_id: str = ""):
+    """List registered IoT devices."""
+    from aws_infra import iot_core_manager
+    return {"devices": await iot_core_manager.list_devices(factory_id)}
+
+
+@app.post("/aws/iot/devices")
+async def register_iot_device(payload: dict):
+    """Register a factory floor device."""
+    from aws_infra import iot_core_manager
+    return await iot_core_manager.register_device(
+        payload.get("device_id", ""), payload.get("device_type", ""),
+        payload.get("factory_id", ""),
+    )
+
+
+@app.get("/aws/iot/devices/{device_id}/telemetry")
+async def get_device_telemetry(device_id: str, metric: str = "", time_range: str = "1h"):
+    """Get device telemetry data."""
+    from aws_infra import iot_core_manager
+    return await iot_core_manager.get_telemetry(device_id, metric, time_range)
+
+
+@app.post("/aws/iot/commands")
+async def send_iot_command(payload: dict):
+    """Send a command to a factory device."""
+    from aws_infra import iot_core_manager
+    return await iot_core_manager.send_command(
+        payload.get("device_id", ""), payload.get("command", {}),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REINDUSTRIALIZATION ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.post("/reindustrialization/sites")
+async def analyze_site(payload: dict):
+    """Analyze a factory site for suitability."""
+    from reindustrialization import analyze_factory_site
+    return await analyze_factory_site(
+        payload.get("location", ""), payload.get("requirements", {}),
+    )
+
+
+@app.post("/reindustrialization/reshoring")
+async def reshore_analysis(payload: dict):
+    """Analyze reshoring opportunity — domestic vs. overseas cost comparison."""
+    from reindustrialization import reshore_supply_chain
+    return await reshore_supply_chain(
+        payload.get("product", ""), payload.get("current_source", "overseas"),
+    )
+
+
+@app.post("/reindustrialization/workforce")
+async def workforce_analysis(payload: dict):
+    """Analyze workforce development needs."""
+    from reindustrialization import develop_workforce
+    return await develop_workforce(
+        payload.get("region", ""), payload.get("roles", []),
+    )
+
+
+@app.get("/reindustrialization/contracts")
+async def get_gov_contracts(search_terms: str = "", naics_codes: str = ""):
+    """Monitor government contract opportunities."""
+    from reindustrialization import monitor_gov_contracts
+    terms = [t.strip() for t in search_terms.split(",") if t.strip()] if search_terms else None
+    naics = [n.strip() for n in naics_codes.split(",") if n.strip()] if naics_codes else None
+    return await monitor_gov_contracts(terms, naics)
+
+
+@app.get("/reindustrialization/reshoring-metrics")
+async def get_reshoring_metrics():
+    """Track national reshoring progress."""
+    from reindustrialization import track_reshoring_metrics
+    return await track_reshoring_metrics()
+
+
+@app.post("/reindustrialization/energy")
+async def energy_optimization(payload: dict):
+    """Optimize factory energy consumption."""
+    from reindustrialization import optimize_energy
+    return await optimize_energy(
+        payload.get("factory_id", ""), payload.get("optimization_target", "cost"),
+    )
+
+
+@app.post("/reindustrialization/logistics")
+async def logistics_optimization(payload: dict):
+    """Logistics and fleet routing optimization."""
+    from reindustrialization import optimize_logistics
+    return await optimize_logistics(
+        payload.get("origin", ""), payload.get("destination", ""),
+        payload.get("cargo", {}),
+    )
+
+
+@app.post("/reindustrialization/itar-check")
+async def check_itar(payload: dict):
+    """Check ITAR/export control compliance."""
+    from reindustrialization import compliance_check_itar
+    return await compliance_check_itar(
+        payload.get("product_description", ""), payload.get("destination", ""),
+    )
+
+
+@app.post("/reindustrialization/construction")
+async def construction_plan(payload: dict):
+    """Construction planning and scheduling."""
+    from reindustrialization import plan_construction
+    return await plan_construction(payload)
+
+
+@app.post("/reindustrialization/agriculture")
+async def agriculture_automation(payload: dict):
+    """Precision agriculture automation."""
+    from reindustrialization import automate_agriculture
+    return await automate_agriculture(
+        payload.get("farm_id", ""), payload.get("operation", "status"),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     import uvicorn

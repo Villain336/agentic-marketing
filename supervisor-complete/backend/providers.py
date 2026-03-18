@@ -439,6 +439,110 @@ class GoogleAdapter(ProviderAdapter):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# AWS BEDROCK ADAPTER
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class BedrockAdapter(ProviderAdapter):
+    """AWS Bedrock — Claude, Llama, Mistral via AWS managed endpoints."""
+
+    BEDROCK_MODELS = {
+        "claude-sonnet": "anthropic.claude-sonnet-4-20250514-v1:0",
+        "claude-haiku": "anthropic.claude-haiku-4-5-20251001-v1:0",
+        "llama3-70b": "meta.llama3-70b-instruct-v1:0",
+        "mistral-large": "mistral.mistral-large-2407-v1:0",
+    }
+
+    def __init__(self, config: ProviderConfig):
+        super().__init__(config)
+        self._boto_client = None
+
+    def _get_boto_client(self):
+        if self._boto_client:
+            return self._boto_client
+        try:
+            import boto3
+            import os
+            region = os.getenv("AWS_BEDROCK_REGION", "us-east-1")
+            self._boto_client = boto3.client("bedrock-runtime", region_name=region)
+            return self._boto_client
+        except ImportError:
+            logger.warning("boto3 not installed — Bedrock unavailable")
+            return None
+        except Exception as e:
+            logger.error(f"Bedrock client init failed: {e}")
+            return None
+
+    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        client = self._get_boto_client()
+        if not client:
+            raise ProviderError("boto3_unavailable", self.config.name)
+
+        model = self.get_model(tier, model_override)
+        model_id = self.BEDROCK_MODELS.get(model, model)
+
+        try:
+            if "anthropic" in model_id:
+                body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": max_tokens, "messages": messages}
+                if system:
+                    body["system"] = system
+                if tools:
+                    body["tools"] = [t.to_anthropic_schema() for t in tools]
+
+                resp = client.invoke_model(modelId=model_id, body=json.dumps(body), contentType="application/json")
+                data = json.loads(resp["body"].read())
+                self._mark_success()
+
+                text_parts, tool_calls = [], []
+                for blk in data.get("content", []):
+                    if blk["type"] == "text":
+                        text_parts.append(blk["text"])
+                    elif blk["type"] == "tool_use":
+                        tool_calls.append(ToolCall(id=blk["id"], name=blk["name"], input=blk.get("input", {})))
+
+                return {"text": "".join(text_parts), "tool_calls": tool_calls, "stop_reason": data.get("stop_reason", ""), "provider": self.config.name, "model": model_id, "usage": data.get("usage", {})}
+            else:
+                body = {"inputText": messages[-1].get("content", "") if messages else ""}
+                resp = client.invoke_model(modelId=model_id, body=json.dumps(body), contentType="application/json")
+                data = json.loads(resp["body"].read())
+                self._mark_success()
+                return {"text": str(data), "tool_calls": [], "stop_reason": "end_turn", "provider": self.config.name, "model": model_id, "usage": {}}
+
+        except Exception as e:
+            self._mark_error(str(e))
+            raise ProviderError(str(e), self.config.name)
+
+    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        client = self._get_boto_client()
+        if not client:
+            raise ProviderError("boto3_unavailable", self.config.name)
+
+        model = self.get_model(tier, model_override)
+        model_id = self.BEDROCK_MODELS.get(model, model)
+
+        try:
+            if "anthropic" in model_id:
+                body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": max_tokens, "messages": messages}
+                if system:
+                    body["system"] = system
+                if tools:
+                    body["tools"] = [t.to_anthropic_schema() for t in tools]
+
+                resp = client.invoke_model_with_response_stream(modelId=model_id, body=json.dumps(body), contentType="application/json")
+                for event in resp.get("body", []):
+                    chunk = json.loads(event.get("chunk", {}).get("bytes", b"{}"))
+                    if chunk.get("type") == "content_block_delta":
+                        delta = chunk.get("delta", {})
+                        if delta.get("type") == "text_delta":
+                            yield {"type": "text", "text": delta["text"], "provider": self.config.name, "model": model_id}
+                    elif chunk.get("type") == "message_stop":
+                        yield {"type": "done", "provider": self.config.name, "model": model_id}
+                self._mark_success()
+        except Exception as e:
+            self._mark_error(str(e))
+            raise ProviderError(str(e), self.config.name)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # OPENROUTER ADAPTER (unified gateway — all models via OpenAI-compatible API)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -466,6 +570,7 @@ class ModelRouter:
         adapter_map = {
             "openrouter": OpenRouterAdapter,
             "anthropic": AnthropicAdapter,
+            "bedrock": BedrockAdapter,
             "openai": OpenAIAdapter,
             "google": GoogleAdapter,
         }

@@ -8369,6 +8369,214 @@ def register_all_tools():
         [ToolParameter(name="action", description="Action: generate, update, preview (default generate)", required=False)],
         _build_trust_portal, "compliance")
 
+    # ── NVIDIA Tools ──
+    registry.register("allocate_gpu", "Reserve a GPU for an agent task — supports A100, H100, L40S.",
+        [ToolParameter(name="agent_id", description="Agent requesting the GPU"),
+         ToolParameter(name="gpu_type", description="GPU type: A100, H100, L40S", required=False),
+         ToolParameter(name="vram_gb", description="Minimum VRAM in GB", required=False)],
+        _allocate_gpu, "nvidia")
+
+    registry.register("release_gpu", "Release a previously allocated GPU back to the pool.",
+        [ToolParameter(name="allocation_id", description="Allocation ID to release")],
+        _release_gpu, "nvidia")
+
+    registry.register("gpu_cluster_status", "Get GPU cluster status — total GPUs, utilization, queue depth.",
+        [], _gpu_cluster_status, "nvidia")
+
+    registry.register("optimize_model_tensorrt", "Optimize a model for inference with TensorRT — FP16/INT8/FP32.",
+        [ToolParameter(name="model_path", description="Path to ONNX/PyTorch model"),
+         ToolParameter(name="precision", description="Precision: fp16, int8, fp32", required=False),
+         ToolParameter(name="target_gpu", description="Target GPU type", required=False),
+         ToolParameter(name="model_name", description="Name for the optimized model", required=False)],
+        _optimize_model_tensorrt, "nvidia")
+
+    registry.register("deploy_model_triton", "Deploy a model on NVIDIA Triton Inference Server.",
+        [ToolParameter(name="model_name", description="Model name"),
+         ToolParameter(name="model_path", description="Path to model files"),
+         ToolParameter(name="instances", description="Number of instances", required=False),
+         ToolParameter(name="gpu_ids", description="Comma-separated GPU IDs", required=False)],
+        _deploy_model_triton, "nvidia")
+
+    registry.register("triton_infer", "Run inference against a Triton-deployed model.",
+        [ToolParameter(name="model_name", description="Deployed model name"),
+         ToolParameter(name="inputs", description="Input data as JSON", required=False)],
+        _triton_infer, "nvidia")
+
+    registry.register("create_digital_twin", "Create an NVIDIA Omniverse digital twin of a factory.",
+        [ToolParameter(name="name", description="Twin name", required=False),
+         ToolParameter(name="factory_config", description="Factory config JSON", required=False)],
+        _create_digital_twin, "nvidia")
+
+    registry.register("simulate_digital_twin", "Run simulation on a digital twin — throughput, bottlenecks, failures.",
+        [ToolParameter(name="twin_id", description="Digital twin ID"),
+         ToolParameter(name="scenario", description="Scenario config JSON", required=False)],
+        _simulate_digital_twin, "nvidia")
+
+    registry.register("create_robot_sim", "Create a robotics simulation in NVIDIA Isaac Sim.",
+        [ToolParameter(name="robot_type", description="Robot type (e.g. industrial_arm, mobile_robot)"),
+         ToolParameter(name="task", description="Task to simulate (e.g. pick_and_place, welding)")],
+        _create_robot_sim, "nvidia")
+
+    registry.register("train_robot_policy", "Train a robot policy using reinforcement learning in Isaac Sim.",
+        [ToolParameter(name="sim_id", description="Simulation ID"),
+         ToolParameter(name="algorithm", description="RL algorithm: PPO, SAC, TD3", required=False),
+         ToolParameter(name="episodes", description="Training episodes", required=False)],
+        _train_robot_policy, "nvidia")
+
+    registry.register("run_vision_inspection", "Run NVIDIA Metropolis vision AI quality inspection on a part.",
+        [ToolParameter(name="pipeline_id", description="Inspection pipeline ID"),
+         ToolParameter(name="image_b64", description="Base64 encoded image", required=False)],
+        _run_vision_inspection, "nvidia")
+
+    # ── AWS Tools ──
+    registry.register("eks_create_cluster", "Create an EKS Kubernetes cluster for agent workloads.",
+        [ToolParameter(name="name", description="Cluster name"),
+         ToolParameter(name="node_type", description="Node instance type", required=False),
+         ToolParameter(name="gpu_nodes", description="Number of GPU nodes", required=False)],
+        _eks_create_cluster, "aws")
+
+    registry.register("eks_deploy_workspace", "Deploy an agent workspace as a Kubernetes pod on EKS.",
+        [ToolParameter(name="cluster", description="Cluster name"),
+         ToolParameter(name="agent_id", description="Agent ID"),
+         ToolParameter(name="cpu", description="CPU allocation", required=False),
+         ToolParameter(name="memory", description="Memory allocation", required=False)],
+        _eks_deploy_workspace, "aws")
+
+    registry.register("sagemaker_train", "Launch a SageMaker training job.",
+        [ToolParameter(name="dataset_s3", description="S3 path to training dataset"),
+         ToolParameter(name="model_type", description="Model type to train"),
+         ToolParameter(name="instance_type", description="SageMaker instance type", required=False),
+         ToolParameter(name="hyperparams", description="Hyperparameters JSON", required=False)],
+        _sagemaker_train, "aws")
+
+    registry.register("sagemaker_deploy_endpoint", "Deploy a trained model as a SageMaker real-time endpoint.",
+        [ToolParameter(name="model_artifact", description="S3 path to model artifact"),
+         ToolParameter(name="instance_type", description="Instance type for endpoint", required=False),
+         ToolParameter(name="auto_scaling", description="Enable auto-scaling", required=False)],
+        _sagemaker_deploy_endpoint, "aws")
+
+    registry.register("iot_register_device", "Register a factory floor device with AWS IoT Core.",
+        [ToolParameter(name="device_id", description="Unique device identifier"),
+         ToolParameter(name="device_type", description="Device type: cnc, printer, sensor, robot, conveyor"),
+         ToolParameter(name="factory_id", description="Factory identifier", required=False)],
+        _iot_register_device, "aws")
+
+    registry.register("iot_send_command", "Send a command to a factory floor device via IoT Core.",
+        [ToolParameter(name="device_id", description="Target device ID"),
+         ToolParameter(name="command", description="Command JSON", required=False)],
+        _iot_send_command, "aws")
+
+    registry.register("iot_get_telemetry", "Read sensor telemetry from a factory device.",
+        [ToolParameter(name="device_id", description="Device ID"),
+         ToolParameter(name="metric", description="Specific metric: temperature, vibration, power", required=False),
+         ToolParameter(name="time_range", description="Time range: 1h, 24h, 7d", required=False)],
+        _iot_get_telemetry, "aws")
+
+    registry.register("iot_create_rule", "Create an IoT rule: if condition → trigger action.",
+        [ToolParameter(name="trigger", description="Trigger condition JSON"),
+         ToolParameter(name="action", description="Action to execute JSON")],
+        _iot_create_rule, "aws")
+
+    registry.register("robomaker_create_sim", "Create a robot simulation in AWS RoboMaker.",
+        [ToolParameter(name="robot_type", description="Robot type"),
+         ToolParameter(name="world_config", description="World configuration JSON", required=False)],
+        _robomaker_create_sim, "aws")
+
+    registry.register("robomaker_deploy_robot", "Deploy software to a physical robot via RoboMaker.",
+        [ToolParameter(name="robot_id", description="Robot identifier"),
+         ToolParameter(name="application_arn", description="Application ARN to deploy")],
+        _robomaker_deploy_robot, "aws")
+
+    registry.register("greengrass_deploy_edge", "Deploy ML model or component to edge device via Greengrass.",
+        [ToolParameter(name="core_device", description="Greengrass core device name"),
+         ToolParameter(name="component_name", description="Component to deploy"),
+         ToolParameter(name="component_type", description="Type: ml_model, lambda, container", required=False)],
+        _greengrass_deploy_edge, "aws")
+
+    registry.register("step_functions_create_workflow", "Create a Step Functions workflow for multi-agent orchestration.",
+        [ToolParameter(name="name", description="Workflow name", required=False),
+         ToolParameter(name="definition", description="State machine definition JSON", required=False)],
+        _step_functions_create_workflow, "aws")
+
+    registry.register("step_functions_start", "Start execution of a Step Functions workflow.",
+        [ToolParameter(name="workflow_id", description="Workflow ID"),
+         ToolParameter(name="input_data", description="Input data JSON", required=False)],
+        _step_functions_start, "aws")
+
+    registry.register("s3_upload", "Upload an artifact to S3 (CAD files, G-code, models, reports).",
+        [ToolParameter(name="key", description="S3 object key/path"),
+         ToolParameter(name="data", description="Data to upload", required=False),
+         ToolParameter(name="bucket", description="S3 bucket name", required=False)],
+        _s3_upload, "aws")
+
+    registry.register("s3_download", "Download an artifact from S3.",
+        [ToolParameter(name="key", description="S3 object key/path"),
+         ToolParameter(name="bucket", description="S3 bucket name", required=False)],
+        _s3_download, "aws")
+
+    # ── Reindustrialization Tools ──
+    registry.register("analyze_factory_site", "Analyze a factory site for suitability — labor, taxes, energy, supply chain.",
+        [ToolParameter(name="location", description="Location to analyze (city, state)"),
+         ToolParameter(name="requirements", description="Requirements JSON", required=False)],
+        _analyze_factory_site, "reindustrialization")
+
+    registry.register("manage_robot_fleet", "Manage industrial robot fleet — status, maintenance, task assignment.",
+        [ToolParameter(name="fleet_id", description="Fleet identifier"),
+         ToolParameter(name="action", description="Action: status, schedule_maintenance, assign_task", required=False),
+         ToolParameter(name="robot_id", description="Specific robot ID", required=False),
+         ToolParameter(name="task", description="Task to assign", required=False)],
+        _manage_robot_fleet, "reindustrialization")
+
+    registry.register("reshore_supply_chain", "Analyze reshoring opportunity — domestic vs. overseas cost comparison.",
+        [ToolParameter(name="product", description="Product or component to reshore"),
+         ToolParameter(name="current_source", description="Current source: overseas, china, mexico, etc.", required=False)],
+        _reshore_supply_chain, "reindustrialization")
+
+    registry.register("operate_digital_twin", "Operate a factory digital twin — status, simulate, optimize.",
+        [ToolParameter(name="twin_id", description="Digital twin ID"),
+         ToolParameter(name="operation", description="Operation: status, simulate, optimize", required=False),
+         ToolParameter(name="scenario", description="Scenario config JSON", required=False)],
+        _operate_digital_twin, "reindustrialization")
+
+    registry.register("optimize_energy", "Optimize factory energy consumption and costs.",
+        [ToolParameter(name="factory_id", description="Factory identifier"),
+         ToolParameter(name="optimization_target", description="Target: cost, carbon, reliability", required=False)],
+        _optimize_energy, "reindustrialization")
+
+    registry.register("develop_workforce", "Analyze workforce development needs — skills gaps, training programs.",
+        [ToolParameter(name="region", description="Region to analyze"),
+         ToolParameter(name="roles", description="Comma-separated roles to analyze", required=False)],
+        _develop_workforce, "reindustrialization")
+
+    registry.register("monitor_gov_contracts", "Monitor SAM.gov for government contract opportunities.",
+        [ToolParameter(name="search_terms", description="Comma-separated search terms", required=False),
+         ToolParameter(name="naics_codes", description="Comma-separated NAICS codes", required=False)],
+        _monitor_gov_contracts, "reindustrialization")
+
+    registry.register("automate_agriculture", "Precision agriculture automation — soil analysis, crop planning, equipment coordination.",
+        [ToolParameter(name="farm_id", description="Farm identifier"),
+         ToolParameter(name="operation", description="Operation: status, irrigate, harvest, plant", required=False)],
+        _automate_agriculture, "reindustrialization")
+
+    registry.register("plan_construction", "Construction planning — scheduling, costing, OSHA compliance.",
+        [ToolParameter(name="project_name", description="Project name"),
+         ToolParameter(name="project_type", description="Type: factory, warehouse, office, modular", required=False)],
+        _plan_construction, "reindustrialization")
+
+    registry.register("optimize_logistics", "Logistics optimization — fleet routing, warehouse, last-mile delivery.",
+        [ToolParameter(name="origin", description="Origin location"),
+         ToolParameter(name="destination", description="Destination location"),
+         ToolParameter(name="cargo_type", description="Cargo type", required=False)],
+        _optimize_logistics, "reindustrialization")
+
+    registry.register("track_reshoring_metrics", "Track national reshoring progress and metrics.",
+        [], _track_reshoring_metrics, "reindustrialization")
+
+    registry.register("compliance_check_itar", "Check ITAR/export control compliance for a product.",
+        [ToolParameter(name="product_description", description="Product description"),
+         ToolParameter(name="destination", description="Export destination country/region", required=False)],
+        _compliance_check_itar, "reindustrialization")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # COMPUTER USE — TOOL HANDLER FUNCTIONS
@@ -9024,6 +9232,235 @@ async def _build_trust_portal(action: str = "generate") -> str:
             "contact": "security@supervisor.ai",
         },
     })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NVIDIA TOOL HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _allocate_gpu(agent_id: str, gpu_type: str = "", vram_gb: str = "0") -> str:
+    from nvidia_infra import gpu_cluster
+    result = await gpu_cluster.allocate_gpu(agent_id, gpu_type, float(vram_gb))
+    if result:
+        return json.dumps(result.model_dump(), default=str)
+    return json.dumps({"error": "No GPU available matching requirements", "agent_id": agent_id})
+
+async def _release_gpu(allocation_id: str) -> str:
+    from nvidia_infra import gpu_cluster
+    ok = await gpu_cluster.release_gpu(allocation_id)
+    return json.dumps({"released": ok, "allocation_id": allocation_id})
+
+async def _gpu_cluster_status() -> str:
+    from nvidia_infra import gpu_cluster
+    result = await gpu_cluster.get_cluster_status()
+    return json.dumps(result, default=str)
+
+async def _optimize_model_tensorrt(model_path: str, precision: str = "fp16",
+                                     target_gpu: str = "", model_name: str = "") -> str:
+    from nvidia_infra import tensorrt_optimizer
+    engine = await tensorrt_optimizer.optimize_model(model_path, precision, target_gpu, model_name)
+    return json.dumps(engine.model_dump(), default=str)
+
+async def _deploy_model_triton(model_name: str, model_path: str,
+                                 instances: str = "1", gpu_ids: str = "") -> str:
+    from nvidia_infra import triton_server
+    gids = [g.strip() for g in gpu_ids.split(",") if g.strip()] if gpu_ids else []
+    model = await triton_server.deploy_model(model_name, model_path, int(instances), gids)
+    return json.dumps(model.model_dump(), default=str)
+
+async def _triton_infer(model_name: str, inputs: str = "{}") -> str:
+    from nvidia_infra import triton_server
+    inp = json.loads(inputs) if isinstance(inputs, str) else inputs
+    result = await triton_server.infer(model_name, inp)
+    return json.dumps(result, default=str)
+
+async def _create_digital_twin(name: str = "", factory_config: str = "{}") -> str:
+    from nvidia_infra import omniverse_connector
+    config = json.loads(factory_config) if isinstance(factory_config, str) else factory_config
+    twin = await omniverse_connector.create_digital_twin(config, name)
+    return json.dumps(twin.model_dump(), default=str)
+
+async def _simulate_digital_twin(twin_id: str, scenario: str = "{}") -> str:
+    from nvidia_infra import omniverse_connector
+    sc = json.loads(scenario) if isinstance(scenario, str) else scenario
+    result = await omniverse_connector.simulate(twin_id, sc)
+    return json.dumps(result, default=str)
+
+async def _create_robot_sim(robot_type: str, task: str) -> str:
+    from nvidia_infra import isaac_sim_connector
+    sim = await isaac_sim_connector.create_robot_sim(robot_type, task)
+    return json.dumps(sim.model_dump(), default=str)
+
+async def _train_robot_policy(sim_id: str, algorithm: str = "PPO", episodes: str = "1000") -> str:
+    from nvidia_infra import isaac_sim_connector
+    result = await isaac_sim_connector.train_robot_policy(sim_id, algorithm, int(episodes))
+    return json.dumps(result, default=str)
+
+async def _run_vision_inspection(pipeline_id: str, image_b64: str = "") -> str:
+    from nvidia_infra import metropolis_connector
+    result = await metropolis_connector.run_inspection(pipeline_id, image_b64)
+    return json.dumps(result, default=str)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AWS TOOL HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _eks_create_cluster(name: str, node_type: str = "m5.xlarge", gpu_nodes: str = "0") -> str:
+    from aws_infra import eks_manager
+    result = await eks_manager.create_cluster(name, node_type, int(gpu_nodes))
+    return json.dumps(result, default=str)
+
+async def _eks_deploy_workspace(cluster: str, agent_id: str, cpu: str = "2", memory: str = "4Gi") -> str:
+    from aws_infra import eks_manager
+    result = await eks_manager.deploy_agent_workspace(cluster, agent_id, {"cpu": cpu, "memory": memory})
+    return json.dumps(result, default=str)
+
+async def _sagemaker_train(dataset_s3: str, model_type: str, instance_type: str = "ml.g5.xlarge",
+                            hyperparams: str = "{}") -> str:
+    from aws_infra import sagemaker_pipeline
+    hp = json.loads(hyperparams) if isinstance(hyperparams, str) else hyperparams
+    result = await sagemaker_pipeline.create_training_job(dataset_s3, model_type, hp, instance_type)
+    return json.dumps(result, default=str)
+
+async def _sagemaker_deploy_endpoint(model_artifact: str, instance_type: str = "ml.g5.xlarge",
+                                       auto_scaling: str = "true") -> str:
+    from aws_infra import sagemaker_pipeline
+    result = await sagemaker_pipeline.deploy_endpoint(model_artifact, instance_type, auto_scaling.lower() == "true")
+    return json.dumps(result, default=str)
+
+async def _iot_register_device(device_id: str, device_type: str, factory_id: str = "") -> str:
+    from aws_infra import iot_core_manager
+    result = await iot_core_manager.register_device(device_id, device_type, factory_id)
+    return json.dumps(result, default=str)
+
+async def _iot_send_command(device_id: str, command: str = "{}") -> str:
+    from aws_infra import iot_core_manager
+    cmd = json.loads(command) if isinstance(command, str) else command
+    result = await iot_core_manager.send_command(device_id, cmd)
+    return json.dumps(result, default=str)
+
+async def _iot_get_telemetry(device_id: str, metric: str = "", time_range: str = "1h") -> str:
+    from aws_infra import iot_core_manager
+    result = await iot_core_manager.get_telemetry(device_id, metric, time_range)
+    return json.dumps(result, default=str)
+
+async def _iot_create_rule(trigger: str = "{}", action: str = "{}") -> str:
+    from aws_infra import iot_core_manager
+    t = json.loads(trigger) if isinstance(trigger, str) else trigger
+    a = json.loads(action) if isinstance(action, str) else action
+    result = await iot_core_manager.create_rule(t, a)
+    return json.dumps(result, default=str)
+
+async def _robomaker_create_sim(robot_type: str, world_config: str = "{}") -> str:
+    from aws_infra import robomaker_manager
+    wc = json.loads(world_config) if isinstance(world_config, str) else world_config
+    result = await robomaker_manager.create_simulation(robot_type, wc)
+    return json.dumps(result, default=str)
+
+async def _robomaker_deploy_robot(robot_id: str, application_arn: str) -> str:
+    from aws_infra import robomaker_manager
+    result = await robomaker_manager.deploy_robot_application(robot_id, application_arn)
+    return json.dumps(result, default=str)
+
+async def _greengrass_deploy_edge(core_device: str, component_name: str, component_type: str = "ml_model") -> str:
+    from aws_infra import greengrass_manager
+    result = await greengrass_manager.deploy_component(core_device, {"name": component_name, "type": component_type})
+    return json.dumps(result, default=str)
+
+async def _step_functions_create_workflow(name: str = "", definition: str = "{}") -> str:
+    from aws_infra import step_functions
+    defn = json.loads(definition) if isinstance(definition, str) else definition
+    result = await step_functions.create_workflow(defn, name)
+    return json.dumps(result, default=str)
+
+async def _step_functions_start(workflow_id: str, input_data: str = "{}") -> str:
+    from aws_infra import step_functions
+    inp = json.loads(input_data) if isinstance(input_data, str) else input_data
+    result = await step_functions.start_execution(workflow_id, inp)
+    return json.dumps(result, default=str)
+
+async def _s3_upload(key: str, data: str = "", bucket: str = "") -> str:
+    from aws_infra import s3_manager
+    result = await s3_manager.upload(key, data.encode(), bucket)
+    return json.dumps(result, default=str)
+
+async def _s3_download(key: str, bucket: str = "") -> str:
+    from aws_infra import s3_manager
+    result = await s3_manager.download(key, bucket)
+    if isinstance(result.get("data"), bytes):
+        result["data"] = f"<binary {result.get('size_bytes', 0)} bytes>"
+    return json.dumps(result, default=str)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# REINDUSTRIALIZATION TOOL HANDLERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _analyze_factory_site(location: str, requirements: str = "{}") -> str:
+    from reindustrialization import analyze_factory_site
+    reqs = json.loads(requirements) if isinstance(requirements, str) else requirements
+    result = await analyze_factory_site(location, reqs)
+    return json.dumps(result, default=str)
+
+async def _manage_robot_fleet(fleet_id: str, action: str = "status", robot_id: str = "", task: str = "") -> str:
+    from reindustrialization import manage_robot_fleet
+    result = await manage_robot_fleet(fleet_id, action, robot_id=robot_id, task=task)
+    return json.dumps(result, default=str)
+
+async def _reshore_supply_chain(product: str, current_source: str = "overseas") -> str:
+    from reindustrialization import reshore_supply_chain
+    result = await reshore_supply_chain(product, current_source)
+    return json.dumps(result, default=str)
+
+async def _operate_digital_twin(twin_id: str, operation: str = "status", scenario: str = "{}") -> str:
+    from reindustrialization import operate_digital_twin
+    sc = json.loads(scenario) if isinstance(scenario, str) else scenario
+    result = await operate_digital_twin(twin_id, operation, scenario=sc)
+    return json.dumps(result, default=str)
+
+async def _optimize_energy(factory_id: str, optimization_target: str = "cost") -> str:
+    from reindustrialization import optimize_energy
+    result = await optimize_energy(factory_id, optimization_target)
+    return json.dumps(result, default=str)
+
+async def _develop_workforce(region: str, roles: str = "") -> str:
+    from reindustrialization import develop_workforce
+    role_list = [r.strip() for r in roles.split(",") if r.strip()] if roles else None
+    result = await develop_workforce(region, role_list)
+    return json.dumps(result, default=str)
+
+async def _monitor_gov_contracts(search_terms: str = "", naics_codes: str = "") -> str:
+    from reindustrialization import monitor_gov_contracts
+    terms = [t.strip() for t in search_terms.split(",") if t.strip()] if search_terms else None
+    naics = [n.strip() for n in naics_codes.split(",") if n.strip()] if naics_codes else None
+    result = await monitor_gov_contracts(terms, naics)
+    return json.dumps(result, default=str)
+
+async def _automate_agriculture(farm_id: str, operation: str = "status") -> str:
+    from reindustrialization import automate_agriculture
+    result = await automate_agriculture(farm_id, operation)
+    return json.dumps(result, default=str)
+
+async def _plan_construction(project_name: str, project_type: str = "factory") -> str:
+    from reindustrialization import plan_construction
+    result = await plan_construction({"name": project_name, "type": project_type})
+    return json.dumps(result, default=str)
+
+async def _optimize_logistics(origin: str, destination: str, cargo_type: str = "") -> str:
+    from reindustrialization import optimize_logistics
+    result = await optimize_logistics(origin, destination, {"type": cargo_type} if cargo_type else None)
+    return json.dumps(result, default=str)
+
+async def _track_reshoring_metrics() -> str:
+    from reindustrialization import track_reshoring_metrics
+    result = await track_reshoring_metrics()
+    return json.dumps(result, default=str)
+
+async def _compliance_check_itar(product_description: str, destination: str = "") -> str:
+    from reindustrialization import compliance_check_itar
+    result = await compliance_check_itar(product_description, destination)
+    return json.dumps(result, default=str)
 
 
 register_all_tools()

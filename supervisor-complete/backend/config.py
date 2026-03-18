@@ -188,6 +188,26 @@ class Settings:
     rewardful_api_key: str = ""
     firstpromoter_api_key: str = ""
 
+    # AWS Infrastructure
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_region: str = "us-east-1"
+    aws_account_id: str = ""
+    aws_bedrock_region: str = "us-east-1"
+    aws_sagemaker_role_arn: str = ""
+    aws_eks_cluster_name: str = ""
+    aws_iot_endpoint: str = ""
+    aws_s3_bucket: str = "supervisor-artifacts"
+
+    # NVIDIA Infrastructure
+    nvidia_api_key: str = ""
+    nvidia_ngc_api_key: str = ""
+    triton_server_url: str = "http://localhost:8001"
+    omniverse_server_url: str = ""
+    isaac_sim_url: str = ""
+    metropolis_url: str = ""
+    nvidia_gpu_cluster_endpoint: str = ""
+
     @classmethod
     def from_env(cls) -> "Settings":
         providers = []
@@ -225,6 +245,18 @@ class Settings:
             fast_model=os.getenv("OPENAI_FAST_MODEL", "gpt-4o-mini"),
             priority=2,
             timeout=int(os.getenv("OPENAI_TIMEOUT", "120")),
+        ))
+
+        # AWS Bedrock — managed LLM endpoints, priority 1.5
+        providers.append(ProviderConfig(
+            name="bedrock",
+            api_key=os.getenv("AWS_ACCESS_KEY_ID", ""),  # Uses AWS creds
+            base_url="https://bedrock-runtime.us-east-1.amazonaws.com",
+            strong_model=os.getenv("BEDROCK_STRONG_MODEL", "claude-sonnet"),
+            default_model=os.getenv("BEDROCK_MODEL", "claude-sonnet"),
+            fast_model=os.getenv("BEDROCK_FAST_MODEL", "claude-haiku"),
+            priority=15,  # Between anthropic (1) and openai (2) — sorted numerically
+            timeout=int(os.getenv("BEDROCK_TIMEOUT", "120")),
         ))
 
         providers.append(ProviderConfig(
@@ -367,6 +399,24 @@ class Settings:
             # Referral & Affiliate
             rewardful_api_key=os.getenv("REWARDFUL_API_KEY", ""),
             firstpromoter_api_key=os.getenv("FIRSTPROMOTER_API_KEY", ""),
+            # AWS Infrastructure
+            aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", ""),
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", ""),
+            aws_region=os.getenv("AWS_REGION", "us-east-1"),
+            aws_account_id=os.getenv("AWS_ACCOUNT_ID", ""),
+            aws_bedrock_region=os.getenv("AWS_BEDROCK_REGION", "us-east-1"),
+            aws_sagemaker_role_arn=os.getenv("AWS_SAGEMAKER_ROLE_ARN", ""),
+            aws_eks_cluster_name=os.getenv("AWS_EKS_CLUSTER_NAME", ""),
+            aws_iot_endpoint=os.getenv("AWS_IOT_ENDPOINT", ""),
+            aws_s3_bucket=os.getenv("AWS_S3_BUCKET", "supervisor-artifacts"),
+            # NVIDIA Infrastructure
+            nvidia_api_key=os.getenv("NVIDIA_API_KEY", ""),
+            nvidia_ngc_api_key=os.getenv("NVIDIA_NGC_API_KEY", ""),
+            triton_server_url=os.getenv("TRITON_SERVER_URL", "http://localhost:8001"),
+            omniverse_server_url=os.getenv("OMNIVERSE_SERVER_URL", ""),
+            isaac_sim_url=os.getenv("ISAAC_SIM_URL", ""),
+            metropolis_url=os.getenv("METROPOLIS_URL", ""),
+            nvidia_gpu_cluster_endpoint=os.getenv("NVIDIA_GPU_CLUSTER_ENDPOINT", ""),
         )
 
     @property

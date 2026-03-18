@@ -805,3 +805,80 @@ class RedTeamResult(BaseModel):
     agent_hardening_score: int = 0
     findings: list[dict[str, Any]] = []
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NVIDIA / AWS / REINDUSTRIALIZATION MODELS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class IoTDeviceModel(BaseModel):
+    """Factory floor device registration."""
+    device_id: str = ""
+    device_type: str = ""  # cnc, printer, sensor, robot, conveyor
+    factory_id: str = ""
+    status: str = "registered"
+    last_telemetry: Optional[dict[str, Any]] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class RobotFleetStatus(BaseModel):
+    """Robot fleet health summary."""
+    fleet_id: str = ""
+    total_robots: int = 0
+    active: int = 0
+    maintenance: int = 0
+    offline: int = 0
+    tasks_completed_today: int = 0
+    uptime_pct: float = 0.0
+
+
+class ReshoringAnalysis(BaseModel):
+    """Domestic vs. overseas cost comparison."""
+    product: str = ""
+    current_source: str = "overseas"
+    overseas_landed_cost: float = 0.0
+    domestic_cost: float = 0.0
+    tariff_risk_premium: float = 0.0
+    adjusted_overseas_cost: float = 0.0
+    buy_american_compliant: bool = False
+    recommendation: str = ""
+
+
+class FactorySiteAnalysis(BaseModel):
+    """Factory site selection scoring."""
+    location: str = ""
+    overall_score: float = 0.0
+    scores: dict[str, float] = {}
+    state_incentives: list[dict[str, str]] = []
+    workforce_availability: dict[str, int] = {}
+    recommendation: str = ""
+
+
+class GovernmentContract(BaseModel):
+    """Defense/government contract opportunity."""
+    title: str = ""
+    agency: str = ""
+    value_est: str = ""
+    deadline: str = ""
+    set_aside: str = ""
+    naics: str = ""
+    itar_required: bool = False
+
+
+class GPUClusterStatus(BaseModel):
+    """GPU cluster status summary."""
+    total_gpus: int = 0
+    allocated: int = 0
+    available: int = 0
+    avg_utilization_pct: float = 0.0
+    active_allocations: int = 0
+
+
+class DigitalTwinModel(BaseModel):
+    """Omniverse digital twin state."""
+    twin_id: str = ""
+    name: str = ""
+    status: str = "created"
+    last_simulation: Optional[dict[str, Any]] = None
+    sensor_data: dict[str, Any] = {}
+    created_at: datetime = Field(default_factory=datetime.utcnow)

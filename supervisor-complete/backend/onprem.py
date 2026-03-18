@@ -90,6 +90,22 @@ LOCAL_LLM_PRESETS = {
         max_tokens=2048, context_window=8192,
         supports_tools=False, supports_streaming=True,
     ),
+    # NVIDIA TensorRT-optimized inference
+    "tensorrt_llama3": LocalLLMConfig(
+        name="TensorRT Llama 3.1", endpoint="http://localhost:8001/v2/models/llama3/infer",
+        model="llama3.1-70b-trt", api_format="openai",
+        max_tokens=4096, context_window=131072,
+        supports_tools=True, supports_streaming=True,
+        gpu_required=True,
+    ),
+    # NVIDIA Triton local server
+    "triton_local": LocalLLMConfig(
+        name="Triton Local", endpoint="http://localhost:8001/v2",
+        model="ensemble", api_format="openai",
+        max_tokens=4096, context_window=32768,
+        supports_tools=True, supports_streaming=True,
+        gpu_required=True,
+    ),
 }
 
 
