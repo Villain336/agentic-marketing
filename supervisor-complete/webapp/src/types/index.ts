@@ -54,6 +54,13 @@ export interface BusinessProfile {
   industry: string;
   founderTitle: string;
   brandContext: string;
+  websiteUrl: string;
+  pricingModel: string;
+  currentRevenue: string;
+  teamSize: string;
+  competitors: string;
+  biggestChallenge: string;
+  brandVoice: string;
 }
 
 export interface Campaign {

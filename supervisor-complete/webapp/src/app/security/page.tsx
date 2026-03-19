@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { OmniLogo } from "@/components/ui/omni-logo";
 
 export const metadata: Metadata = {
   title: "Security",
@@ -12,9 +13,7 @@ export default function SecurityPage() {
       <nav className="fixed top-0 w-full z-50 bg-white border-b border-surface-100">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-surface-900 flex items-center justify-center">
-              <span className="text-white font-bold text-sm font-mono">O</span>
-            </div>
+            <OmniLogo size={32} className="text-surface-900" />
             <span className="font-display font-bold text-lg text-surface-900 tracking-tight">Omni OS</span>
           </Link>
           <Link href="/auth?mode=signup" className="btn-primary">Get Started</Link>

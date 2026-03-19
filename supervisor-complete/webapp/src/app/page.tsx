@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { PRICING_TIERS, DEPARTMENTS, AGENTS, FEATURES, INTEGRATIONS } from "@/lib/constants";
+import { OmniLogo } from "@/components/ui/omni-logo";
 
 // ── Landing Page ────────────────────────────────────────────────────────
 
@@ -42,9 +43,7 @@ function Nav() {
     >
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-surface-900 flex items-center justify-center">
-            <span className="text-white font-bold text-sm font-mono">O</span>
-          </div>
+          <OmniLogo size={32} className="text-surface-900" />
           <span className="font-display font-bold text-lg text-surface-900 tracking-tight">
             Omni OS
           </span>
@@ -510,9 +509,7 @@ function Footer() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10">
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-7 h-7 rounded-lg bg-surface-900 flex items-center justify-center">
-                <span className="text-white text-xs font-bold font-mono">O</span>
-              </div>
+              <OmniLogo size={28} className="text-surface-900" />
               <span className="text-sm font-bold text-surface-900">Omni OS</span>
             </div>
             <p className="text-xs text-surface-400 leading-relaxed">

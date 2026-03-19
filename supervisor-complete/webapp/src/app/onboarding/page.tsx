@@ -60,6 +60,13 @@ export default function OnboardingPage() {
     industry: "",
     founderTitle: "CEO",
     brandContext: "",
+    websiteUrl: "",
+    pricingModel: "",
+    currentRevenue: "",
+    teamSize: "",
+    competitors: "",
+    biggestChallenge: "",
+    brandVoice: "",
   });
   const [channels, setChannels] = useState<Record<string, boolean>>({});
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
@@ -228,6 +235,16 @@ function BusinessStage({
             className="input-field"
           />
         </div>
+        <div>
+          <label className="block text-sm font-medium text-surface-700 mb-1.5">Website URL <span className="text-surface-400 font-normal">(optional)</span></label>
+          <input
+            value={business.websiteUrl || ""}
+            onChange={(e) => onChange("websiteUrl", e.target.value)}
+            placeholder="e.g., https://acmegrowth.com"
+            className="input-field"
+          />
+          <p className="text-xs text-surface-400 mt-1">Agents will crawl this to learn your brand, tone, and positioning</p>
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-surface-700 mb-1.5">Industry</label>
@@ -247,6 +264,16 @@ function BusinessStage({
               className="input-field"
             />
           </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-surface-700 mb-1.5">Who are your main competitors? <span className="text-surface-400 font-normal">(optional)</span></label>
+          <input
+            value={business.competitors || ""}
+            onChange={(e) => onChange("competitors", e.target.value)}
+            placeholder="e.g., Zillow, Redfin, Compass"
+            className="input-field"
+          />
+          <p className="text-xs text-surface-400 mt-1">Competitive intel agents will monitor their pricing, content, and strategy</p>
         </div>
       </div>
       <div className="flex justify-between mt-8">
@@ -299,18 +326,70 @@ function RevenueStage({
 }) {
   return (
     <div>
-      <h2 className="font-display font-bold text-2xl text-surface-900 mb-2">Revenue goals</h2>
-      <p className="text-surface-500 text-sm mb-8">Your finance and sales agents will calibrate around these targets.</p>
+      <h2 className="font-display font-bold text-2xl text-surface-900 mb-2">Revenue &amp; operations</h2>
+      <p className="text-surface-500 text-sm mb-8">Your finance, sales, and ops agents will calibrate around these.</p>
       <div className="space-y-5">
-        <div>
-          <label className="block text-sm font-medium text-surface-700 mb-1.5">90-day revenue target</label>
-          <input
-            value={business.goal || ""}
-            onChange={(e) => onChange("goal", e.target.value)}
-            placeholder="e.g., $100,000"
-            className="input-field"
-            autoFocus
-          />
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-surface-700 mb-1.5">Current monthly revenue</label>
+            <select
+              value={business.currentRevenue || ""}
+              onChange={(e) => onChange("currentRevenue", e.target.value)}
+              className="input-field"
+            >
+              <option value="">Select range</option>
+              <option value="pre_revenue">Pre-revenue</option>
+              <option value="0_5k">$0 - $5K/mo</option>
+              <option value="5k_25k">$5K - $25K/mo</option>
+              <option value="25k_100k">$25K - $100K/mo</option>
+              <option value="100k_500k">$100K - $500K/mo</option>
+              <option value="500k_plus">$500K+/mo</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-surface-700 mb-1.5">90-day revenue target</label>
+            <input
+              value={business.goal || ""}
+              onChange={(e) => onChange("goal", e.target.value)}
+              placeholder="e.g., $100,000"
+              className="input-field"
+              autoFocus
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-surface-700 mb-1.5">Pricing model</label>
+            <select
+              value={business.pricingModel || ""}
+              onChange={(e) => onChange("pricingModel", e.target.value)}
+              className="input-field"
+            >
+              <option value="">Select model</option>
+              <option value="subscription">Subscription / SaaS</option>
+              <option value="one_time">One-time purchase</option>
+              <option value="usage_based">Usage-based</option>
+              <option value="retainer">Retainer / service</option>
+              <option value="marketplace">Marketplace / commission</option>
+              <option value="freemium">Freemium</option>
+              <option value="not_set">Not decided yet</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-surface-700 mb-1.5">Team size</label>
+            <select
+              value={business.teamSize || ""}
+              onChange={(e) => onChange("teamSize", e.target.value)}
+              className="input-field"
+            >
+              <option value="">Select size</option>
+              <option value="solo">Solo founder</option>
+              <option value="2_5">2-5 people</option>
+              <option value="6_20">6-20 people</option>
+              <option value="21_50">21-50 people</option>
+              <option value="50_plus">50+ people</option>
+            </select>
+          </div>
         </div>
         <div>
           <label className="block text-sm font-medium text-surface-700 mb-1.5">Your title</label>
@@ -320,6 +399,33 @@ function RevenueStage({
             placeholder="e.g., CEO, Founder, Managing Partner"
             className="input-field"
           />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-surface-700 mb-1.5">Biggest challenge right now</label>
+          <input
+            value={business.biggestChallenge || ""}
+            onChange={(e) => onChange("biggestChallenge", e.target.value)}
+            placeholder="e.g., Getting first 100 customers, scaling outbound, content production"
+            className="input-field"
+          />
+          <p className="text-xs text-surface-400 mt-1">Agents will prioritize solving this first</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-surface-700 mb-1.5">Brand voice <span className="text-surface-400 font-normal">(optional)</span></label>
+          <select
+            value={business.brandVoice || ""}
+            onChange={(e) => onChange("brandVoice", e.target.value)}
+            className="input-field"
+          >
+            <option value="">Select tone</option>
+            <option value="professional">Professional &amp; authoritative</option>
+            <option value="casual">Casual &amp; approachable</option>
+            <option value="bold">Bold &amp; disruptive</option>
+            <option value="technical">Technical &amp; data-driven</option>
+            <option value="friendly">Warm &amp; friendly</option>
+            <option value="luxury">Premium &amp; refined</option>
+          </select>
+          <p className="text-xs text-surface-400 mt-1">Content, social, and outreach agents will match this tone</p>
         </div>
       </div>
       <div className="flex justify-between mt-8">
