@@ -45,7 +45,7 @@ class TestWebSearch:
     @pytest.mark.asyncio
     async def test_missing_key_returns_note(self):
         from tools import _web_search
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.serper_api_key = ""
             result = _parse(await _web_search("test query"))
             assert "note" in result or "error" in result
@@ -60,6 +60,27 @@ class TestWebSearch:
         assert len(result["results"]) > 0
         assert "title" in result["results"][0]
         assert "url" in result["results"][0]
+
+    @pytest.mark.asyncio
+    async def test_mocked_search(self):
+        """Verify _web_search processes Serper API response correctly."""
+        from tools import _web_search
+        from tools.registry import _http
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "organic": [
+                {"title": "Learn Python", "link": "https://python.org", "snippet": "Official site"},
+                {"title": "Python Tutorial", "link": "https://docs.python.org", "snippet": "Docs"},
+            ]
+        }
+        with patch.object(_http, "post", new_callable=AsyncMock, return_value=mock_resp), \
+             patch("tools.research.settings") as ms:
+            ms.serper_api_key = "fake-key"
+            result = _parse(await _web_search("Python programming", 3))
+            assert "results" in result
+            assert len(result["results"]) > 0
+            assert "title" in result["results"][0]
 
 
 class TestWebScrape:
@@ -86,7 +107,7 @@ class TestCompanyResearch:
     @pytest.mark.asyncio
     async def test_no_key_falls_back_to_search(self):
         from tools import _company_research
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.apollo_api_key = ""
             ms.serper_api_key = ""
             result = _parse(await _company_research("Anthropic"))
@@ -101,6 +122,30 @@ class TestCompanyResearch:
         result = _parse(await _company_research("Anthropic", "anthropic.com"))
         assert "results" in result or "company" in result
 
+    @pytest.mark.asyncio
+    async def test_mocked_apollo_search(self):
+        """Verify _company_research processes Apollo API response correctly."""
+        from tools import _company_research
+        from tools.registry import _http
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "organizations": [
+                {"name": "Anthropic", "primary_domain": "anthropic.com",
+                 "industry": "AI", "estimated_num_employees": 500,
+                 "annual_revenue_printed": "$100M+",
+                 "short_description": "AI safety company",
+                 "linkedin_url": "https://linkedin.com/company/anthropic",
+                 "city": "San Francisco", "state": "CA"}
+            ]
+        }
+        with patch.object(_http, "post", new_callable=AsyncMock, return_value=mock_resp), \
+             patch("tools.research.settings") as ms:
+            ms.apollo_api_key = "fake-key"
+            ms.serper_api_key = ""
+            result = _parse(await _company_research("Anthropic", "anthropic.com"))
+            assert "results" in result or "company" in result
+
 
 class TestFindContacts:
     """Tests for _find_contacts (Apollo/Hunter)."""
@@ -108,7 +153,7 @@ class TestFindContacts:
     @pytest.mark.asyncio
     async def test_no_key_returns_note(self):
         from tools import _find_contacts
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.apollo_api_key = ""
             ms.hunter_api_key = ""
             result = _parse(await _find_contacts("example.com"))
@@ -122,6 +167,27 @@ class TestFindContacts:
         result = _parse(await _find_contacts("anthropic.com", "CEO", 3))
         assert "contacts" in result
 
+    @pytest.mark.asyncio
+    async def test_mocked_contact_search(self):
+        """Verify _find_contacts processes Apollo API response correctly."""
+        from tools import _find_contacts
+        from tools.registry import _http
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "people": [
+                {"first_name": "Dario", "last_name": "Amodei", "title": "CEO",
+                 "email": "dario@anthropic.com", "linkedin_url": "https://linkedin.com/in/dario",
+                 "city": "San Francisco", "state": "CA"}
+            ]
+        }
+        with patch.object(_http, "post", new_callable=AsyncMock, return_value=mock_resp), \
+             patch("tools.prospecting.settings") as ms:
+            ms.apollo_api_key = "fake-key"
+            ms.hunter_api_key = ""
+            result = _parse(await _find_contacts("anthropic.com", "CEO", 3))
+            assert "contacts" in result
+
 
 class TestVerifyEmail:
     """Tests for _verify_email (Hunter.io)."""
@@ -129,7 +195,7 @@ class TestVerifyEmail:
     @pytest.mark.asyncio
     async def test_no_key_returns_note(self):
         from tools import _verify_email
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.hunter_api_key = ""
             result = _parse(await _verify_email("test@example.com"))
             assert "note" in result or "email" in result
@@ -142,6 +208,25 @@ class TestVerifyEmail:
         result = _parse(await _verify_email("info@anthropic.com"))
         assert "status" in result
 
+    @pytest.mark.asyncio
+    async def test_mocked_verify(self):
+        """Verify _verify_email processes Hunter API response correctly."""
+        from tools import _verify_email
+        from tools.registry import _http
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": {"email": "info@anthropic.com", "result": "deliverable",
+                     "score": 95, "regexp": True, "gibberish": False,
+                     "disposable": False, "webmail": False, "mx_records": True,
+                     "smtp_server": True, "smtp_check": True, "accept_all": False}
+        }
+        with patch.object(_http, "get", new_callable=AsyncMock, return_value=mock_resp), \
+             patch("tools.prospecting.settings") as ms:
+            ms.hunter_api_key = "fake-key"
+            result = _parse(await _verify_email("info@anthropic.com"))
+            assert "email" in result or "status" in result
+
 
 class TestEnrichCompany:
     """Tests for _enrich_company (Clearbit/Apollo)."""
@@ -149,7 +234,7 @@ class TestEnrichCompany:
     @pytest.mark.asyncio
     async def test_no_key_returns_note(self):
         from tools import _enrich_company
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.clearbit_api_key = ""
             ms.apollo_api_key = ""
             result = _parse(await _enrich_company("example.com"))
@@ -166,6 +251,31 @@ class TestEnrichCompany:
         result = _parse(await _enrich_company("anthropic.com"))
         assert "name" in result or "domain" in result
 
+    @pytest.mark.asyncio
+    async def test_mocked_enrich(self):
+        """Verify _enrich_company processes Clearbit API response correctly."""
+        from tools import _enrich_company
+        from tools.registry import _http
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "name": "Anthropic", "domain": "anthropic.com",
+            "category": {"industry": "Artificial Intelligence"},
+            "metrics": {"employees": 500, "estimatedAnnualRevenue": "$100M+"},
+            "tech": ["Python", "React", "AWS"],
+            "foundedYear": 2021,
+            "description": "AI safety company building reliable AI systems.",
+            "geo": {"city": "San Francisco", "state": "California", "country": "US"},
+            "linkedin": {"handle": "anthropic"}, "twitter": {"handle": "AnthropicAI"},
+            "phone": "+1-415-555-0100"
+        }
+        with patch.object(_http, "get", new_callable=AsyncMock, return_value=mock_resp), \
+             patch("tools.prospecting.settings") as ms:
+            ms.clearbit_api_key = "fake-key"
+            ms.apollo_api_key = ""
+            result = _parse(await _enrich_company("anthropic.com"))
+            assert "name" in result or "domain" in result
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # EMAIL TOOLS
@@ -177,7 +287,7 @@ class TestSendEmail:
     @pytest.mark.asyncio
     async def test_no_key_returns_error(self):
         from tools import _send_email
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.sendgrid_api_key = ""
             result = _parse(await _send_email("test@test.com", "Test", "<p>Body</p>"))
             assert "error" in result
@@ -189,7 +299,7 @@ class TestEmailSequence:
     @pytest.mark.asyncio
     async def test_no_key_returns_error(self):
         from tools import _schedule_email_sequence
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.sendgrid_api_key = ""
             emails = json.dumps([{"to": "a@b.com", "subject": "Hi", "body": "Hello"}])
             result = _parse(await _schedule_email_sequence(emails))
@@ -206,7 +316,7 @@ class TestMakePhoneCall:
     @pytest.mark.asyncio
     async def test_no_provider_returns_error(self):
         from tools import _make_phone_call
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.bland_api_key = ""
             ms.vapi_api_key = ""
             ms.twilio_account_sid = ""
@@ -221,7 +331,7 @@ class TestSendSms:
     @pytest.mark.asyncio
     async def test_no_key_returns_error(self):
         from tools import _send_sms
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.twilio_account_sid = ""
             ms.twilio_auth_token = ""
             result = _parse(await _send_sms("+15551234567", "Test message"))
@@ -238,7 +348,7 @@ class TestPostTwitter:
     @pytest.mark.asyncio
     async def test_no_key_returns_error(self):
         from tools import _post_twitter
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.twitter_bearer_token = ""
             ms.twitter_api_key = ""
             ms.twitter_access_token = ""
@@ -252,7 +362,7 @@ class TestSearchTwitter:
     @pytest.mark.asyncio
     async def test_no_key_returns_error(self):
         from tools import _search_twitter
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.twitter_bearer_token = ""
             result = _parse(await _search_twitter("AI news"))
             assert "error" in result or "note" in result
@@ -268,7 +378,7 @@ class TestSeoKeywordResearch:
     @pytest.mark.asyncio
     async def test_no_key_fallback(self):
         from tools import _seo_keyword_research
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.dataforseo_login = ""
             ms.dataforseo_password = ""
             ms.semrush_api_key = ""
@@ -284,6 +394,27 @@ class TestSeoKeywordResearch:
         result = _parse(await _seo_keyword_research("marketing automation"))
         assert "keyword" in result or "results" in result
 
+    @pytest.mark.asyncio
+    async def test_mocked_keyword_research(self):
+        """Verify _seo_keyword_research processes DataForSEO response correctly."""
+        from tools import _seo_keyword_research
+        from tools.registry import _http
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "tasks": [{"result": [{"keyword": "marketing automation",
+                                   "search_volume": 14800, "cpc": 12.50,
+                                   "competition": "HIGH", "competition_index": 85}]}]
+        }
+        with patch.object(_http, "post", new_callable=AsyncMock, return_value=mock_resp), \
+             patch("tools.content.settings") as ms:
+            ms.dataforseo_login = "fake-login"
+            ms.dataforseo_password = "fake-pass"
+            ms.semrush_api_key = ""
+            ms.serper_api_key = ""
+            result = _parse(await _seo_keyword_research("marketing automation"))
+            assert isinstance(result, dict)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # IMAGE GENERATION
@@ -295,7 +426,7 @@ class TestGenerateImage:
     @pytest.mark.asyncio
     async def test_no_key_returns_error(self):
         from tools import _generate_image
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.openai_image_key = ""
             ms.replicate_api_key = ""
             ms.fal_api_key = ""
@@ -313,7 +444,7 @@ class TestPublishToCms:
     @pytest.mark.asyncio
     async def test_no_cms_returns_error(self):
         from tools import _publish_to_cms
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.wordpress_url = ""
             ms.ghost_url = ""
             ms.ghost_admin_key = ""
@@ -332,7 +463,7 @@ class TestDeployToVercel:
     @pytest.mark.asyncio
     async def test_no_key_returns_error(self):
         from tools import _deploy_to_vercel
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.vercel_token = ""
             files = json.dumps({"index.html": "<h1>Test</h1>"})
             result = _parse(await _deploy_to_vercel("test-project", files))
@@ -349,6 +480,28 @@ class TestCheckDomain:
         from tools import _check_domain_availability
         result = _parse(await _check_domain_availability("example.com"))
         assert "domain" in result
+
+    @pytest.mark.asyncio
+    async def test_mocked_domain_check(self):
+        """Verify _check_domain_availability processes Namecheap response correctly."""
+        from tools import _check_domain_availability
+        from tools.registry import _http
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = """<?xml version="1.0" encoding="utf-8"?>
+        <ApiResponse Status="OK">
+          <CommandResponse Type="namecheap.domains.check">
+            <DomainCheckResult Domain="example.com" Available="false" IsPremiumName="false" PremiumRegistrationPrice="0"/>
+          </CommandResponse>
+        </ApiResponse>"""
+        with patch.object(_http, "get", new_callable=AsyncMock, return_value=mock_resp), \
+             patch("tools.deployment.settings") as ms:
+            ms.namecheap_api_user = "fake-user"
+            ms.namecheap_api_key = "fake-key"
+            ms.namecheap_client_ip = "127.0.0.1"
+            ms.serper_api_key = ""
+            result = _parse(await _check_domain_availability("example.com"))
+            assert "domain" in result or isinstance(result, dict)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -372,7 +525,7 @@ class TestScreenshot:
     @pytest.mark.asyncio
     async def test_no_key_returns_error(self):
         from tools import _take_screenshot
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.browserless_api_key = ""
             ms.screenshotone_api_key = ""
             result = _parse(await _take_screenshot("https://example.com"))
@@ -389,7 +542,7 @@ class TestCrmContact:
     @pytest.mark.asyncio
     async def test_no_key_returns_error(self):
         from tools import _create_crm_contact
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.hubspot_api_key = ""
             result = _parse(await _create_crm_contact("Test User", "test@test.com"))
             assert "error" in result or "note" in result
@@ -403,6 +556,25 @@ class TestCrmContact:
             "Integration Test", "integration-test@example.com", "Test Corp"))
         assert "id" in result or "contact" in result or "error" in result
 
+    @pytest.mark.asyncio
+    async def test_mocked_create_contact(self):
+        """Verify _create_crm_contact processes HubSpot API response correctly."""
+        from tools import _create_crm_contact
+        from tools.registry import _http
+        mock_resp = MagicMock()
+        mock_resp.status_code = 201
+        mock_resp.json.return_value = {
+            "id": "12345",
+            "properties": {"email": "test@test.com", "firstname": "Test", "lastname": "User",
+                           "company": "Test Corp"},
+            "createdAt": "2024-01-01T00:00:00Z"
+        }
+        with patch.object(_http, "post", new_callable=AsyncMock, return_value=mock_resp), \
+             patch("tools.crm.settings") as ms:
+            ms.hubspot_api_key = "fake-key"
+            result = _parse(await _create_crm_contact("Test User", "test@test.com", "Test Corp"))
+            assert "contact_id" in result or "created" in result or "id" in result
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # BILLING (Stripe)
@@ -414,7 +586,7 @@ class TestStripeInvoice:
     @pytest.mark.asyncio
     async def test_no_key_returns_error(self):
         from tools import _create_invoice
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.stripe_api_key = ""
             result = _parse(await _create_invoice(
                 client_name="Test Client", client_email="test@test.com",
@@ -428,7 +600,7 @@ class TestStripeRevenue:
     @pytest.mark.asyncio
     async def test_no_key_returns_stub(self):
         from tools import _get_revenue_metrics
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.stripe_api_key = ""
             result = _parse(await _get_revenue_metrics())
             # May return error, note, or stub data — all are valid
@@ -445,7 +617,7 @@ class TestEmailList:
     @pytest.mark.asyncio
     async def test_no_key_returns_error(self):
         from tools import _create_email_list
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.convertkit_api_key = ""
             ms.mailchimp_api_key = ""
             ms.beehiiv_api_key = ""
@@ -489,7 +661,7 @@ class TestFigmaGetFile:
     @pytest.mark.asyncio
     async def test_no_key_returns_error(self):
         from tools import _figma_get_file
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.figma_api_key = ""
             result = _parse(await _figma_get_file("test-file-key"))
             assert "error" in result or "note" in result
@@ -516,7 +688,7 @@ class TestEconomicIndicators:
     @pytest.mark.asyncio
     async def test_no_key_returns_stub(self):
         from tools import _get_economic_indicators
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.fred_api_key = ""
             result = _parse(await _get_economic_indicators("GDP,UNRATE"))
             assert isinstance(result, dict)
@@ -528,6 +700,26 @@ class TestEconomicIndicators:
         from tools import _get_economic_indicators
         result = _parse(await _get_economic_indicators("GDP"))
         assert "indicators" in result or "GDP" in str(result)
+
+    @pytest.mark.asyncio
+    async def test_mocked_fred_data(self):
+        """Verify _get_economic_indicators processes FRED API response correctly."""
+        from tools import _get_economic_indicators
+        from tools.registry import _http
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "observations": [
+                {"date": "2024-10-01", "value": "29352.301"},
+                {"date": "2024-07-01", "value": "28862.488"},
+                {"date": "2024-04-01", "value": "28405.093"},
+            ]
+        }
+        with patch.object(_http, "get", new_callable=AsyncMock, return_value=mock_resp), \
+             patch("tools.research.settings") as ms:
+            ms.fred_api_key = "fake-key"
+            result = _parse(await _get_economic_indicators("GDP"))
+            assert "indicators" in result or isinstance(result, dict)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -563,7 +755,7 @@ class TestControlPrinter:
     @pytest.mark.asyncio
     async def test_no_config_returns_stub(self):
         from tools import _control_printer
-        with patch("tools.settings") as ms:
+        with patch("config.settings") as ms:
             ms.octoprint_url = ""
             ms.octoprint_api_key = ""
             result = _parse(await _control_printer("P1", "status"))

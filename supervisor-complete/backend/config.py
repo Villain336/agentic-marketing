@@ -197,7 +197,7 @@ class Settings:
     # WhatsApp Business
     whatsapp_access_token: str = ""
     whatsapp_phone_number_id: str = ""
-    whatsapp_verify_token: str = "supervisor_wa_verify"
+    whatsapp_verify_token: str = ""
     whatsapp_app_secret: str = ""
 
     # Business Formation
@@ -430,7 +430,7 @@ class Settings:
             # WhatsApp Business
             whatsapp_access_token=os.getenv("WHATSAPP_ACCESS_TOKEN", ""),
             whatsapp_phone_number_id=os.getenv("WHATSAPP_PHONE_NUMBER_ID", ""),
-            whatsapp_verify_token=os.getenv("WHATSAPP_VERIFY_TOKEN", "supervisor_wa_verify"),
+            whatsapp_verify_token=os.getenv("WHATSAPP_VERIFY_TOKEN", ""),
             whatsapp_app_secret=os.getenv("WHATSAPP_APP_SECRET", ""),
             # Business Formation
             stripe_atlas_key=os.getenv("STRIPE_ATLAS_KEY", ""),

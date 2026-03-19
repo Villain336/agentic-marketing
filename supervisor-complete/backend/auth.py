@@ -1,22 +1,25 @@
 """
-Supervisor Backend — Authentication Middleware
+Supervisor Backend — Authentication & Authorization
 Validates Supabase JWTs on protected endpoints.
-Public endpoints (health, webhooks) are exempt.
+Public endpoints (health, webhooks, docs) are exempt.
 """
 from __future__ import annotations
 import logging
+import re
 from typing import Optional
 
-from fastapi import Request, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+from pydantic import BaseModel, Field, validator
 
 from config import settings
 
 logger = logging.getLogger("supervisor.auth")
 
-# Endpoints that don't require authentication
+# ── Public paths (no auth required) ─────────────────────────────────────────
+
 PUBLIC_PATHS = {
     "/health",
     "/docs",
@@ -30,6 +33,8 @@ PUBLIC_PREFIXES = (
 
 security = HTTPBearer(auto_error=False)
 
+
+# ── JWT Decoding ─────────────────────────────────────────────────────────────
 
 def _decode_jwt(token: str) -> Optional[dict]:
     """Decode and validate a Supabase JWT. Returns payload or None."""
@@ -61,14 +66,20 @@ def _decode_jwt(token: str) -> Optional[dict]:
         return None
 
 
+# ── Auth Middleware ───────────────────────────────────────────────────────────
+
 class AuthMiddleware(BaseHTTPMiddleware):
-    """Validates Supabase JWT on every request (except public paths)."""
+    """Validates Supabase JWT on every request (except public paths).
+    Always sets request.state.user_id for downstream use.
+    """
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
         # Skip auth for public endpoints
         if path in PUBLIC_PATHS or any(path.startswith(p) for p in PUBLIC_PREFIXES):
+            request.state.user_id = ""
+            request.state.user_role = ""
             return await call_next(request)
 
         # Skip auth for OPTIONS (CORS preflight)
@@ -105,14 +116,69 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+# ── Dependency helpers ───────────────────────────────────────────────────────
+
 def get_user_id(request: Request) -> str:
     """Extract user_id from authenticated request."""
     return getattr(request.state, "user_id", "")
 
 
 def require_auth(request: Request) -> str:
-    """Dependency that ensures authentication and returns user_id."""
+    """Dependency that ensures authentication and returns user_id.
+    Use as: user_id: str = Depends(require_auth)
+    """
     user_id = get_user_id(request)
     if not user_id:
         raise HTTPException(401, "Authentication required")
     return user_id
+
+
+# ── Input Validation Helpers ─────────────────────────────────────────────────
+
+_SAFE_ID = re.compile(r"^[a-zA-Z0-9_\-]{1,128}$")
+_SAFE_UUID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+
+
+def validate_id(value: str, field_name: str = "id") -> str:
+    """Validate that a path/query parameter is a safe identifier."""
+    if not value or not _SAFE_ID.match(value):
+        raise HTTPException(400, f"Invalid {field_name}: must be alphanumeric, 1-128 chars")
+    return value
+
+
+def validate_campaign_id(campaign_id: str) -> str:
+    """Validate campaign ID format (UUID)."""
+    if not campaign_id or not (_SAFE_UUID.match(campaign_id) or _SAFE_ID.match(campaign_id)):
+        raise HTTPException(400, "Invalid campaign_id format")
+    return campaign_id
+
+
+def safe_setattr(obj: object, key: str, value, allowed_fields: set[str]) -> bool:
+    """Safe alternative to setattr() — only sets allowed fields.
+    Prevents arbitrary attribute injection.
+    """
+    if key not in allowed_fields:
+        return False
+    if not hasattr(obj, key):
+        return False
+    setattr(obj, key, value)
+    return True
+
+
+# Set of fields that are safe to update on CampaignMemory via API
+MEMORY_WRITABLE_FIELDS = {
+    "prospects", "prospect_count", "email_sequence", "content_strategy",
+    "social_calendar", "ad_package", "cs_system", "cs_complete",
+    "site_launch_brief", "campaign_complete", "legal_playbook",
+    "gtm_strategy", "tool_stack", "newsletter_system", "ppc_playbook",
+    "financial_plan", "hr_playbook", "sales_playbook", "delivery_system",
+    "analytics_framework", "treasury_plan", "tax_playbook", "wealth_strategy",
+    "billing_system", "referral_program", "upsell_playbook",
+    "competitive_intel", "client_portal", "voice_receptionist",
+    "fullstack_dev_output", "economist_briefing", "pr_communications",
+    "data_dashboards", "governance_brief", "product_roadmap",
+    "partnerships_playbook", "client_fulfillment", "agent_workspace",
+    "genome_intel",
+}
