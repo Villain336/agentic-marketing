@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { OmniLogo } from "@/components/ui/omni-logo";
 import { AGENTS, DEPARTMENTS, INTEGRATIONS, FEATURES } from "@/lib/constants";
 
 export default function FeaturesPage() {
@@ -175,9 +176,7 @@ function SiteNav() {
     <nav className="fixed top-0 w-full z-50 bg-white border-b border-surface-100">
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-surface-900 flex items-center justify-center">
-            <span className="text-white font-bold text-sm font-mono">O</span>
-          </div>
+          <OmniLogo size={32} className="text-surface-900" />
           <span className="font-display font-bold text-lg text-surface-900 tracking-tight">Omni OS</span>
         </Link>
         <div className="hidden md:flex items-center gap-8 text-sm text-surface-500">
@@ -200,9 +199,7 @@ function SiteFooter() {
     <footer className="border-t border-surface-100 py-10 px-6">
       <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded bg-surface-900 flex items-center justify-center">
-            <span className="text-white text-xs font-bold font-mono">O</span>
-          </div>
+          <OmniLogo size={24} className="text-surface-900" />
           <span className="text-sm font-medium text-surface-700">Omni OS</span>
         </div>
         <div className="flex items-center gap-6 text-xs text-surface-400">
