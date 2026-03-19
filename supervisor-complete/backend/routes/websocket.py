@@ -6,14 +6,14 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from scoring import scorer
 from ws import ws_manager
-from store import campaigns
+from store import store
 
 router = APIRouter(tags=["WebSocket"])
 
 
 @router.websocket("/ws/campaign/{campaign_id}")
 async def ws_campaign_feed(websocket: WebSocket, campaign_id: str):
-    """Real-time feed for a specific campaign — agent status, metrics, triggers."""
+    """Real-time feed for a specific campaign -- agent status, metrics, triggers."""
     await ws_manager.connect(websocket, campaign_id)
     try:
         while True:
@@ -22,7 +22,8 @@ async def ws_campaign_feed(websocket: WebSocket, campaign_id: str):
             if msg.get("type") == "ping":
                 await websocket.send_text(json.dumps({"type": "pong"}))
             elif msg.get("type") == "refresh_scores":
-                campaign = campaigns.get(campaign_id)
+                # Use cross-tenant lookup for WebSocket (already authenticated at connect)
+                campaign = store.get_campaign_any_tenant(campaign_id)
                 if campaign:
                     scores = scorer.score_all(campaign)
                     await websocket.send_text(json.dumps({

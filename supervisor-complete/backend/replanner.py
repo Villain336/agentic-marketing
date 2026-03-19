@@ -235,7 +235,7 @@ class Replanner:
                     strategy="substitute_tool",
                     description=f"Switching from {blocker.failed_tool} to alternatives",
                     new_instructions=(
-                        f"\n\n⚠️ IMPORTANT RE-PLANNING NOTICE:\n"
+                        f"\n\n[REPLAN] IMPORTANT RE-PLANNING NOTICE:\n"
                         f"The tool '{blocker.failed_tool}' has failed repeatedly. "
                         f"DO NOT use it again. Instead, use one of these alternatives: {alt_list}. "
                         f"Adapt your approach to work with the available tools. "
@@ -248,7 +248,7 @@ class Replanner:
                     strategy="skip_step",
                     description=f"No alternatives for {blocker.failed_tool}, skipping",
                     new_instructions=(
-                        f"\n\n⚠️ IMPORTANT RE-PLANNING NOTICE:\n"
+                        f"\n\n[REPLAN] IMPORTANT RE-PLANNING NOTICE:\n"
                         f"The tool '{blocker.failed_tool}' is unavailable. "
                         f"Skip any tasks that require this tool and focus on completing "
                         f"the rest of your objectives with the tools you have."
@@ -261,7 +261,7 @@ class Replanner:
                 strategy="reduce_scope",
                 description="Rate limited — reducing scope",
                 new_instructions=(
-                    f"\n\n⚠️ IMPORTANT RE-PLANNING NOTICE:\n"
+                    f"\n\n[REPLAN] IMPORTANT RE-PLANNING NOTICE:\n"
                     f"You've been rate-limited on '{blocker.failed_tool}'. "
                     f"Reduce your usage of external APIs. Focus on generating your "
                     f"best output with the data you already have. Do NOT retry the "
@@ -275,7 +275,7 @@ class Replanner:
                 strategy="reduce_scope",
                 description="No progress detected — simplifying approach",
                 new_instructions=(
-                    f"\n\n⚠️ IMPORTANT RE-PLANNING NOTICE:\n"
+                    f"\n\n[REPLAN] IMPORTANT RE-PLANNING NOTICE:\n"
                     f"You appear to be stuck with no successful actions in recent steps. "
                     f"STOP your current approach. Take a simpler path:\n"
                     f"1. Use only the most basic tools (web_search, store_data)\n"
@@ -291,7 +291,7 @@ class Replanner:
                 strategy="escalate",
                 description="Budget exceeded — escalating to user",
                 new_instructions=(
-                    f"\n\n⚠️ IMPORTANT RE-PLANNING NOTICE:\n"
+                    f"\n\n[REPLAN] IMPORTANT RE-PLANNING NOTICE:\n"
                     f"The budget for this task has been exceeded. "
                     f"Complete your current work WITHOUT making any more paid API calls. "
                     f"Summarize what you've accomplished so far and what remains to be done."
@@ -304,7 +304,7 @@ class Replanner:
             strategy="reduce_scope",
             description="Generic recovery",
             new_instructions=(
-                f"\n\n⚠️ IMPORTANT RE-PLANNING NOTICE:\n"
+                f"\n\n[REPLAN] IMPORTANT RE-PLANNING NOTICE:\n"
                 f"An issue was detected: {blocker.description}. "
                 f"Adapt your approach and continue with available resources."
             ),

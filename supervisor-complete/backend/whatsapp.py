@@ -290,28 +290,28 @@ class WhatsAppClient:
 
     async def send_daily_briefing(self, phone: str, briefing: dict):
         """Send a formatted daily briefing."""
-        lines = ["*📊 Daily Briefing*\n"]
+        lines = ["*Daily Briefing*\n"]
 
         if briefing.get("revenue"):
-            lines.append(f"💰 Revenue: ${briefing['revenue']:,.2f}")
+            lines.append(f"Revenue: ${briefing['revenue']:,.2f}")
         if briefing.get("leads"):
-            lines.append(f"👤 New leads: {briefing['leads']}")
+            lines.append(f"New leads: {briefing['leads']}")
         if briefing.get("emails_sent"):
-            lines.append(f"📧 Emails sent: {briefing['emails_sent']}")
+            lines.append(f"Emails sent: {briefing['emails_sent']}")
         if briefing.get("reply_rate"):
-            lines.append(f"📬 Reply rate: {briefing['reply_rate']:.1f}%")
+            lines.append(f"Reply rate: {briefing['reply_rate']:.1f}%")
         if briefing.get("ad_spend"):
-            lines.append(f"💸 Ad spend: ${briefing['ad_spend']:,.2f}")
+            lines.append(f"Ad spend: ${briefing['ad_spend']:,.2f}")
         if briefing.get("roas"):
-            lines.append(f"📈 ROAS: {briefing['roas']:.1f}x")
+            lines.append(f"ROAS: {briefing['roas']:.1f}x")
 
         if briefing.get("alerts"):
-            lines.append("\n*⚠️ Alerts:*")
+            lines.append("\n*Alerts:*")
             for alert in briefing["alerts"][:5]:
-                lines.append(f"  • {alert}")
+                lines.append(f"  - {alert}")
 
         if briefing.get("pending_approvals"):
-            lines.append(f"\n*🔔 {briefing['pending_approvals']} approvals pending*")
+            lines.append(f"\n*{briefing['pending_approvals']} approvals pending*")
 
         text = "\n".join(lines)
         return await self.send_text(phone, text)
@@ -319,26 +319,26 @@ class WhatsAppClient:
     async def send_approval_request(self, phone: str, approval: dict):
         """Send an interactive approval request with buttons."""
         text = (
-            f"*🔔 Approval Required*\n\n"
+            f"*Approval Required*\n\n"
             f"Agent: {approval.get('agent', 'Unknown')}\n"
             f"Action: {approval.get('action', 'Unknown')}\n"
             f"Details: {approval.get('details', '')}\n"
             f"Cost: ${approval.get('cost', 0):,.2f}"
         )
         buttons = [
-            {"id": f"approve_{approval.get('id', '')}", "title": "✅ Approve"},
-            {"id": f"reject_{approval.get('id', '')}", "title": "❌ Reject"},
-            {"id": f"details_{approval.get('id', '')}", "title": "📋 Details"},
+            {"id": f"approve_{approval.get('id', '')}", "title": "Approve"},
+            {"id": f"reject_{approval.get('id', '')}", "title": "Reject"},
+            {"id": f"details_{approval.get('id', '')}", "title": "Details"},
         ]
         return await self.send_interactive_buttons(phone, text, buttons)
 
     async def send_alert(self, phone: str, alert_type: str, message: str):
         """Send a priority alert."""
-        emoji = {
-            "revenue": "💰", "error": "🚨", "milestone": "🎉",
-            "threshold": "⚠️", "opportunity": "🔥",
-        }.get(alert_type, "📢")
-        return await self.send_text(phone, f"{emoji} *{alert_type.upper()}*\n\n{message}")
+        prefix = {
+            "revenue": "[REVENUE]", "error": "[ERROR]", "milestone": "[MILESTONE]",
+            "threshold": "[THRESHOLD]", "opportunity": "[OPPORTUNITY]",
+        }.get(alert_type, "[ALERT]")
+        return await self.send_text(phone, f"{prefix} *{alert_type.upper()}*\n\n{message}")
 
     def get_conversation(self, phone: str, limit: int = 50) -> list[dict]:
         """Get conversation history for a phone number."""

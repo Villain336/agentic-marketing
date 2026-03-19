@@ -46,7 +46,7 @@ async def _send_owner_alert(channel: str, message: str, priority: str = "normal"
     elif channel == "telegram":
         chat_id = getattr(settings, 'telegram_owner_chat_id', '') or ""
         if chat_id:
-            return await _send_telegram_message(chat_id, f"{'🚨' if priority == 'high' else 'ℹ️'} {message}")
+            return await _send_telegram_message(chat_id, f"{'[ALERT]' if priority == 'high' else '[INFO]'} {message}")
         return json.dumps({"error": "TELEGRAM_OWNER_CHAT_ID not set."})
     elif channel == "email":
         owner_email = getattr(settings, 'owner_email', '') or ""

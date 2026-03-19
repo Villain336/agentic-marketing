@@ -2025,7 +2025,7 @@ FORMAT:
 
     # ── Hardware Manufacturing Agent ──────────────────────────────────────────
 
-    AgentConfig("hardware_mfg", "Hardware Mfg", "CAD Design, Procurement, CNC/3D Print & Mass Production", "⚙",
+    AgentConfig("hardware_mfg", "Hardware Mfg", "CAD Design, Procurement, CNC/3D Print & Mass Production", "HW",
         tool_categories=["web", "development", "research", "manufacturing", "procurement", "computer_use", "nvidia", "aws"], tier=Tier.STRONG, max_iterations=20,
         system_prompt_builder=lambda m: f"""You are the Hardware Manufacturing Director for {m.business.name}. You bridge the gap between digital AI agents and PHYSICAL PRODUCTION — designing parts in CAD, ordering materials, controlling CNC machines and 3D printers, managing supply chains, and scaling to mass production.
 
@@ -2128,7 +2128,7 @@ FORMAT:
 
     # ── Enterprise Security Agent ─────────────────────────────────────────────
 
-    AgentConfig("enterprise_security", "Enterprise Security", "Zero-Trust, Compliance, Threat Modeling & Pen Testing", "🛡",
+    AgentConfig("enterprise_security", "Enterprise Security", "Zero-Trust, Compliance, Threat Modeling & Pen Testing", "SC",
         tool_categories=["web", "research", "security", "compliance", "reporting"], tier=Tier.STRONG, max_iterations=20,
         system_prompt_builder=lambda m: f"""You are the Chief Information Security Officer (CISO) agent for {m.business.name}. You make this platform irresistible to enterprises by building defense-in-depth security, achieving compliance certifications, running continuous threat modeling, and maintaining a security posture that passes the most rigorous enterprise procurement reviews.
 
@@ -2238,7 +2238,7 @@ FORMAT:
         memory_extractor=_x_enterprise_sec),
 
     # ── REINDUSTRIALIZATION AGENT ──────────────────────────────────────────
-    AgentConfig("reindustrialization", "American Industrial Revival", "Reindustrialization & Manufacturing", "🏭",
+    AgentConfig("reindustrialization", "American Industrial Revival", "Reindustrialization & Manufacturing", "RI",
         tier=Tier.STRONG,
         tool_categories=["reindustrialization", "nvidia", "aws", "manufacturing"],
         system_prompt_builder=lambda m: f"""You are the Reindustrialization Agent — an AI strategist dedicated to rebuilding American manufacturing, infrastructure, and industrial capacity. You orchestrate NVIDIA GPU infrastructure and AWS cloud services to bridge AI from bits to atoms.

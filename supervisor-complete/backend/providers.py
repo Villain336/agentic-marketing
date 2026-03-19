@@ -34,29 +34,75 @@ class AllProvidersFailedError(Exception):
 # BASE ADAPTER
 # ═══════════════════════════════════════════════════════════════════════════════
 
+class CircuitState:
+    CLOSED = "closed"      # Normal operation
+    OPEN = "open"          # Tripped -- reject all requests
+    HALF_OPEN = "half_open"  # Allow one probe request
+
+
 class ProviderAdapter:
+    # Circuit breaker thresholds
+    CB_FAILURE_THRESHOLD = 5    # Errors before circuit opens
+    CB_RESET_TIMEOUT = 60.0     # Seconds before half-open probe
+    CB_SUCCESS_THRESHOLD = 2    # Successes in half-open to close
+
     def __init__(self, config: ProviderConfig):
         self.config = config
         self.client = httpx.AsyncClient(timeout=config.timeout)
         self._error_count = 0
         self._last_error: Optional[str] = None
         self._cooldown_until = 0.0
+        # Circuit breaker state
+        self._circuit_state = CircuitState.CLOSED
+        self._circuit_opened_at = 0.0
+        self._half_open_successes = 0
 
     @property
     def is_available(self) -> bool:
-        return self.config.enabled and time.time() >= self._cooldown_until
+        if not self.config.enabled:
+            return False
+        now = time.time()
+        if self._circuit_state == CircuitState.OPEN:
+            if now - self._circuit_opened_at >= self.CB_RESET_TIMEOUT:
+                self._circuit_state = CircuitState.HALF_OPEN
+                self._half_open_successes = 0
+                logger.info(f"[{self.config.name}] Circuit half-open, allowing probe")
+                return True
+            return False
+        return now >= self._cooldown_until
 
     def _mark_error(self, error: str):
         self._error_count += 1
         self._last_error = error
         cooldown = min(5 * (3 ** (self._error_count - 1)), 120)
         self._cooldown_until = time.time() + cooldown
-        logger.warning(f"[{self.config.name}] Error #{self._error_count}: {error}. Cooldown {cooldown}s")
+
+        if self._circuit_state == CircuitState.HALF_OPEN:
+            self._circuit_state = CircuitState.OPEN
+            self._circuit_opened_at = time.time()
+            logger.warning(f"[{self.config.name}] Half-open probe failed, circuit re-opened")
+        elif self._error_count >= self.CB_FAILURE_THRESHOLD:
+            self._circuit_state = CircuitState.OPEN
+            self._circuit_opened_at = time.time()
+            logger.warning(f"[{self.config.name}] Circuit OPEN after {self._error_count} errors")
+        else:
+            logger.warning(f"[{self.config.name}] Error #{self._error_count}: {error}. Cooldown {cooldown}s")
 
     def _mark_success(self):
+        if self._circuit_state == CircuitState.HALF_OPEN:
+            self._half_open_successes += 1
+            if self._half_open_successes >= self.CB_SUCCESS_THRESHOLD:
+                self._circuit_state = CircuitState.CLOSED
+                self._error_count = 0
+                self._last_error = None
+                self._cooldown_until = 0.0
+                logger.info(f"[{self.config.name}] Circuit CLOSED after successful probes")
+                return
         self._error_count = 0
         self._last_error = None
         self._cooldown_until = 0.0
+        if self._circuit_state != CircuitState.HALF_OPEN:
+            self._circuit_state = CircuitState.CLOSED
 
     def get_model(self, tier: Tier, model_override: str = None) -> str:
         if model_override:
@@ -80,6 +126,7 @@ class ProviderAdapter:
             "available": self.is_available, "model": self.config.default_model,
             "fast_model": self.config.fast_model, "error_count": self._error_count,
             "last_error": self._last_error,
+            "circuit_state": self._circuit_state,
         }
 
 

@@ -119,42 +119,44 @@ class TenantStore:
 # Singleton
 store = TenantStore()
 
-# ── Legacy flat dicts (used by main.py routes until full multi-tenancy migration) ──
-campaigns: dict[str, Campaign] = {}
-onboarding_profiles: dict[str, OnboardingProfile] = {}
-approval_queue: dict[str, ApprovalItem] = {}
-
-
 def serialize_memory(m: CampaignMemory) -> dict:
-    """Flatten CampaignMemory into a JSON-safe summary dict."""
-    return {
-        "business": m.business.model_dump(),
-        "prospect_count": m.prospect_count,
-        "has_prospects": bool(m.prospects), "has_outreach": bool(m.email_sequence),
-        "has_content": bool(m.content_strategy), "has_social": bool(m.social_calendar),
-        "has_ads": bool(m.ad_package), "has_cs": bool(m.cs_system),
-        "has_site": bool(m.site_launch_brief), "has_legal": bool(m.legal_playbook),
-        "has_gtm": bool(m.gtm_strategy), "has_tools": bool(m.tool_stack),
-        "has_newsletter": bool(m.newsletter_system), "has_ppc": bool(m.ppc_playbook),
-        "has_finance": bool(m.financial_plan), "has_hr": bool(m.hr_playbook),
-        "has_sales": bool(m.sales_playbook), "has_delivery": bool(m.delivery_system),
-        "has_analytics": bool(m.analytics_framework),
-        "has_tax": bool(m.tax_playbook), "has_wealth": bool(m.wealth_strategy),
-        "has_billing": bool(m.billing_system), "has_referral": bool(m.referral_program),
-        "has_upsell": bool(m.upsell_playbook),
-        "has_competitive_intel": bool(m.competitive_intel),
-        "has_client_portal": bool(m.client_portal),
-        "has_voice_receptionist": bool(m.voice_receptionist),
-        "has_fullstack_dev": bool(m.fullstack_dev_output),
-        "has_economist": bool(m.economist_briefing),
-        "has_pr_comms": bool(m.pr_communications),
-        "has_data_dashboards": bool(m.data_dashboards),
-        "has_governance": bool(m.governance_brief),
-        "has_product_roadmap": bool(m.product_roadmap),
-        "has_partnerships": bool(m.partnerships_playbook),
-        "has_fulfillment": bool(m.client_fulfillment),
-        "has_agent_workspace": bool(m.agent_workspace),
-        "has_treasury": bool(m.treasury_plan),
-        "has_genome_intel": bool(m.genome_intel),
-        "cs_complete": m.cs_complete, "campaign_complete": m.campaign_complete,
-    }
+    """Lossless serialization of CampaignMemory using Pydantic model_dump.
+
+    Stores the full model so nothing is lost on round-trip. Boolean flags
+    (has_*) are computed on read for backward-compat with frontend.
+    """
+    full = m.model_dump()
+
+    # Add computed boolean flags for the frontend dashboard
+    flag_fields = [
+        ("has_prospects", "prospects"), ("has_outreach", "email_sequence"),
+        ("has_content", "content_strategy"), ("has_social", "social_calendar"),
+        ("has_ads", "ad_package"), ("has_cs", "cs_system"),
+        ("has_site", "site_launch_brief"), ("has_legal", "legal_playbook"),
+        ("has_gtm", "gtm_strategy"), ("has_tools", "tool_stack"),
+        ("has_newsletter", "newsletter_system"), ("has_ppc", "ppc_playbook"),
+        ("has_finance", "financial_plan"), ("has_hr", "hr_playbook"),
+        ("has_sales", "sales_playbook"), ("has_delivery", "delivery_system"),
+        ("has_analytics", "analytics_framework"),
+        ("has_tax", "tax_playbook"), ("has_wealth", "wealth_strategy"),
+        ("has_billing", "billing_system"), ("has_referral", "referral_program"),
+        ("has_upsell", "upsell_playbook"),
+        ("has_competitive_intel", "competitive_intel"),
+        ("has_client_portal", "client_portal"),
+        ("has_voice_receptionist", "voice_receptionist"),
+        ("has_fullstack_dev", "fullstack_dev_output"),
+        ("has_economist", "economist_briefing"),
+        ("has_pr_comms", "pr_communications"),
+        ("has_data_dashboards", "data_dashboards"),
+        ("has_governance", "governance_brief"),
+        ("has_product_roadmap", "product_roadmap"),
+        ("has_partnerships", "partnerships_playbook"),
+        ("has_fulfillment", "client_fulfillment"),
+        ("has_agent_workspace", "agent_workspace"),
+        ("has_treasury", "treasury_plan"),
+        ("has_genome_intel", "genome_intel"),
+    ]
+    for flag, field in flag_fields:
+        full[flag] = bool(full.get(field))
+
+    return full

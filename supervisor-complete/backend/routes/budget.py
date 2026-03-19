@@ -5,7 +5,8 @@ from fastapi import APIRouter, HTTPException, Request
 
 from wallet import wallet
 from costtracker import cost_tracker
-from store import campaigns
+from auth import get_user_id, validate_campaign_id
+from store import store
 
 router = APIRouter(tags=["Budget"])
 
@@ -13,7 +14,11 @@ router = APIRouter(tags=["Budget"])
 @router.post("/campaign/{campaign_id}/budget/allocate")
 async def allocate_budget(campaign_id: str, request: Request):
     """Allocate budget to an agent."""
-    if campaign_id not in campaigns:
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    if not store.get_campaign(user_id, campaign_id):
         raise HTTPException(404, "Campaign not found")
     body = await request.json()
     return await wallet.allocate_budget(
@@ -21,9 +26,13 @@ async def allocate_budget(campaign_id: str, request: Request):
 
 
 @router.get("/campaign/{campaign_id}/budget")
-async def get_budget_summary(campaign_id: str):
+async def get_budget_summary(campaign_id: str, request: Request):
     """Get full budget summary for a campaign."""
-    if campaign_id not in campaigns:
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    if not store.get_campaign(user_id, campaign_id):
         raise HTTPException(404, "Campaign not found")
     return await wallet.get_campaign_summary(campaign_id)
 
@@ -31,7 +40,11 @@ async def get_budget_summary(campaign_id: str):
 @router.post("/campaign/{campaign_id}/budget/reallocate")
 async def reallocate_budget(campaign_id: str, request: Request):
     """Move budget between agents."""
-    if campaign_id not in campaigns:
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    if not store.get_campaign(user_id, campaign_id):
         raise HTTPException(404, "Campaign not found")
     body = await request.json()
     return await wallet.reallocate(
@@ -39,9 +52,13 @@ async def reallocate_budget(campaign_id: str, request: Request):
 
 
 @router.get("/campaign/{campaign_id}/inference-costs")
-async def get_inference_costs(campaign_id: str, agent_id: str = ""):
+async def get_inference_costs(campaign_id: str, request: Request, agent_id: str = ""):
     """Get LLM inference costs for a campaign."""
-    if campaign_id not in campaigns:
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    if not store.get_campaign(user_id, campaign_id):
         raise HTTPException(404, "Campaign not found")
     if agent_id:
         return cost_tracker.get_agent_cost(campaign_id, agent_id)
@@ -55,8 +72,12 @@ async def global_costs():
 
 
 @router.get("/campaign/{campaign_id}/spend-log")
-async def get_spend_log(campaign_id: str, agent_id: str = None):
+async def get_spend_log(campaign_id: str, request: Request, agent_id: str = ""):
     """Get spend log for a campaign."""
-    if campaign_id not in campaigns:
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    if not store.get_campaign(user_id, campaign_id):
         raise HTTPException(404, "Campaign not found")
     return await wallet.get_spend_log(campaign_id, agent_id)

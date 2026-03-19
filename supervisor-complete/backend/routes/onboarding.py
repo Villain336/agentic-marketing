@@ -12,7 +12,9 @@ from models import (
 from providers import router as model_router
 from engine import engine
 from agents import get_agent
-from store import onboarding_profiles
+from auth import get_user_id, validate_id
+from store import store
+import db
 
 logger = logging.getLogger("supervisor.api.onboarding")
 
@@ -23,16 +25,25 @@ router = APIRouter(prefix="/onboarding", tags=["Onboarding"])
 async def create_onboarding(request: Request):
     """Create a new onboarding profile."""
     from models import OnboardingProfile
-    body = await request.json()
-    profile = OnboardingProfile(user_id=body.get("user_id", ""))
-    onboarding_profiles[profile.id] = profile
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    profile = OnboardingProfile(user_id=user_id)
+    store.put_onboarding(user_id, profile)
+
+    await db.save_onboarding_profile(profile.model_dump())
+
     return {"id": profile.id, "current_stage": profile.current_stage}
 
 
 @router.get("/{profile_id}")
-async def get_onboarding(profile_id: str):
+async def get_onboarding(profile_id: str, request: Request):
     """Get onboarding profile state."""
-    profile = onboarding_profiles.get(profile_id)
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_id(profile_id, "profile_id")
+    profile = store.get_onboarding(user_id, profile_id)
     if not profile:
         raise HTTPException(404, "Onboarding profile not found")
     return profile.model_dump()
@@ -41,7 +52,11 @@ async def get_onboarding(profile_id: str):
 @router.post("/{profile_id}/stage/{stage}")
 async def update_onboarding_stage(profile_id: str, stage: int, request: Request):
     """Update a specific onboarding stage with data."""
-    profile = onboarding_profiles.get(profile_id)
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_id(profile_id, "profile_id")
+    profile = store.get_onboarding(user_id, profile_id)
     if not profile:
         raise HTTPException(404, "Onboarding profile not found")
 
@@ -78,8 +93,12 @@ async def update_onboarding_stage(profile_id: str, stage: int, request: Request)
 
 @router.post("/{profile_id}/vision-interview")
 async def run_vision_interview(profile_id: str, request: Request):
-    """Run the Vision Interview agent for Stage 1 onboarding — SSE stream."""
-    profile = onboarding_profiles.get(profile_id)
+    """Run the Vision Interview agent for Stage 1 onboarding -- SSE stream."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_id(profile_id, "profile_id")
+    profile = store.get_onboarding(user_id, profile_id)
     if not profile:
         raise HTTPException(404, "Onboarding profile not found")
 
@@ -176,9 +195,13 @@ async def generate_visual_dna(request: Request):
 
 
 @router.post("/{profile_id}/market-research")
-async def run_market_research(profile_id: str):
-    """Run market research agents during onboarding (Stage 6) — SSE stream."""
-    profile = onboarding_profiles.get(profile_id)
+async def run_market_research(profile_id: str, request: Request):
+    """Run market research agents during onboarding (Stage 6) -- SSE stream."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_id(profile_id, "profile_id")
+    profile = store.get_onboarding(user_id, profile_id)
     if not profile:
         raise HTTPException(404, "Onboarding profile not found")
 
