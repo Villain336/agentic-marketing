@@ -1,5 +1,5 @@
 """
-Supervisor Backend — PII Stripping / Privacy Router
+Omni OS Backend — PII Stripping / Privacy Router
 Scrubs personally identifiable information before sending to cloud LLMs.
 Competes with NemoClaw's enterprise privacy router.
 """

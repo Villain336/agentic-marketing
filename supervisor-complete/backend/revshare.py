@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Revenue Share Pricing Engine
+Omni OS Backend — Revenue Share Pricing Engine
 Outcome-based pricing: users pay a % of revenue attributed to agent actions.
 Competes with Polsia's 20% rev-share model.
 """

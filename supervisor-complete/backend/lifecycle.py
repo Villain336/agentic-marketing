@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Agent Lifecycle Management
+Omni OS Backend — Agent Lifecycle Management
 A/B testing agents, spawning specialist variants, dissolving underperformers,
 and promoting high performers to default status.
 """

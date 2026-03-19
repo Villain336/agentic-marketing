@@ -11,7 +11,7 @@ import httpx
 
 from models import ToolDefinition, ToolParameter, ToolResult
 
-logger = logging.getLogger("supervisor.tools")
+logger = logging.getLogger("omnios.tools")
 
 # Shared HTTP clients used by tool handlers across all domain modules.
 _http = httpx.AsyncClient(timeout=30)

@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Configuration
+Omni OS Backend — Configuration
 Environment-based settings with multi-provider support.
 """
 import os

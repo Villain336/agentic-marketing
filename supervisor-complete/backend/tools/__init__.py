@@ -53,6 +53,8 @@ from tools.support import register_support_tools
 from tools.upsell import register_upsell_tools
 from tools.voice import register_voice_tools
 from tools.website import register_website_tools
+from tools.claude_sdk import register_claude_sdk_tools
+from tools.crawlers import register_crawler_tools
 
 # ── Singleton registry ───────────────────────────────────────────────────────
 registry = ToolRegistry()
@@ -102,6 +104,8 @@ def register_all_tools():
     register_upsell_tools(registry)
     register_voice_tools(registry)
     register_website_tools(registry)
+    register_claude_sdk_tools(registry)
+    register_crawler_tools(registry)
 
 
 # Auto-register all tools on import (matches legacy tools.py behaviour)
@@ -151,3 +155,5 @@ from tools.support import _create_support_ticket, _search_knowledge_base, _updat
 from tools.upsell import _analyze_expansion_opportunities, _build_qbr_template, _client_health_score  # noqa: F401
 from tools.voice import _make_phone_call, _get_call_transcript, _send_sms, _send_linkedin_message  # noqa: F401
 from tools.website import _build_full_website, _generate_page  # noqa: F401
+from tools.claude_sdk import _claude_generate_code, _claude_review_code, _claude_refactor_code, _claude_explain_code, _claude_generate_tests  # noqa: F401
+from tools.crawlers import _crawl_website, _scrape_page, _extract_structured_data, _monitor_competitor  # noqa: F401

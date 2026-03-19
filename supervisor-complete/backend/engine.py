@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Agent Engine (Production Grade)
+Omni OS Backend — Agent Engine (Production Grade)
 The agentic reasoning loop: Plan → Act → Observe → Validate → Decide.
 Includes: quality gate, tool retry with fallback, graceful timeout,
 structured memory extraction, persistence at every step.
@@ -22,7 +22,7 @@ from models import (
 from providers import router, AllProvidersFailedError
 from tools import registry
 
-logger = logging.getLogger("supervisor.engine")
+logger = logging.getLogger("omnios.engine")
 
 # ── Lazy imports to avoid circular deps ─────────────────────────────────────
 

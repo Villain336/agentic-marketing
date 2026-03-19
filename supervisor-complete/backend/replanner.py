@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Dynamic Mid-Execution Re-Planning
+Omni OS Backend — Dynamic Mid-Execution Re-Planning
 Agents detect blockers during execution and adapt strategy in real-time.
 Competes with Devin's dynamic re-planning and Manus's autonomous recovery.
 """

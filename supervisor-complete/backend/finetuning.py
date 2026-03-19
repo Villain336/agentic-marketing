@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Custom Model Fine-Tuning Per Customer
+Omni OS Backend — Custom Model Fine-Tuning Per Customer
 Manages per-customer model training pipelines using execution traces.
 Competes with Poolside's RLCEF (Reinforcement Learning from Code Execution Feedback).
 """

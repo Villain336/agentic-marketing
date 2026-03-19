@@ -1,5 +1,5 @@
 """
-Supervisor Backend — SkillHub Community Marketplace
+Omni OS Backend — SkillHub Community Marketplace
 Users publish, discover, and install agent skills, templates, and workflows.
 Competes with OpenClaw's ClawHub marketplace.
 """

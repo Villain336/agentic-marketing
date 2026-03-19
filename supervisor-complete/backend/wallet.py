@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Agent Wallet & Budget Management
+Omni OS Backend — Agent Wallet & Budget Management
 Manages per-agent budget allocations and spend tracking.
 """
 from __future__ import annotations

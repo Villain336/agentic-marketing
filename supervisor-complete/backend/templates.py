@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Campaign Templates
+Omni OS Backend — Campaign Templates
 Pre-built campaign configurations for common business types.
 Skip onboarding for experienced users — go straight to execution.
 """

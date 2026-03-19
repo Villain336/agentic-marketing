@@ -1,5 +1,5 @@
 """
-Supervisor Backend — WebSocket Manager
+Omni OS Backend — WebSocket Manager
 Real-time push for agent status, metrics, and campaign events.
 Replaces polling with live updates.
 """

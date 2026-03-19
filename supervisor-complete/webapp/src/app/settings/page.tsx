@@ -136,7 +136,7 @@ export default function SettingsPage() {
         </button>
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center">
-            <span className="text-white text-xs font-bold">S</span>
+            <span className="text-white text-xs font-bold">O</span>
           </div>
           <span className="font-display font-bold text-surface-900 text-sm">Settings</span>
         </div>

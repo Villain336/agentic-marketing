@@ -5,7 +5,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: supervisor-backend
+    container_name: omnios-backend
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -25,7 +25,7 @@ services:
     volumes:
       - backend-data:/app/data
     networks:
-      - supervisor-net
+      - omnios-net
 
   webapp:
     build:
@@ -33,7 +33,7 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: http://backend:8000
-    container_name: supervisor-webapp
+    container_name: omnios-webapp
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -52,11 +52,11 @@ services:
       retries: 3
       start_period: 20s
     networks:
-      - supervisor-net
+      - omnios-net
 
   redis:
     image: redis:7-alpine
-    container_name: supervisor-redis
+    container_name: omnios-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -70,7 +70,7 @@ services:
       - redis-data:/data
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     networks:
-      - supervisor-net
+      - omnios-net
 
 volumes:
   backend-data:
@@ -79,5 +79,5 @@ volumes:
     driver: local
 
 networks:
-  supervisor-net:
+  omnios-net:
     driver: bridge

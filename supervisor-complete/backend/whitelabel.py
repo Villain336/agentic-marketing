@@ -1,5 +1,5 @@
 """
-Supervisor Backend — White-Label API
+Omni OS Backend — White-Label API
 Tenant isolation, custom branding, and reseller support.
 Agencies can run the platform under their own brand.
 """

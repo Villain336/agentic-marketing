@@ -64,7 +64,7 @@ export default function DashboardPage() {
 
   // Load session
   useEffect(() => {
-    const savedBiz = localStorage.getItem("sv_business");
+    const savedBiz = localStorage.getItem("omni_business");
     if (savedBiz) {
       setBusiness(JSON.parse(savedBiz));
     } else {
@@ -220,12 +220,12 @@ export default function DashboardPage() {
   if (!business) return null;
 
   return (
-    <div className="h-screen flex flex-col bg-surface-50" role="application" aria-label="Supervisor Dashboard">
+    <div className="h-screen flex flex-col bg-surface-50" role="application" aria-label="Omni OS Dashboard">
       {/* ── Top Bar ── */}
       <header className="h-14 bg-white border-b border-surface-200 flex items-center px-4 gap-4 flex-shrink-0" role="banner">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center">
-            <span className="text-white text-xs font-bold">S</span>
+            <span className="text-white text-xs font-bold">O</span>
           </div>
           <span className="font-display font-bold text-surface-900 text-sm">{business.name}</span>
         </div>

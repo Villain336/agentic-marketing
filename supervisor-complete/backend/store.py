@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Tenant-Scoped In-Memory Store
+Omni OS Backend — Tenant-Scoped In-Memory Store
 All data access goes through TenantStore with mandatory user_id scoping.
 No cross-tenant data leakage is possible through this interface.
 

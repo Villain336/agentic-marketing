@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Sensing Engine
+Omni OS Backend — Sensing Engine
 Ingests performance data from webhooks and updates campaign memory.
 Triggers agent re-evaluation when thresholds are breached.
 Persists metrics to Supabase so they survive restarts.

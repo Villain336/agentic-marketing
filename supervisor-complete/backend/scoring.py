@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Agent Performance Scoring
+Omni OS Backend — Agent Performance Scoring
 Scores agents on actual business outcomes, not output quality.
 """
 from __future__ import annotations

@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Wide Research: Parallel Sub-Agent Spawning
+Omni OS Backend — Wide Research: Parallel Sub-Agent Spawning
 Spawn N full-capability agents in parallel for a single research task.
 Competes with Manus's Wide Research where every sub-agent is a full instance.
 """

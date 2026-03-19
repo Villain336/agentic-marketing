@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Database Persistence Layer
+Omni OS Backend — Database Persistence Layer
 Supabase-backed persistence for campaigns, agent runs, genome, wallet, and approvals.
 Falls back to in-memory storage when Supabase is not configured.
 """

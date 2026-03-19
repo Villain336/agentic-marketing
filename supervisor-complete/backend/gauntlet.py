@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Persona Gauntlet
+Omni OS Backend — Persona Gauntlet
 Quality gate that validates agent output against simulated buyer personas.
 """
 from __future__ import annotations

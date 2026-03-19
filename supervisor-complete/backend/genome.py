@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Campaign Genome
+Omni OS Backend — Campaign Genome
 Cross-campaign intelligence: stores structured campaign DNA,
 queries similar campaigns, and generates data-driven recommendations.
 

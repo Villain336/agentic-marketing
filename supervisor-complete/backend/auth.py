@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Authentication & Authorization
+Omni OS Backend — Authentication & Authorization
 Validates Supabase JWTs on protected endpoints.
 Public endpoints (health, webhooks, docs) are exempt.
 """
@@ -104,7 +104,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             )
 
         # Extract token: prefer httpOnly cookie, fall back to Bearer header
-        token = request.cookies.get("sv_session")
+        token = request.cookies.get("omni_session")
         if not token:
             auth_header = request.headers.get("Authorization", "")
             if auth_header.startswith("Bearer "):

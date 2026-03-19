@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Webhook Signature Verification
+Omni OS Backend — Webhook Signature Verification
 HMAC verification for Stripe, SendGrid, and other webhook sources.
 """
 from __future__ import annotations

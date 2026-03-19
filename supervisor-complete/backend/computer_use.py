@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Computer Use Engine
+Omni OS Backend — Computer Use Engine
 =========================================
 Live browser streaming, multi-browser orchestration, vision-guided interaction,
 session recording & replay, and human collaborative handoff.
