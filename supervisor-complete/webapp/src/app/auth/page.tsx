@@ -1,11 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/constants";
 
 export default function AuthPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-surface-50 flex items-center justify-center">Loading...</div>}>
+      <AuthPageInner />
+    </Suspense>
+  );
+}
+
+function AuthPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [mode, setMode] = useState<"login" | "signup">(

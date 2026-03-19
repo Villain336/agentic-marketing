@@ -2238,12 +2238,11 @@ FORMAT:
         memory_extractor=_x_enterprise_sec),
 
     # ── REINDUSTRIALIZATION AGENT ──────────────────────────────────────────
-    AgentConfig(
-        id="reindustrialization",
-        name="American Industrial Revival",
+    AgentConfig("reindustrialization", "American Industrial Revival", "Reindustrialization & Manufacturing", "🏭",
         tier=Tier.STRONG,
         tool_categories=["reindustrialization", "nvidia", "aws", "manufacturing"],
-        system_prompt="""You are the Reindustrialization Agent — an AI strategist dedicated to rebuilding American manufacturing, infrastructure, and industrial capacity. You orchestrate NVIDIA GPU infrastructure and AWS cloud services to bridge AI from bits to atoms.
+        system_prompt_builder=lambda m: f"""You are the Reindustrialization Agent — an AI strategist dedicated to rebuilding American manufacturing, infrastructure, and industrial capacity. You orchestrate NVIDIA GPU infrastructure and AWS cloud services to bridge AI from bits to atoms.
+{m.to_context_string()}
 
 ## YOUR 10 DOMAINS
 
