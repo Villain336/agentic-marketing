@@ -166,6 +166,113 @@ def require_role(request: Request, *allowed_roles: str) -> str:
     return user_id
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# RBAC — Role-Based Access Control
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Role hierarchy: owner > admin > member > viewer
+ROLE_HIERARCHY = {
+    "owner": 4,
+    "admin": 3,
+    "member": 2,
+    "viewer": 1,
+    "service_role": 99,   # internal service bypass
+    "authenticated": 1,   # Supabase default = viewer-level
+}
+
+# Resource permissions: maps resource_type -> action -> minimum role required
+RESOURCE_PERMISSIONS: dict[str, dict[str, str]] = {
+    "campaign": {
+        "read": "viewer",
+        "create": "member",
+        "update": "member",
+        "delete": "admin",
+        "run_agents": "member",
+    },
+    "agent": {
+        "read": "viewer",
+        "configure": "admin",
+        "run": "member",
+        "approve_action": "member",
+    },
+    "tenant": {
+        "read": "viewer",
+        "create": "admin",
+        "update": "admin",
+        "delete": "owner",
+    },
+    "billing": {
+        "read": "member",
+        "update": "admin",
+        "manage_subscriptions": "admin",
+    },
+    "compliance": {
+        "read": "admin",
+        "export": "admin",
+        "delete_data": "owner",
+    },
+    "settings": {
+        "read": "member",
+        "update": "admin",
+        "manage_api_keys": "admin",
+        "manage_integrations": "admin",
+    },
+    "user": {
+        "read_self": "viewer",
+        "read_others": "admin",
+        "invite": "admin",
+        "remove": "owner",
+        "change_role": "owner",
+    },
+}
+
+
+def _role_level(role: str) -> int:
+    """Get numeric level for a role. Defaults to 0 (no access)."""
+    return ROLE_HIERARCHY.get(role, 0)
+
+
+def check_permission(role: str, resource: str, action: str) -> bool:
+    """Check if a role has permission to perform an action on a resource."""
+    # Service role bypasses all checks
+    if role == "service_role":
+        return True
+
+    resource_perms = RESOURCE_PERMISSIONS.get(resource)
+    if not resource_perms:
+        # Unknown resource — deny by default
+        return False
+
+    required_role = resource_perms.get(action)
+    if not required_role:
+        # Unknown action — deny by default
+        return False
+
+    return _role_level(role) >= _role_level(required_role)
+
+
+def require_permission(resource: str, action: str):
+    """
+    FastAPI dependency factory for RBAC enforcement.
+    Usage: user_id: str = Depends(require_permission("campaign", "delete"))
+    """
+    def _checker(request: Request) -> str:
+        user_id = require_auth(request)
+        role = get_user_role(request)
+        if not check_permission(role, resource, action):
+            logger.warning(
+                f"RBAC denied: user={user_id} role={role} "
+                f"resource={resource} action={action}"
+            )
+            raise HTTPException(
+                403,
+                f"Permission denied: '{role}' cannot '{action}' on '{resource}'. "
+                f"Required: {RESOURCE_PERMISSIONS.get(resource, {}).get(action, 'unknown')}+",
+            )
+        return user_id
+    return _checker
+
+
 # ── Input Validation Helpers ─────────────────────────────────────────────────
 
 _SAFE_ID = re.compile(r"^[a-zA-Z0-9_\-]{1,128}$")

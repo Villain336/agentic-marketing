@@ -35,6 +35,7 @@ _event_bus = None
 _autonomy_store = None
 _wallet = None
 _semantic_memory_mod = None
+_privacy_router = None
 
 
 def _get_event_bus():
@@ -67,6 +68,14 @@ def _get_semantic_memory():
         import memory as _mem
         _semantic_memory_mod = _mem
     return _semantic_memory_mod
+
+
+def _get_privacy_router():
+    global _privacy_router
+    if _privacy_router is None:
+        from privacy import privacy_router
+        _privacy_router = privacy_router
+    return _privacy_router
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -149,8 +158,8 @@ def _get_adaptation_engine():
 def _get_replanner():
     global _replanner
     if _replanner is None:
-        from replanner import BlockerDetector
-        _replanner = BlockerDetector()
+        from replanner import Replanner
+        _replanner = Replanner()
     return _replanner
 
 
@@ -423,6 +432,9 @@ class AgentEngine:
         provider_used = ""
         model_used = ""
         tool_failure_count = 0
+        _total_tool_calls = 0                   # Track total tool calls for mid-run adaptation
+        _ADAPT_EVERY_N_TOOLS = 5                # Re-evaluate adaptive strategies every N tool calls
+        _last_adapt_at_tool_count = 0           # Last tool count when adaptation fired
 
         # ── Start trace ──
         trace = trace_store.start_trace(
@@ -461,6 +473,21 @@ class AgentEngine:
                                    f"Finish your current task and produce your final output NOW.]",
                     })
 
+            # ── PII Scrub: strip PII before sending to cloud LLM ──
+            _pii_session_id = f"{campaign_id}:{agent.id}:{iteration}"
+            try:
+                pr = _get_privacy_router()
+                scrubbed_messages = pr.scrub_messages(
+                    messages, session_id=_pii_session_id, agent_id=agent.id,
+                )
+                scrubbed_system = pr.scrub(
+                    system, session_id=_pii_session_id, agent_id=agent.id,
+                ).scrubbed_text
+            except Exception as e:
+                logger.debug(f"PII scrub skipped: {e}")
+                scrubbed_messages = messages
+                scrubbed_system = system
+
             # ── Call LLM (with tracing span) ──
             llm_span = trace.start_llm_span(
                 step=iteration, model=agent.model or "default",
@@ -472,7 +499,7 @@ class AgentEngine:
                 _llm_usage: dict[str, int] = {}
 
                 async for chunk in router.complete_stream(
-                    messages=messages, system=system,
+                    messages=scrubbed_messages, system=scrubbed_system,
                     tools=tools if tools else None,
                     tier=tier, max_tokens=settings.default_max_tokens,
                     model_override=agent.model,
@@ -692,15 +719,35 @@ class AgentEngine:
                                      "content": result.output if result.success else f"Error: {result.error}"}],
                     })
 
-                    # Record step for replanner pattern detection
+                    # Record step and check for blockers — inject replan if stuck
                     try:
-                        replanner = _get_replanner()
-                        replanner.record_step(agent.id, campaign_id, {
-                            "tool": tc.name, "success": result.success,
-                            "error": result.error if not result.success else None,
-                        })
-                    except Exception:
-                        pass
+                        rp = _get_replanner()
+                        rp.record_step(
+                            agent_id=agent.id, campaign_id=campaign_id,
+                            tool_name=tc.name, success=result.success,
+                            error=result.error if not result.success else "",
+                            output=result.output[:200] if result.output else "",
+                        )
+                        if not result.success:
+                            replan_instructions = rp.check_and_replan(
+                                agent_id=agent.id, campaign_id=campaign_id,
+                                tool_name=tc.name,
+                                error=result.error or "",
+                            )
+                            if replan_instructions:
+                                # Inject recovery instructions into the conversation
+                                messages.append({
+                                    "role": "user",
+                                    "content": replan_instructions,
+                                })
+                                yield AgentStreamEvent(
+                                    event=StepType.STATUS, agent_id=agent.id,
+                                    step=iteration,
+                                    content=f"Blocker detected — replanning: {rp.get_history(agent.id, campaign_id).actions[-1].strategy}",
+                                    status=AgentStatus.EXECUTING,
+                                )
+                    except Exception as e:
+                        logger.debug(f"Replanner step failed: {e}")
 
                     # Emit tool execution event
                     try:
@@ -712,6 +759,36 @@ class AgentEngine:
                         )
                     except Exception:
                         pass
+
+                    _total_tool_calls += 1
+
+                    # ── Mid-execution adaptive re-evaluation ──
+                    if (campaign and _total_tool_calls - _last_adapt_at_tool_count >= _ADAPT_EVERY_N_TOOLS):
+                        try:
+                            adapt = _get_adaptation_engine()
+                            mid_ctx = await adapt.build_context(
+                                agent_id=agent.id, campaign=campaign,
+                                trigger_reason=f"Mid-execution re-evaluation after {_total_tool_calls} tool calls",
+                            )
+                            mid_block = adapt.render_prompt_block(mid_ctx)
+                            if mid_block and mid_ctx.strategies:
+                                # Inject updated strategies as a user message
+                                strategy_lines = [s.directive for s in mid_ctx.strategies[:3]]
+                                messages.append({
+                                    "role": "user",
+                                    "content": (
+                                        f"[ADAPTIVE UPDATE — mid-execution re-evaluation]\n"
+                                        f"Based on real-time performance data, adjust your approach:\n"
+                                        + "\n".join(f"• {s}" for s in strategy_lines)
+                                    ),
+                                })
+                                _last_adapt_at_tool_count = _total_tool_calls
+                                logger.info(
+                                    f"Mid-execution adaptation fired for {agent.id} at tool call #{_total_tool_calls}: "
+                                    f"{len(mid_ctx.strategies)} strategies injected"
+                                )
+                        except Exception as e:
+                            logger.debug(f"Mid-execution adaptation skipped: {e}")
 
                     # ── Mid-execution checkpoint ──
                     try:
@@ -743,6 +820,12 @@ class AgentEngine:
 
             # ── No tool calls = agent done ──
             if text_buffer:
+                # Restore PII in final output so downstream consumers get real data
+                try:
+                    pr = _get_privacy_router()
+                    text_buffer = pr.restore(text_buffer, session_id=_pii_session_id)
+                except Exception:
+                    pass
                 full_text_output += text_buffer
             break
 
