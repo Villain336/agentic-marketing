@@ -61,6 +61,8 @@ export interface BusinessProfile {
   competitors: string;
   biggestChallenge: string;
   brandVoice: string;
+  businessModel: string;
+  startingFromScratch: boolean;
 }
 
 export interface Campaign {
@@ -90,6 +92,9 @@ export interface SSEEvent {
 
 export type OnboardingStage =
   | "welcome"
+  | "idea_discovery"
+  | "market_validation"
+  | "model_selection"
   | "business"
   | "entity"
   | "revenue"
