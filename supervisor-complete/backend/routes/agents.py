@@ -1,18 +1,20 @@
-"""Single-agent run and agent debate endpoints."""
+"""Single-agent run, agent debate, and checkpoint endpoints."""
 from __future__ import annotations
 import json
 import uuid
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from models import (
     AgentStreamEvent, BusinessProfile, Campaign, CampaignMemory,
     RunAgentRequest, StepType, Tier,
 )
 from providers import router as model_router
-from engine import engine
+from engine import engine, get_checkpoint, list_checkpoints
 from agents import get_agent
 from auth import get_user_id, validate_id
 from store import store, serialize_memory
@@ -143,3 +145,94 @@ Return JSON: {{"approved": true/false, "issues": ["..."], "suggested_changes": [
             reviews.append({"reviewer": reviewer_id, "error": str(e)})
 
     return {"agent_id": target_agent_id, "reviews": reviews, "reviewer_count": len(reviews)}
+
+
+# ── Checkpoint Endpoints ─────────────────────────────────────────────────────
+
+class ResumeRequest(BaseModel):
+    checkpoint_id: str
+    tier: Optional[Tier] = None
+
+
+@router.post("/agent/{agent_id}/resume")
+async def resume_agent(agent_id: str, req: ResumeRequest, request: Request):
+    """Resume an agent run from a saved mid-execution checkpoint."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
+    validate_id(agent_id, "agent_id")
+
+    agent = get_agent(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent not found: {agent_id}")
+
+    checkpoint = get_checkpoint(req.checkpoint_id)
+    if not checkpoint:
+        raise HTTPException(404, f"Checkpoint not found: {req.checkpoint_id}")
+
+    if checkpoint.get("agent_id") != agent_id:
+        raise HTTPException(400, "Checkpoint does not belong to this agent")
+
+    campaign_id = checkpoint.get("campaign_id", "")
+    campaign = store.get_campaign(user_id, campaign_id) if campaign_id else None
+
+    async def stream():
+        try:
+            async for event in engine.resume_from_checkpoint(
+                agent=agent,
+                checkpoint=checkpoint,
+                tier=req.tier,
+                campaign=campaign,
+            ):
+                if event.memory_update and campaign:
+                    for k, v in event.memory_update.items():
+                        if hasattr(campaign.memory, k):
+                            setattr(campaign.memory, k, v)
+                yield f"data: {event.model_dump_json()}\n\n"
+            if campaign and campaign_id:
+                yield f"data: {json.dumps({'event': 'campaign_state', 'campaign_id': campaign_id, 'memory': serialize_memory(campaign.memory)})}\n\n"
+        except Exception as e:
+            logger.error(f"Agent resume stream error: {e}", exc_info=True)
+            yield f"data: {AgentStreamEvent(event=StepType.ERROR, agent_id=agent_id, content=str(e)).model_dump_json()}\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
+                 "X-Campaign-ID": campaign_id,
+                 "X-Checkpoint-ID": req.checkpoint_id})
+
+
+@router.get("/agent/{agent_id}/checkpoints")
+async def get_agent_checkpoints(agent_id: str, request: Request,
+                                campaign_id: str = ""):
+    """List available checkpoints for an agent, optionally filtered by campaign."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
+    validate_id(agent_id, "agent_id")
+
+    # First try in-memory store
+    checkpoints = list_checkpoints(agent_id, campaign_id)
+
+    # If none found in memory, try database
+    if not checkpoints:
+        try:
+            import db
+            db_rows = await db.load_checkpoints(agent_id, campaign_id)
+            checkpoints = [
+                {
+                    "checkpoint_id": row.get("id", ""),
+                    "trace_id": row.get("trace_id", ""),
+                    "agent_id": row.get("agent_id", ""),
+                    "campaign_id": row.get("campaign_id", ""),
+                    "step_number": row.get("step_number", 0),
+                    "timestamp": row.get("created_at", ""),
+                }
+                for row in db_rows
+            ]
+        except Exception as e:
+            logger.debug(f"DB checkpoint load skipped: {e}")
+
+    return {"agent_id": agent_id, "campaign_id": campaign_id,
+            "checkpoints": checkpoints, "count": len(checkpoints)}

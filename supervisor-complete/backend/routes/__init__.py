@@ -37,6 +37,12 @@ from routes.reindustrialization import router as reindustrialization_router
 from routes.integrations import router as integrations_router
 from routes.developer import router as developer_router
 from routes.protocol import router as protocol_router
+from routes.mcp import router as mcp_router
+from routes.tracing import router as tracing_router
+from routes.billing import router as billing_router
+from routes.memory_routes import router as memory_router
+from routes.governance import router as governance_router
+from routes.compliance import router as compliance_router
 
 all_routers = [
     health_router,
@@ -70,4 +76,10 @@ all_routers = [
     integrations_router,
     developer_router,
     protocol_router,
+    mcp_router,
+    tracing_router,
+    billing_router,
+    memory_router,
+    governance_router,
+    compliance_router,
 ]

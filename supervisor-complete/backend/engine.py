@@ -7,10 +7,12 @@ structured memory extraction, persistence at every step.
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
 import time
+import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
 
 from config import settings
@@ -21,6 +23,7 @@ from models import (
 )
 from providers import router, AllProvidersFailedError
 from tools import registry
+from tracing import trace_store, compute_prompt_hash, SpanStatus as TraceSpanStatus, SpanKind
 
 logger = logging.getLogger("omnios.engine")
 
@@ -31,6 +34,7 @@ _replanner = None
 _event_bus = None
 _autonomy_store = None
 _wallet = None
+_semantic_memory_mod = None
 
 
 def _get_event_bus():
@@ -55,6 +59,68 @@ def _get_wallet():
         from wallet import wallet
         _wallet = wallet
     return _wallet
+
+
+def _get_semantic_memory():
+    global _semantic_memory_mod
+    if _semantic_memory_mod is None:
+        import memory as _mem
+        _semantic_memory_mod = _mem
+    return _semantic_memory_mod
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MID-EXECUTION CHECKPOINTING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Bounded in-memory checkpoint store: key = checkpoint_id, value = checkpoint dict
+# Max 500 checkpoints in memory; oldest evicted on overflow.
+_checkpoint_store: collections.OrderedDict[str, dict] = collections.OrderedDict()
+_CHECKPOINT_MAX = 500
+
+
+def _save_checkpoint(checkpoint: dict) -> str:
+    """Save a checkpoint to in-memory store and persist to DB."""
+    cp_id = checkpoint["checkpoint_id"]
+    _checkpoint_store[cp_id] = checkpoint
+    # Evict oldest if over capacity
+    while len(_checkpoint_store) > _CHECKPOINT_MAX:
+        _checkpoint_store.popitem(last=False)
+    return cp_id
+
+
+async def _persist_checkpoint_to_db(checkpoint: dict):
+    """Persist checkpoint to database (fire-and-forget safe)."""
+    try:
+        import db
+        await db.save_checkpoint(checkpoint)
+    except Exception as e:
+        logger.debug(f"Checkpoint DB persistence skipped: {e}")
+
+
+def get_checkpoint(checkpoint_id: str) -> dict | None:
+    """Retrieve a checkpoint by ID from in-memory store."""
+    return _checkpoint_store.get(checkpoint_id)
+
+
+def list_checkpoints(agent_id: str, campaign_id: str = "") -> list[dict]:
+    """List checkpoints for an agent, optionally filtered by campaign."""
+    results = []
+    for cp in _checkpoint_store.values():
+        if cp["agent_id"] != agent_id:
+            continue
+        if campaign_id and cp.get("campaign_id") != campaign_id:
+            continue
+        # Return metadata only (not full messages/memory blobs)
+        results.append({
+            "checkpoint_id": cp["checkpoint_id"],
+            "trace_id": cp["trace_id"],
+            "agent_id": cp["agent_id"],
+            "campaign_id": cp["campaign_id"],
+            "step_number": cp["step_number"],
+            "timestamp": cp["timestamp"],
+        })
+    return results
 
 
 # Estimated cost per tool execution (USD) for spend-tracking tools
@@ -329,6 +395,18 @@ class AgentEngine:
             except Exception as e:
                 logger.warning(f"Adaptation injection skipped for {agent.id}: {e}")
 
+        # ── Semantic Memory Injection ──
+        if campaign_id:
+            try:
+                sem_mem = _get_semantic_memory()
+                memory_block = await sem_mem.build_memory_context(
+                    agent_id=agent.id, campaign_id=campaign_id, goal_hint=goal[:200],
+                )
+                if memory_block:
+                    system = system + "\n\n" + memory_block
+            except Exception as e:
+                logger.debug(f"Semantic memory injection skipped for {agent.id}: {e}")
+
         tools = agent.get_tools()
         messages = [{"role": "user", "content": goal}]
 
@@ -346,6 +424,12 @@ class AgentEngine:
         model_used = ""
         tool_failure_count = 0
 
+        # ── Start trace ──
+        trace = trace_store.start_trace(
+            agent_id=agent.id, campaign_id=campaign_id,
+        )
+        _prompt_hash = compute_prompt_hash(messages, system)
+
         while iteration < max_iter:
             iteration += 1
             elapsed = time.time() - start_time
@@ -361,6 +445,9 @@ class AgentEngine:
                             status=AgentStatus.DONE,
                         )
                         break  # Fall through to memory extraction + quality gate
+                    trace.total_iterations = iteration
+                    trace.finalize(status=TraceSpanStatus.TIMEOUT)
+                    trace_store.finish_trace(trace)
                     yield AgentStreamEvent(event=StepType.ERROR, agent_id=agent.id,
                         content=f"Agent timed out after {int(elapsed)}s with no output",
                         status=AgentStatus.ERROR)
@@ -374,7 +461,11 @@ class AgentEngine:
                                    f"Finish your current task and produce your final output NOW.]",
                     })
 
-            # ── Call LLM ──
+            # ── Call LLM (with tracing span) ──
+            llm_span = trace.start_llm_span(
+                step=iteration, model=agent.model or "default",
+                prompt_hash=_prompt_hash,
+            )
             try:
                 text_buffer = ""
                 tool_calls: list[ToolCall] = []
@@ -405,6 +496,10 @@ class AgentEngine:
                         _llm_usage = chunk.get("usage", {})
 
             except AllProvidersFailedError as e:
+                # Finalize LLM span with error
+                trace.finish_llm_span(llm_span, error=str(e))
+                trace.finalize(status=TraceSpanStatus.ERROR)
+                trace_store.finish_trace(trace)
                 # Emit failure event
                 try:
                     bus = _get_event_bus()
@@ -416,15 +511,19 @@ class AgentEngine:
                 return
 
             # ── Record LLM cost (using provider-reported tokens, fallback to estimate) ──
+            _real_input = _llm_usage.get("input_tokens", 0)
+            _real_output = _llm_usage.get("output_tokens", 0)
             if provider_used and model_used and campaign_id:
                 try:
-                    real_input = _llm_usage.get("input_tokens", 0)
-                    real_output = _llm_usage.get("output_tokens", 0)
+                    real_input = _real_input
+                    real_output = _real_output
                     if not real_input:
                         # Fallback: character count / 4 as token estimate
                         real_input = sum(len(str(m.get("content", ""))) for m in messages) // 4
                     if not real_output:
                         real_output = len(text_buffer) // 4
+                    _real_input = _real_input or real_input
+                    _real_output = _real_output or real_output
                     cost_tracker.record(
                         campaign_id=campaign_id, agent_id=agent.id,
                         provider=provider_used, model=model_used,
@@ -433,6 +532,27 @@ class AgentEngine:
                     )
                 except Exception:
                     pass
+
+            # ── Finalize LLM span ──
+            trace.finish_llm_span(
+                llm_span, provider=provider_used, model=model_used,
+                input_tokens=_real_input, output_tokens=_real_output,
+            )
+
+            # ── Record decision: tool calls vs finish ──
+            if tool_calls:
+                tool_names = ", ".join(tc.name for tc in tool_calls)
+                trace.record_decision(
+                    step=iteration,
+                    action=f"call_tools: {tool_names}",
+                    reason=f"LLM chose to invoke {len(tool_calls)} tool(s) at step {iteration}",
+                )
+            else:
+                trace.record_decision(
+                    step=iteration,
+                    action="finish",
+                    reason="LLM produced final text output without tool calls",
+                )
 
             # ── Handle tool calls with retry + fallback ──
             if tool_calls:
@@ -529,7 +649,19 @@ class AgentEngine:
                         provider=provider_used, model=model_used, status=AgentStatus.TOOL_CALLING,
                     )
 
+                    # ── Start tool tracing span ──
+                    tool_span = trace.start_tool_span(
+                        step=iteration, tool_name=tc.name, tool_input=tc.input,
+                    )
+
                     result = await _execute_tool_with_retry(tc.name, tc.input, tc.id)
+
+                    # ── Finish tool tracing span ──
+                    trace.finish_tool_span(
+                        tool_span, success=result.success,
+                        output=result.output or "",
+                        error=result.error if not result.success else None,
+                    )
 
                     if not result.success:
                         tool_failure_count += 1
@@ -581,6 +713,32 @@ class AgentEngine:
                     except Exception:
                         pass
 
+                    # ── Mid-execution checkpoint ──
+                    try:
+                        checkpoint = {
+                            "checkpoint_id": str(uuid.uuid4()),
+                            "trace_id": campaign_id or str(uuid.uuid4()),
+                            "agent_id": agent.id,
+                            "campaign_id": campaign_id,
+                            "step_number": iteration,
+                            "messages_so_far": list(messages),
+                            "memory_so_far": {
+                                k: v for k, v in memory.__dict__.items()
+                                if not k.startswith("_")
+                            },
+                            "tool_results_so_far": [
+                                {"tool": tc.name, "success": result.success,
+                                 "output": (result.output[:2000] if result.output else result.error)},
+                            ],
+                            "system_prompt": system,
+                            "full_text_output": full_text_output,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                        _save_checkpoint(checkpoint)
+                        asyncio.create_task(_persist_checkpoint_to_db(checkpoint))
+                    except Exception as e:
+                        logger.debug(f"Checkpoint save failed: {e}")
+
                 continue  # Loop back
 
             # ── No tool calls = agent done ──
@@ -602,6 +760,13 @@ class AgentEngine:
 
         # ── Quality Gate ──
         validation = _validate_output(agent.id, full_text_output, memory_update)
+
+        # ── Record quality gate in trace ──
+        trace.record_quality_gate(
+            passed=validation["valid"],
+            issues=validation.get("issues", []),
+        )
+
         if not validation["valid"]:
             issues = "; ".join(validation["issues"])
             logger.warning(f"Quality gate flagged {agent.id}: {issues}")
@@ -615,6 +780,14 @@ class AgentEngine:
 
         total_ms = int((time.time() - start_time) * 1000)
 
+        # ── Finalize trace ──
+        trace.total_iterations = iteration
+        trace.finalize(
+            status=TraceSpanStatus.OK if validation["valid"] else TraceSpanStatus.ERROR,
+            estimated_cost=cost_tracker.get_agent_cost(campaign_id, agent.id).get("cost", 0.0) if campaign_id else 0.0,
+        )
+        trace_store.finish_trace(trace)
+
         yield AgentStreamEvent(
             event=StepType.OUTPUT, agent_id=agent.id, step=iteration,
             content=full_text_output, provider=provider_used,
@@ -626,6 +799,19 @@ class AgentEngine:
             await _persist_run_snapshot(agent.id, campaign_id, campaign)
             await _persist_campaign_memory(campaign_id, memory)
 
+        # ── Store semantic memories (episodes + lessons) ──
+        if campaign_id and full_text_output:
+            try:
+                sem_mem = _get_semantic_memory()
+                await sem_mem.extract_and_store_memories(
+                    agent_id=agent.id,
+                    campaign_id=campaign_id,
+                    output=full_text_output,
+                    memory_update=memory_update,
+                )
+            except Exception as e:
+                logger.debug(f"Semantic memory storage skipped for {agent.id}: {e}")
+
         # ── Emit agent.completed event ──
         try:
             bus = _get_event_bus()
@@ -635,6 +821,206 @@ class AgentEngine:
 
         logger.info(
             f"Agent {agent.id} done: {iteration} iterations, {total_ms}ms, "
+            f"tool_failures={tool_failure_count}, quality={'PASS' if validation['valid'] else 'WARN'}"
+        )
+
+    async def resume_from_checkpoint(
+        self, agent: AgentConfig, checkpoint: dict,
+        tier: Tier = None, campaign: "Campaign | None" = None,
+    ) -> AsyncGenerator[AgentStreamEvent, None]:
+        """
+        Resume an agent run from a saved checkpoint.
+        Restores messages, memory, and output state, then continues the loop.
+        """
+        from models import CampaignMemory, BusinessProfile
+
+        tier = tier or agent.tier
+        system = checkpoint.get("system_prompt", agent.system_prompt_builder(
+            CampaignMemory(business=BusinessProfile(
+                name="", service="", icp="", geography="", goal=""))))
+
+        # Restore state from checkpoint
+        messages = list(checkpoint.get("messages_so_far", []))
+        full_text_output = checkpoint.get("full_text_output", "")
+        start_step = checkpoint.get("step_number", 0)
+
+        # Restore memory onto a CampaignMemory object
+        mem_data = dict(checkpoint.get("memory_so_far", {}))
+        biz_data = mem_data.pop("business", {})
+        if isinstance(biz_data, dict):
+            biz = BusinessProfile(**{k: v for k, v in biz_data.items()
+                                     if hasattr(BusinessProfile, k)})
+        else:
+            biz = biz_data
+        memory = CampaignMemory(business=biz)
+        for k, v in mem_data.items():
+            if hasattr(memory, k) and k != "business":
+                setattr(memory, k, v)
+
+        campaign_id = checkpoint.get("campaign_id", "")
+        tools = agent.get_tools()
+
+        yield AgentStreamEvent(
+            event=StepType.STATUS, agent_id=agent.id,
+            content=f"{agent.label} resuming from checkpoint step {start_step}",
+            status=AgentStatus.EXECUTING,
+        )
+
+        iteration = start_step
+        max_iter = min(agent.max_iterations, settings.max_agent_iterations)
+        start_time = time.time()
+        provider_used = ""
+        model_used = ""
+        tool_failure_count = 0
+
+        while iteration < max_iter:
+            iteration += 1
+            elapsed = time.time() - start_time
+
+            if elapsed > settings.max_agent_runtime:
+                if full_text_output:
+                    yield AgentStreamEvent(
+                        event=StepType.STATUS, agent_id=agent.id,
+                        content=f"Agent timed out after {int(elapsed)}s — returning partial output",
+                        status=AgentStatus.DONE,
+                    )
+                    break
+                yield AgentStreamEvent(event=StepType.ERROR, agent_id=agent.id,
+                    content=f"Agent timed out after {int(elapsed)}s with no output",
+                    status=AgentStatus.ERROR)
+                return
+
+            # ── Call LLM ──
+            try:
+                text_buffer = ""
+                tool_calls: list[ToolCall] = []
+
+                async for chunk in router.complete_stream(
+                    messages=messages, system=system,
+                    tools=tools if tools else None,
+                    tier=tier, max_tokens=settings.default_max_tokens,
+                    model_override=agent.model,
+                ):
+                    if chunk["type"] == "text":
+                        text_buffer += chunk["text"]
+                        provider_used = chunk.get("provider", provider_used)
+                        model_used = chunk.get("model", model_used)
+                        yield AgentStreamEvent(
+                            event=StepType.THINK, agent_id=agent.id, step=iteration,
+                            content=text_buffer, provider=provider_used, model=model_used,
+                            status=AgentStatus.EXECUTING,
+                        )
+                    elif chunk["type"] == "tool_call":
+                        tool_calls.append(chunk["tool_call"])
+                        provider_used = chunk.get("provider", provider_used)
+                        model_used = chunk.get("model", model_used)
+                    elif chunk["type"] == "done":
+                        provider_used = chunk.get("provider", provider_used)
+                        model_used = chunk.get("model", model_used)
+
+            except AllProvidersFailedError as e:
+                yield AgentStreamEvent(event=StepType.ERROR, agent_id=agent.id, step=iteration,
+                    content=f"All LLM providers failed: {e}", status=AgentStatus.ERROR)
+                return
+
+            if tool_calls:
+                assistant_content = []
+                if text_buffer:
+                    assistant_content.append({"type": "text", "text": text_buffer})
+                    full_text_output += text_buffer
+                for tc in tool_calls:
+                    assistant_content.append({
+                        "type": "tool_use", "id": tc.id,
+                        "name": tc.name, "input": tc.input,
+                    })
+                messages.append({"role": "assistant", "content": assistant_content})
+
+                for tc in tool_calls:
+                    yield AgentStreamEvent(
+                        event=StepType.TOOL_CALL, agent_id=agent.id, step=iteration,
+                        content=f"Calling {tc.name}", tool_name=tc.name, tool_input=tc.input,
+                        provider=provider_used, model=model_used, status=AgentStatus.TOOL_CALLING,
+                    )
+
+                    result = await _execute_tool_with_retry(tc.name, tc.input, tc.id)
+                    if not result.success:
+                        tool_failure_count += 1
+
+                    yield AgentStreamEvent(
+                        event=StepType.TOOL_RESULT, agent_id=agent.id, step=iteration,
+                        content=f"{tc.name} → {'OK' if result.success else 'ERROR'}",
+                        tool_name=tc.name,
+                        tool_output=result.output[:4000] if result.output else result.error,
+                        status=AgentStatus.OBSERVING,
+                    )
+
+                    messages.append({
+                        "role": "user",
+                        "content": [{"type": "tool_result", "tool_use_id": tc.id,
+                                     "content": result.output if result.success else f"Error: {result.error}"}],
+                    })
+
+                    # Save checkpoint after each resumed tool execution
+                    try:
+                        cp = {
+                            "checkpoint_id": str(uuid.uuid4()),
+                            "trace_id": checkpoint.get("trace_id", campaign_id),
+                            "agent_id": agent.id,
+                            "campaign_id": campaign_id,
+                            "step_number": iteration,
+                            "messages_so_far": list(messages),
+                            "memory_so_far": {
+                                k: v for k, v in memory.__dict__.items()
+                                if not k.startswith("_")
+                            },
+                            "tool_results_so_far": [
+                                {"tool": tc.name, "success": result.success,
+                                 "output": (result.output[:2000] if result.output else result.error)},
+                            ],
+                            "system_prompt": system,
+                            "full_text_output": full_text_output,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                        _save_checkpoint(cp)
+                        asyncio.create_task(_persist_checkpoint_to_db(cp))
+                    except Exception:
+                        pass
+
+                continue
+
+            if text_buffer:
+                full_text_output += text_buffer
+            break
+
+        # ── Post-loop: memory extraction + quality gate ──
+        memory_update = {}
+        if full_text_output:
+            try:
+                memory_update = agent.memory_extractor(full_text_output)
+            except Exception as e:
+                logger.error(f"Memory extraction failed for {agent.id}: {e}")
+
+        validation = _validate_output(agent.id, full_text_output, memory_update)
+        if not validation["valid"]:
+            issues = "; ".join(validation["issues"])
+            yield AgentStreamEvent(
+                event=StepType.STATUS, agent_id=agent.id,
+                content=f"Quality check: {issues}",
+                status=AgentStatus.EXECUTING,
+            )
+
+        yield AgentStreamEvent(
+            event=StepType.OUTPUT, agent_id=agent.id, step=iteration,
+            content=full_text_output, provider=provider_used,
+            status=AgentStatus.DONE, memory_update=memory_update,
+        )
+
+        if campaign and campaign_id:
+            await _persist_run_snapshot(agent.id, campaign_id, campaign)
+            await _persist_campaign_memory(campaign_id, memory)
+
+        logger.info(
+            f"Agent {agent.id} resumed and done: {iteration - start_step} additional iterations, "
             f"tool_failures={tool_failure_count}, quality={'PASS' if validation['valid'] else 'WARN'}"
         )
 

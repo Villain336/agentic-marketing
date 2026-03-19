@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCampaignStore } from "@/lib/store";
 import { api } from "@/lib/api";
 import { DEPARTMENTS, AGENTS, BUSINESS_MODELS, getAgentsByDepartment } from "@/lib/constants";
+import { AgentPipelineGraph } from "@/components/pipeline-graph";
 import type { AgentDef, AgentRun, AgentStatus, Grade, SSEEvent, BusinessProfile, Department } from "@/types";
 
 // ── Grade Colors ────────────────────────────────────────────────────────
@@ -58,6 +59,7 @@ export default function DashboardPage() {
 
   // Local UI state (not shared)
   const [showSidebar, setShowSidebar] = useState(true);
+  const [viewMode, setViewMode] = useState<"grid" | "pipeline">("grid");
   const [scores, setScores] = useState<Record<string, { score: number; grade: string }>>({});
   const controllerRef = useRef<AbortController | null>(null);
   const outputRef = useRef<HTMLDivElement>(null);
@@ -222,7 +224,7 @@ export default function DashboardPage() {
   return (
     <div className="h-screen flex flex-col bg-surface-50" role="application" aria-label="Omni OS Dashboard">
       {/* ── Top Bar ── */}
-      <header className="h-14 bg-white border-b border-surface-200 flex items-center px-4 gap-4 flex-shrink-0" role="banner">
+      <header className="h-14 bg-surface-0 border-b border-surface-200 flex items-center px-4 gap-4 flex-shrink-0" role="banner">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center">
             <span className="text-white text-xs font-bold">O</span>
@@ -258,7 +260,7 @@ export default function DashboardPage() {
       <div className="flex-1 flex min-h-0">
         {/* ── Left: Agent Sidebar ── */}
         {showSidebar && (
-          <aside className="w-72 border-r border-surface-200 bg-white flex flex-col flex-shrink-0" role="navigation" aria-label="Agent list">
+          <aside className="w-72 border-r border-surface-200 bg-surface-0 flex flex-col flex-shrink-0" role="navigation" aria-label="Agent list">
             {/* Department Tabs */}
             <div className="p-3 border-b border-surface-100">
               <div className="flex flex-wrap gap-1">
@@ -348,7 +350,7 @@ export default function DashboardPage() {
         {/* ── Center: Agent Output ── */}
         <main className="flex-1 flex flex-col min-w-0" role="main" aria-label="Agent output">
           {/* Agent Header */}
-          <div className="h-12 bg-white border-b border-surface-200 flex items-center px-5 gap-3 flex-shrink-0">
+          <div className="h-12 bg-surface-0 border-b border-surface-200 flex items-center px-5 gap-3 flex-shrink-0">
             <button onClick={() => setShowSidebar(!showSidebar)} className="btn-ghost text-xs p-1">
               {showSidebar ? "◀" : "▶"}
             </button>
@@ -361,6 +363,31 @@ export default function DashboardPage() {
                 {AGENTS.find((a) => a.id === selectedAgent)?.role}
               </span>
             </div>
+            {/* View mode toggle */}
+            <div className="flex items-center bg-surface-100 rounded-lg p-0.5 gap-0.5">
+              <button
+                onClick={() => setViewMode("grid")}
+                className={`px-2.5 py-1 rounded-md text-2xs font-medium transition-all ${
+                  viewMode === "grid"
+                    ? "bg-surface-0 text-surface-900 shadow-sm"
+                    : "text-surface-500 hover:text-surface-700"
+                }`}
+                aria-label="Grid view"
+              >
+                Grid
+              </button>
+              <button
+                onClick={() => setViewMode("pipeline")}
+                className={`px-2.5 py-1 rounded-md text-2xs font-medium transition-all ${
+                  viewMode === "pipeline"
+                    ? "bg-surface-0 text-surface-900 shadow-sm"
+                    : "text-surface-500 hover:text-surface-700"
+                }`}
+                aria-label="Pipeline view"
+              >
+                Pipeline
+              </button>
+            </div>
             {currentRun?.grade && currentRun.grade !== "—" && (
               <div className={`grade-chip ${GRADE_COLORS[currentRun.grade]}`}>{currentRun.grade}</div>
             )}
@@ -369,6 +396,17 @@ export default function DashboardPage() {
             )}
           </div>
 
+          {/* Pipeline Graph View */}
+          {viewMode === "pipeline" ? (
+            <div className="flex-1 overflow-y-auto p-6">
+              <AgentPipelineGraph
+                agentRuns={agentRuns}
+                onSelectAgent={(id) => { setSelectedAgent(id); setViewMode("grid"); }}
+                selectedAgent={selectedAgent}
+              />
+            </div>
+          ) : (
+          <>
           {/* Output Area */}
           <div ref={outputRef} className="flex-1 overflow-y-auto">
             {currentRun?.output ? (
@@ -403,17 +441,19 @@ export default function DashboardPage() {
 
           {/* Activity Phases Footer */}
           {currentRun?.status === "running" && (
-            <div className="h-8 bg-white border-t border-surface-100 flex items-center px-5">
+            <div className="h-8 bg-surface-0 border-t border-surface-100 flex items-center px-5">
               <div className="flex items-center gap-2 text-xs text-surface-400">
                 <div className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" />
                 {currentRun.phases?.[currentRun.phases.length - 1] || "Processing..."}
               </div>
             </div>
           )}
+          </>
+          )}
         </main>
 
         {/* ── Right: Context Panel ── */}
-        <aside className="w-64 border-l border-surface-200 bg-white flex-shrink-0 hidden xl:flex flex-col">
+        <aside className="w-64 border-l border-surface-200 bg-surface-0 flex-shrink-0 hidden xl:flex flex-col">
           <div className="p-4 border-b border-surface-100">
             <h3 className="text-xs font-semibold text-surface-500 uppercase tracking-wider">Campaign Context</h3>
           </div>

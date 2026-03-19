@@ -25,6 +25,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from auth import get_user_id, validate_id
+import db
 
 logger = logging.getLogger("omnios.developer")
 
@@ -73,6 +74,82 @@ _key_hash_index: dict[str, str] = {}  # sha256(key) -> key_id
 _key_usage: dict[str, list[float]] = {}  # key_id -> list of timestamps
 
 VALID_SCOPES = {"read", "write", "agents", "campaigns", "webhooks", "admin"}
+
+
+async def init_developer_data():
+    """Load developer platform data from DB into in-memory stores on startup."""
+    if not db.is_persistent():
+        logger.info("No persistent DB — developer platform using in-memory only")
+        return
+
+    client = db._get_client()
+    if not client:
+        return
+
+    # Load API keys
+    try:
+        result = client.table("developer_api_keys").select("*").execute()
+        for row in (result.data or []):
+            record = APIKeyRecord(
+                id=row.get("id", ""),
+                user_id=row.get("user_id", ""),
+                name=row.get("name", ""),
+                prefix=row.get("prefix", ""),
+                key_hash=row.get("key_hash", ""),
+                scopes=row.get("scopes", ["read"]),
+                rate_limit=row.get("rate_limit", 1000),
+                created_at=row.get("created_at", ""),
+                last_used_at=row.get("last_used_at", ""),
+                expires_at=row.get("expires_at", ""),
+                revoked=row.get("revoked", False),
+            )
+            _api_keys[record.id] = record
+            if not record.revoked:
+                _key_hash_index[record.key_hash] = record.id
+        logger.info(f"Loaded {len(result.data or [])} API keys from DB")
+    except Exception as e:
+        logger.error(f"Failed to load API keys from DB: {e}")
+
+    # Load webhooks
+    try:
+        result = client.table("developer_webhooks").select("*").execute()
+        for row in (result.data or []):
+            sub = WebhookSubscription(
+                id=row.get("id", ""),
+                user_id=row.get("user_id", ""),
+                url=row.get("url", "https://example.com"),
+                events=row.get("events", ["*"]),
+                secret=row.get("secret", ""),
+                active=row.get("active", True),
+                created_at=row.get("created_at", ""),
+                failure_count=row.get("failure_count", 0),
+                last_delivered_at=row.get("last_delivered_at", ""),
+                last_status_code=row.get("last_status_code", 0),
+            )
+            _webhooks[sub.id] = sub
+        logger.info(f"Loaded {len(result.data or [])} webhooks from DB")
+    except Exception as e:
+        logger.error(f"Failed to load webhooks from DB: {e}")
+
+    # Load OAuth apps
+    try:
+        result = client.table("developer_oauth_apps").select("*").execute()
+        for row in (result.data or []):
+            app = OAuthApp(
+                id=row.get("id", ""),
+                client_id=row.get("client_id", ""),
+                client_secret=row.get("client_secret", ""),
+                user_id=row.get("user_id", ""),
+                name=row.get("name", ""),
+                redirect_uris=row.get("redirect_uris", []),
+                scopes=row.get("scopes", ["profile"]),
+                created_at=row.get("created_at", ""),
+            )
+            _oauth_apps[app.id] = app
+            _oauth_client_index[app.client_id] = app.id
+        logger.info(f"Loaded {len(result.data or [])} OAuth apps from DB")
+    except Exception as e:
+        logger.error(f"Failed to load OAuth apps from DB: {e}")
 
 
 def _hash_key(key: str) -> str:
@@ -151,6 +228,9 @@ async def create_api_key(req: CreateAPIKeyRequest, request: Request):
     _api_keys[record.id] = record
     _key_hash_index[key_hash] = record.id
 
+    # Persist to database
+    await db.save_api_key(record.model_dump())
+
     logger.info(f"User {user_id[:8]}... created API key {record.id}")
 
     # Return the raw key ONCE — it cannot be retrieved again
@@ -199,6 +279,9 @@ async def revoke_api_key(key_id: str, request: Request):
     record.revoked = True
     # Remove from hash index
     _key_hash_index.pop(record.key_hash, None)
+
+    # Persist revocation to database
+    await db.save_api_key(record.model_dump())
 
     logger.info(f"User {user_id[:8]}... revoked API key {key_id}")
     return {"id": key_id, "status": "revoked"}
@@ -310,6 +393,9 @@ async def create_webhook(req: CreateWebhookRequest, request: Request):
     sub = WebhookSubscription(user_id=user_id, url=req.url, events=req.events)
     _webhooks[sub.id] = sub
 
+    # Persist to database
+    await db.save_webhook(sub.model_dump())
+
     logger.info(f"User {user_id[:8]}... created webhook {sub.id} -> {req.url}")
 
     return {
@@ -355,6 +441,10 @@ async def delete_webhook(webhook_id: str, request: Request):
         raise HTTPException(404, "Webhook not found")
 
     del _webhooks[webhook_id]
+
+    # Remove from database
+    await db.delete_webhook(webhook_id)
+
     return {"id": webhook_id, "status": "deleted"}
 
 
@@ -571,6 +661,9 @@ async def register_oauth_app(req: RegisterOAuthAppRequest, request: Request):
     _oauth_apps[app.id] = app
     _oauth_client_index[app.client_id] = app.id
 
+    # Persist to database
+    await db.save_oauth_app(app.model_dump())
+
     return {
         "id": app.id,
         "client_id": app.client_id,
@@ -610,6 +703,10 @@ async def delete_oauth_app(app_id: str, request: Request):
 
     _oauth_client_index.pop(app.client_id, None)
     del _oauth_apps[app_id]
+
+    # Remove from database
+    await db.delete_oauth_app(app_id)
+
     return {"id": app_id, "status": "deleted"}
 
 

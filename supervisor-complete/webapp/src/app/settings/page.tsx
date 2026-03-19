@@ -146,7 +146,7 @@ export default function SettingsPage() {
   return (
     <div className="h-screen flex flex-col bg-surface-50">
       {/* Header */}
-      <header className="h-14 bg-white border-b border-surface-200 flex items-center px-6 gap-4 flex-shrink-0">
+      <header className="h-14 bg-surface-0 border-b border-surface-200 flex items-center px-6 gap-4 flex-shrink-0">
         <button onClick={() => router.push("/dashboard")} className="btn-ghost text-xs">
           &#8592; Dashboard
         </button>
@@ -162,7 +162,7 @@ export default function SettingsPage() {
 
       <div className="flex-1 flex min-h-0">
         {/* Tab Sidebar */}
-        <aside className="w-56 border-r border-surface-200 bg-white flex-shrink-0 p-3 space-y-1">
+        <aside className="w-56 border-r border-surface-200 bg-surface-0 flex-shrink-0 p-3 space-y-1">
           {TABS.map(tab => (
             <button
               key={tab.id}
@@ -385,7 +385,7 @@ function GlobalSettingsTab({ settings, onSave }: {
               className={`p-4 rounded-xl border-2 text-left transition-all ${
                 settings.global_level === level.value
                   ? "border-brand-500 bg-brand-50 shadow-sm"
-                  : "border-surface-200 hover:border-surface-300 bg-white"
+                  : "border-surface-200 hover:border-surface-300 bg-surface-0"
               }`}
             >
               <div className={`badge text-xs mb-2 ${level.color}`}>{level.label}</div>
