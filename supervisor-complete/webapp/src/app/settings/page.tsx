@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { AGENTS, DEPARTMENTS } from "@/lib/constants";
+import { ToggleRow, EventDot } from "@/components/ui";
 import type {
   AgentDef, Department, AutonomySettingsResponse,
   AgentAutonomySettings, TriggerRule, ApprovalItemResponse, EventEntry,
@@ -629,36 +630,3 @@ function EventsTab({ events, onRefresh }: {
 // SHARED COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function ToggleRow({ label, description, checked, onChange }: {
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between py-2">
-      <div>
-        <div className="text-sm font-medium text-surface-700">{label}</div>
-        <div className="text-xs text-surface-400">{description}</div>
-      </div>
-      <button
-        onClick={() => onChange(!checked)}
-        className={`w-10 h-5 rounded-full flex items-center transition-all flex-shrink-0 ${
-          checked ? "bg-brand-500 justify-end" : "bg-surface-300 justify-start"
-        }`}
-      >
-        <div className="w-4 h-4 rounded-full bg-white shadow-sm mx-0.5" />
-      </button>
-    </div>
-  );
-}
-
-function EventDot({ type }: { type: string }) {
-  let color = "bg-surface-300";
-  if (type.includes("completed")) color = "bg-emerald-500";
-  else if (type.includes("started")) color = "bg-blue-500";
-  else if (type.includes("failed") || type.includes("error")) color = "bg-red-500";
-  else if (type.includes("approval")) color = "bg-amber-500";
-  else if (type.includes("tool")) color = "bg-violet-500";
-  return <div className={`w-2 h-2 rounded-full mt-1 flex-shrink-0 ${color}`} />;
-}
