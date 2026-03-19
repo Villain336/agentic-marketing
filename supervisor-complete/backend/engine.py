@@ -36,6 +36,7 @@ _autonomy_store = None
 _wallet = None
 _semantic_memory_mod = None
 _privacy_router = None
+_agent_comms = None
 
 
 def _get_event_bus():
@@ -76,6 +77,14 @@ def _get_privacy_router():
         from privacy import privacy_router
         _privacy_router = privacy_router
     return _privacy_router
+
+
+def _get_agent_comms():
+    global _agent_comms
+    if _agent_comms is None:
+        from agent_comms import agent_comms
+        _agent_comms = agent_comms
+    return _agent_comms
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -381,6 +390,13 @@ class AgentEngine:
         except Exception:
             pass
 
+        # ── Register for inter-agent communication ──
+        try:
+            comms = _get_agent_comms()
+            comms.register_agent(agent.id, campaign_id)
+        except Exception:
+            pass
+
         # ── Load autonomy settings ──
         if autonomy_settings is None:
             try:
@@ -472,6 +488,15 @@ class AgentEngine:
                         "content": f"[SYSTEM: You have {int(settings.max_agent_runtime - elapsed)}s remaining. "
                                    f"Finish your current task and produce your final output NOW.]",
                     })
+
+            # ── Inter-agent messages: inject insights from sibling agents ──
+            try:
+                comms = _get_agent_comms()
+                comms_block = comms.build_context_injection(agent.id, campaign_id)
+                if comms_block:
+                    messages.append({"role": "user", "content": comms_block})
+            except Exception:
+                pass
 
             # ── PII Scrub: strip PII before sending to cloud LLM ──
             _pii_session_id = f"{campaign_id}:{agent.id}:{iteration}"
@@ -876,6 +901,22 @@ class AgentEngine:
             content=full_text_output, provider=provider_used,
             status=AgentStatus.DONE, memory_update=memory_update,
         )
+
+        # ── Share insights with sibling agents via comms bus ──
+        if memory_update and campaign_id:
+            try:
+                comms = _get_agent_comms()
+                # Summarize key findings for other agents
+                insight_keys = [k for k, v in memory_update.items() if v and isinstance(v, str) and len(v) > 50]
+                if insight_keys:
+                    comms.share_insight(
+                        from_agent=agent.id, campaign_id=campaign_id,
+                        subject=f"{agent.label} completed — key outputs available",
+                        body=f"Completed with {len(insight_keys)} outputs: {', '.join(insight_keys[:5])}",
+                        data={"output_keys": insight_keys, "memory_keys": list(memory_update.keys())},
+                    )
+            except Exception:
+                pass
 
         # ── Persist run snapshot + campaign memory ──
         if campaign and campaign_id:
