@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useCampaignStore } from "@/lib/store";
 import { api } from "@/lib/api";
-import { DEPARTMENTS, AGENTS, getAgentsByDepartment } from "@/lib/constants";
+import { DEPARTMENTS, AGENTS, BUSINESS_MODELS, getAgentsByDepartment } from "@/lib/constants";
 import type { AgentDef, AgentRun, AgentStatus, Grade, SSEEvent, BusinessProfile, Department } from "@/types";
 
 // ── Grade Colors ────────────────────────────────────────────────────────
@@ -419,6 +419,19 @@ export default function DashboardPage() {
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             <ContextBlock label="Business" value={business.name} />
+            {business.businessModel && (() => {
+              const model = BUSINESS_MODELS.find(m => m.id === business.businessModel);
+              return model ? (
+                <div>
+                  <div className="text-2xs font-medium text-surface-400 uppercase">Business Model</div>
+                  <div className="text-sm text-surface-700 mt-0.5">{model.label}</div>
+                  <div className="text-2xs text-brand-600 font-medium mt-0.5">North Star: {model.northStar}</div>
+                </div>
+              ) : null;
+            })()}
+            {business.startingFromScratch && (
+              <div className="badge text-2xs bg-amber-100 text-amber-700">Starting from scratch</div>
+            )}
             <ContextBlock label="Service" value={business.service} />
             <ContextBlock label="ICP" value={business.icp} />
             <ContextBlock label="Geography" value={business.geography} />
