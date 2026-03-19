@@ -321,4 +321,6 @@ MEMORY_WRITABLE_FIELDS = {
     "data_dashboards", "governance_brief", "product_roadmap",
     "partnerships_playbook", "client_fulfillment", "agent_workspace",
     "genome_intel",
+    "deal_room_output", "market_maker_output", "revenue_forensics_output",
+    "compliance_guardian_output", "integration_architect_output",
 }

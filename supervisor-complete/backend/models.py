@@ -224,6 +224,12 @@ class CampaignMemory(BaseModel):
     agent_workspace: str = ""
     # Cross-campaign intelligence (injected by genome engine at campaign start)
     genome_intel: str = ""
+    # Tier 2 enterprise agent outputs
+    deal_room_output: str = ""
+    market_maker_output: str = ""
+    revenue_forensics_output: str = ""
+    compliance_guardian_output: str = ""
+    integration_architect_output: str = ""
 
     def entity_rules(self) -> str:
         """Return entity-specific operational rules every agent MUST follow."""

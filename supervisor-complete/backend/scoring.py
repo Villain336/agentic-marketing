@@ -76,6 +76,12 @@ class AgentScorer:
             "design": self._score_design,
             "supervisor": self._score_supervisor,
             "vision_interview": self._score_vision_interview,
+            # Tier 2 enterprise edge agents
+            "deal_room": self._score_deal_room,
+            "market_maker": self._score_market_maker,
+            "revenue_forensics": self._score_revenue_forensics,
+            "compliance_guardian": self._score_compliance_guardian,
+            "integration_architect": self._score_integration_architect,
         }
 
         for agent_id, scorer in scorers.items():
@@ -973,6 +979,92 @@ class AgentScorer:
             "score": min(100, score),
             "reasoning": f"Business profile {completeness:.0f}% complete ({fields_filled}/{total_fields} fields)",
             "metrics": {"fields_filled": fields_filled, "total_fields": total_fields},
+        }
+
+
+    # ── Tier 2 Enterprise Edge Scorers ──────────────────────────────────
+
+    def _score_deal_room(self, campaign: Campaign, metrics: dict) -> dict:
+        """Deal room completeness: proposals, ROI calcs, case studies, contracts."""
+        output = campaign.memory.deal_room_output
+        if not output:
+            return {"score": 0, "reasoning": "No deal room packages generated yet", "metrics": {}}
+        base = 40
+        sections = ["proposal", "roi", "case study", "contract", "microsite"]
+        section_score = sum(10 for s in sections if s in output.lower())
+        length_bonus = min(10, len(output) // 500)
+        score = base + section_score + length_bonus
+        return {
+            "score": min(100, score),
+            "reasoning": f"Deal room active with {sum(1 for s in sections if s in output.lower())}/{len(sections)} sections",
+            "metrics": {"sections_complete": sum(1 for s in sections if s in output.lower())},
+        }
+
+    def _score_market_maker(self, campaign: Campaign, metrics: dict) -> dict:
+        """Demand creation: category definition, thought leadership, proof points."""
+        output = campaign.memory.market_maker_output
+        if not output:
+            return {"score": 0, "reasoning": "No demand creation strategy yet", "metrics": {}}
+        base = 40
+        elements = ["category", "thought leadership", "manifesto", "framework", "community"]
+        element_score = sum(10 for e in elements if e in output.lower())
+        length_bonus = min(10, len(output) // 500)
+        score = base + element_score + length_bonus
+        return {
+            "score": min(100, score),
+            "reasoning": f"Category creation active with {sum(1 for e in elements if e in output.lower())}/{len(elements)} elements",
+            "metrics": {"elements_defined": sum(1 for e in elements if e in output.lower())},
+        }
+
+    def _score_revenue_forensics(self, campaign: Campaign, metrics: dict) -> dict:
+        """Revenue leak detection: funnel analysis, leak map, fix prescriptions."""
+        output = campaign.memory.revenue_forensics_output
+        if not output:
+            return {"score": 0, "reasoning": "No revenue forensics conducted yet", "metrics": {}}
+        base = 40
+        analyses = ["funnel", "leak", "diagnosis", "fix", "roadmap"]
+        analysis_score = sum(10 for a in analyses if a in output.lower())
+        has_dollar = 10 if "$" in output else 0
+        score = base + analysis_score + has_dollar
+        return {
+            "score": min(100, score),
+            "reasoning": f"Revenue forensics complete with {sum(1 for a in analyses if a in output.lower())}/{len(analyses)} analyses",
+            "metrics": {"analyses_complete": sum(1 for a in analyses if a in output.lower())},
+        }
+
+    def _score_compliance_guardian(self, campaign: Campaign, metrics: dict) -> dict:
+        """Compliance coverage: regulatory scan, content audit, monitoring."""
+        output = campaign.memory.compliance_guardian_output
+        if not output:
+            return {"score": 0, "reasoning": "No compliance guardian active yet", "metrics": {}}
+        base = 45  # Compliance is inherently high-value
+        areas = ["can-spam", "gdpr", "ftc", "ccpa", "remediation", "checklist"]
+        coverage_score = sum(8 for a in areas if a.lower() in output.lower())
+        length_bonus = min(7, len(output) // 500)
+        score = base + coverage_score + length_bonus
+        return {
+            "score": min(100, score),
+            "reasoning": f"Compliance guardian active, {sum(1 for a in areas if a.lower() in output.lower())}/{len(areas)} regulatory areas covered",
+            "metrics": {"regulatory_areas_covered": sum(1 for a in areas if a.lower() in output.lower())},
+        }
+
+    def _score_integration_architect(self, campaign: Campaign, metrics: dict) -> dict:
+        """Integration coverage: APIs mapped, setup flows, sync architecture."""
+        output = campaign.memory.integration_architect_output
+        if not output:
+            return {"score": 0, "reasoning": "No integration architecture yet", "metrics": {}}
+        base = 40
+        elements = ["oauth", "api", "webhook", "sync", "migration", "field mapping"]
+        element_score = sum(8 for e in elements if e in output.lower())
+        integrations_mentioned = sum(1 for tool in ["stripe", "hubspot", "salesforce", "mailchimp",
+                                                      "sendgrid", "zapier", "segment", "ga4"]
+                                     if tool in output.lower())
+        tool_score = min(12, integrations_mentioned * 3)
+        score = base + element_score + tool_score
+        return {
+            "score": min(100, score),
+            "reasoning": f"Integration architecture with {integrations_mentioned} tool integrations designed",
+            "metrics": {"integrations_designed": integrations_mentioned},
         }
 
 

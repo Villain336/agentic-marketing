@@ -1201,6 +1201,12 @@ AGENT_DEPENDENCIES = {
     "knowledge_engine": [],
     "world_model": [],
     "agent_ops": [],
+    # Enterprise edge layer
+    "deal_room": ["prospector", "outreach"],
+    "market_maker": ["content", "competitive_intel"],
+    "revenue_forensics": ["analytics_agent", "sales"],
+    "compliance_guardian": ["governance", "legal"],
+    "integration_architect": ["procurement"],
 }
 
 
