@@ -166,6 +166,8 @@ class Replanner:
 
     MAX_REPLANS_PER_RUN = 3  # Don't let agents replan forever
 
+    _MAX_HISTORIES = 500  # Bound in-memory history to prevent OOM
+
     def __init__(self):
         self.detector = BlockerDetector()
         self._histories: dict[str, ReplanHistory] = {}  # run_key -> history
@@ -190,8 +192,12 @@ class Replanner:
         """
         key = self._run_key(agent_id, campaign_id)
 
-        # Initialize history
+        # Initialize history with eviction of oldest entries
         if key not in self._histories:
+            if len(self._histories) >= self._MAX_HISTORIES:
+                # Evict oldest entry
+                oldest_key = next(iter(self._histories))
+                del self._histories[oldest_key]
             self._histories[key] = ReplanHistory(agent_id=agent_id, campaign_id=campaign_id)
 
         history = self._histories[key]

@@ -52,32 +52,53 @@ def verify_stripe_signature(payload: bytes, signature: str) -> bool:
 
 def verify_sendgrid_signature(payload: bytes, signature: str,
                               timestamp: str = "") -> bool:
-    """Verify SendGrid Event Webhook signature."""
-    # SendGrid uses a verification key, not a shared secret
-    # In production, verify against SendGrid's public key
-    if not settings.sendgrid_api_key:
-        return True  # Allow in dev mode
+    """Verify SendGrid Event Webhook signature using HMAC-SHA256."""
+    verification_key = getattr(settings, 'sendgrid_webhook_verification_key', '') or ''
+    if not verification_key:
+        if not settings.sendgrid_api_key:
+            return True  # Allow in dev mode when no keys configured
+        logger.warning("SendGrid webhook verification key not configured — rejecting")
+        return False
 
-    # Basic presence check — full verification requires SendGrid's public key
-    if not signature:
-        logger.warning("SendGrid webhook: missing signature")
-        return True  # Permissive in MVP
-    return True
+    if not signature or not timestamp:
+        logger.warning("SendGrid webhook: missing signature or timestamp")
+        return False
+
+    try:
+        signed_payload = f"{timestamp}{payload.decode('utf-8')}"
+        expected = hmac.new(
+            verification_key.encode("utf-8"),
+            signed_payload.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(signature, expected)
+    except Exception as e:
+        logger.error(f"SendGrid signature verification failed: {e}")
+        return False
 
 
 def verify_hubspot_signature(payload: bytes, signature: str,
                              secret: str = "") -> bool:
-    """Verify HubSpot webhook signature (v3)."""
-    if not settings.hubspot_api_key:
-        return True
+    """Verify HubSpot webhook signature (v3) using HMAC-SHA256."""
+    client_secret = secret or getattr(settings, 'hubspot_client_secret', '') or ''
+    if not client_secret:
+        if not settings.hubspot_api_key:
+            return True  # Allow in dev mode
+        logger.warning("HubSpot client secret not configured — rejecting")
+        return False
 
     if not signature:
-        logger.debug("HubSpot webhook: no signature — allowing")
-        return True
+        logger.warning("HubSpot webhook: missing signature — rejecting")
+        return False
 
-    # HubSpot v3: SHA-256 HMAC of client_secret + request method + URL + body + timestamp
-    # Simplified check for now
-    return True
+    try:
+        # HubSpot v3: SHA-256 of client_secret + body
+        source_string = client_secret + payload.decode("utf-8")
+        expected = hashlib.sha256(source_string.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(signature, expected)
+    except Exception as e:
+        logger.error(f"HubSpot signature verification failed: {e}")
+        return False
 
 
 def verify_webhook(source: str, payload: bytes, headers: dict) -> bool:
@@ -95,6 +116,6 @@ def verify_webhook(source: str, payload: bytes, headers: dict) -> bool:
     if verifier:
         return verifier()
 
-    # Unknown source — allow but log
-    logger.debug(f"No signature verifier for source: {source}")
-    return True
+    # Unknown source — deny by default for security
+    logger.warning(f"No signature verifier for unknown webhook source: {source} — rejecting")
+    return False

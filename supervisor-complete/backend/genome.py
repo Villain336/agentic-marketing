@@ -489,5 +489,18 @@ class CampaignGenome:
             logger.warning(f"Scoring outcomes for {campaign.id} saved in-memory only")
 
 
+    def purge_user_data(self, user_id: str) -> int:
+        """Remove all genome DNA entries belonging to a user (GDPR deletion)."""
+        to_remove = [
+            cid for cid, dna in self._dna_store.items()
+            if getattr(dna, 'user_id', '') == user_id
+        ]
+        for cid in to_remove:
+            del self._dna_store[cid]
+        if to_remove:
+            logger.info(f"Purged {len(to_remove)} genome entries for user {user_id[:8]}...")
+        return len(to_remove)
+
+
 # Singleton
 genome = CampaignGenome()

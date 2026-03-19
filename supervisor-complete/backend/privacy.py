@@ -116,9 +116,13 @@ class PrivacyRouter:
     Maintains a reversible mapping so PII can be restored in responses.
     """
 
+    # Maximum sessions to keep in memory before evicting oldest
+    _MAX_SESSIONS = 1000
+
     def __init__(self):
         self._config = PrivacyConfig()
         self._session_maps: dict[str, dict[str, str]] = {}  # session_id -> {placeholder: original}
+        self._session_order: list[str] = []  # Track insertion order for eviction
         self._stats = {"total_scrubbed": 0, "total_detections": 0, "blocked": 0}
         self._agent_overrides: dict[str, list[str]] = {}  # agent_id -> allowed PII types
 
@@ -147,6 +151,11 @@ class PrivacyRouter:
 
         if session_id not in self._session_maps:
             self._session_maps[session_id] = {}
+            self._session_order.append(session_id)
+            # Evict oldest sessions if over capacity
+            while len(self._session_maps) > self._MAX_SESSIONS:
+                oldest = self._session_order.pop(0)
+                self._session_maps.pop(oldest, None)
 
         # Determine which PII types to allow
         allowed = set(self._config.allowed_pii_types)

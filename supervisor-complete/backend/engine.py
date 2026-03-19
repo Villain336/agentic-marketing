@@ -509,9 +509,16 @@ class AgentEngine:
                     system, session_id=_pii_session_id, agent_id=agent.id,
                 ).scrubbed_text
             except Exception as e:
-                logger.debug(f"PII scrub skipped: {e}")
-                scrubbed_messages = messages
-                scrubbed_system = system
+                logger.error(f"PII scrub failed — blocking to prevent data leak: {e}")
+                # Fail closed: do NOT send unscrubbed data to cloud LLM
+                yield AgentStreamEvent(
+                    event=StepType.ERROR, agent_id=agent.id, step=iteration,
+                    content="PII scrubbing failed — cannot safely send data to LLM",
+                    status=AgentStatus.ERROR,
+                )
+                trace.finalize(status=TraceSpanStatus.ERROR)
+                trace_store.finish_trace(trace)
+                return
 
             # ── Call LLM (with tracing span) ──
             llm_span = trace.start_llm_span(
@@ -875,6 +882,28 @@ class AgentEngine:
             issues=validation.get("issues", []),
         )
 
+        # ── Persona Gauntlet: validate outbound content quality ──
+        gauntlet_result = None
+        if campaign and full_text_output:
+            try:
+                from gauntlet import gauntlet, OUTBOUND_AGENTS
+                if agent.id in OUTBOUND_AGENTS:
+                    gauntlet_result = await gauntlet.gate_check(
+                        agent.id, full_text_output, campaign,
+                    )
+                    if gauntlet_result and not gauntlet_result.passed:
+                        yield AgentStreamEvent(
+                            event=StepType.STATUS, agent_id=agent.id,
+                            content=f"Gauntlet FAIL (score={gauntlet_result.fit_score}): "
+                                    f"{'; '.join(gauntlet_result.top_objections[:2])}",
+                            status=AgentStatus.EXECUTING,
+                        )
+                        logger.warning(
+                            f"Gauntlet blocked {agent.id}: score={gauntlet_result.fit_score}"
+                        )
+            except Exception as e:
+                logger.debug(f"Gauntlet check skipped for {agent.id}: {e}")
+
         if not validation["valid"]:
             issues = "; ".join(validation["issues"])
             logger.warning(f"Quality gate flagged {agent.id}: {issues}")
@@ -883,8 +912,6 @@ class AgentEngine:
                 content=f"Quality check: {issues}",
                 status=AgentStatus.EXECUTING,
             )
-            # Don't block — emit warning but still return output
-            # Future: retry agent if quality is critically low
 
         total_ms = int((time.time() - start_time) * 1000)
 

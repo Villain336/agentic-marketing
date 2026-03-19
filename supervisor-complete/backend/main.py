@@ -34,6 +34,28 @@ logging.basicConfig(
 logger = logging.getLogger("omnios.api")
 
 
+# -- Error Normalization Middleware (Fix 5) ------------------------------------
+
+class ErrorNormalizationMiddleware(BaseHTTPMiddleware):
+    """Catch unhandled exceptions and return sanitized error responses.
+    Prevents leaking stack traces, API keys, or internal details to clients.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception as e:
+            logger.error(
+                "Unhandled exception on %s %s: %s",
+                request.method, request.url.path, type(e).__name__,
+                exc_info=True,
+            )
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "Internal server error. Please try again later."},
+            )
+
+
 # -- Request/Response Logging Middleware ---------------------------------------
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -103,17 +125,19 @@ app = FastAPI(
     openapi_tags=openapi_tags,
 )
 
-# CORS: default to localhost in dev, restrict in production via CORS_ORIGINS env
+# CORS: restricted methods and headers for security
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With",
+                   "Accept", "Origin", "X-API-Key", "X-Campaign-ID"],
 )
 app.add_middleware(AuthMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(MetricsMiddleware)
+app.add_middleware(ErrorNormalizationMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 
 # -- Register all route modules ------------------------------------------------
@@ -144,8 +168,8 @@ async def create_session(request: Request):
         value=token,
         httponly=True,
         secure=True,
-        samesite="lax",
-        max_age=60 * 60 * 24 * 7,  # 7 days
+        samesite="strict",
+        max_age=60 * 60 * 24,  # 24 hours (reduced from 7 days for security)
         path="/",
     )
     return response
@@ -259,11 +283,46 @@ def _register_event_bus_actions():
 @app.on_event("startup")
 async def startup_event():
     """Start background scheduler, register event handlers, load persisted data."""
+    # ── Startup health checks ──
+    _startup_warnings = []
+
+    # Check required environment variables
+    required_vars = {
+        "supabase_url": settings.supabase_url,
+        "supabase_service_key": settings.supabase_service_key,
+        "supabase_jwt_secret": settings.supabase_jwt_secret,
+    }
+    for var_name, var_val in required_vars.items():
+        if not var_val:
+            _startup_warnings.append(f"MISSING: {var_name} not configured")
+
+    # Check LLM provider availability
+    active_providers = getattr(settings, 'active_providers', [])
+    if not active_providers:
+        _startup_warnings.append("WARNING: No LLM providers configured")
+    else:
+        logger.info(f"Startup: {len(active_providers)} LLM provider(s) active")
+
+    # Check database connectivity
+    if db.is_persistent():
+        try:
+            # Simple connectivity check
+            await db.load_user_campaigns("__healthcheck__")
+            logger.info("Startup: Supabase connection verified")
+        except Exception as e:
+            _startup_warnings.append(f"WARNING: Supabase connectivity issue: {type(e).__name__}")
+    else:
+        _startup_warnings.append("INFO: Running without persistent database")
+
+    for warning in _startup_warnings:
+        logger.warning(f"Startup check: {warning}")
+
+    # ── Register event bus BEFORE starting scheduler to prevent race ──
+    _register_event_bus_actions()
+
     register_default_jobs()
     scheduler.start()
     logger.info("Background scheduler started")
-
-    _register_event_bus_actions()
 
     try:
         if db.is_persistent():
@@ -277,9 +336,20 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Stop background scheduler."""
+    """Graceful shutdown: flush pending work, stop scheduler."""
+    logger.info("Shutdown initiated — flushing pending work...")
+
+    # Flush pending campaign memory to DB
+    try:
+        for campaign in store.all_campaigns():
+            if db.is_persistent() and hasattr(campaign, 'id') and hasattr(campaign, 'memory'):
+                from store import serialize_memory
+                await db.update_campaign_memory(campaign.id, serialize_memory(campaign.memory))
+    except Exception as e:
+        logger.warning(f"Shutdown: failed to flush campaign memory: {e}")
+
     scheduler.stop()
-    logger.info("Background scheduler stopped")
+    logger.info("Background scheduler stopped — shutdown complete")
 
 
 if __name__ == "__main__":

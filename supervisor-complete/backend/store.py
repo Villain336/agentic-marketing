@@ -96,6 +96,15 @@ class TenantStore:
             return True
         return False
 
+    def delete_all_user_campaigns(self, user_id: str) -> int:
+        """Delete all campaigns for a user. Returns count deleted."""
+        cmap = self._campaigns.get(user_id, {})
+        count = len(cmap)
+        for cid in list(cmap.keys()):
+            self._campaign_owner.pop(cid, None)
+        self._campaigns.pop(user_id, None)
+        return count
+
     def campaign_count(self, user_id: str = "") -> int:
         if user_id:
             return len(self._campaigns.get(user_id, {}))
