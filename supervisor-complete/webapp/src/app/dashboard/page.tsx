@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useCampaignStore } from "@/lib/store";
 import { api } from "@/lib/api";
 import { DEPARTMENTS, AGENTS, getAgentsByDepartment } from "@/lib/constants";
 import type { AgentDef, AgentRun, AgentStatus, Grade, SSEEvent, BusinessProfile, Department } from "@/types";
@@ -36,14 +37,26 @@ const STATUS_COLORS: Record<AgentStatus, string> = {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [business, setBusiness] = useState<BusinessProfile | null>(null);
-  const [agentRuns, setAgentRuns] = useState<Record<string, AgentRun>>({});
-  const [selectedAgent, setSelectedAgent] = useState<string>("prospector");
-  const [selectedDept, setSelectedDept] = useState<Department | "all">("all");
-  const [running, setRunning] = useState(false);
-  const [backendStatus, setBackendStatus] = useState<"checking" | "online" | "offline">("checking");
-  const [memory, setMemory] = useState<Record<string, unknown>>({});
-  const [campaignId, setCampaignId] = useState<string>("");
+
+  // Zustand store
+  const business = useCampaignStore((s) => s.business);
+  const setBusiness = useCampaignStore((s) => s.setBusiness);
+  const agentRuns = useCampaignStore((s) => s.agentRuns);
+  const selectedAgent = useCampaignStore((s) => s.selectedAgent);
+  const setSelectedAgent = useCampaignStore((s) => s.setSelectedAgent);
+  const selectedDept = useCampaignStore((s) => s.selectedDept);
+  const setSelectedDept = useCampaignStore((s) => s.setSelectedDept);
+  const running = useCampaignStore((s) => s.running);
+  const setRunning = useCampaignStore((s) => s.setRunning);
+  const backendStatus = useCampaignStore((s) => s.backendStatus);
+  const setBackendStatus = useCampaignStore((s) => s.setBackendStatus);
+  const memory = useCampaignStore((s) => s.memory);
+  const setMemory = useCampaignStore((s) => s.setMemory);
+  const campaignId = useCampaignStore((s) => s.campaignId);
+  const setCampaignId = useCampaignStore((s) => s.setCampaignId);
+  const updateAgentRun = useCampaignStore((s) => s.updateAgentRun);
+
+  // Local UI state (not shared)
   const [showSidebar, setShowSidebar] = useState(true);
   const [scores, setScores] = useState<Record<string, { score: number; grade: string }>>({});
   const controllerRef = useRef<AbortController | null>(null);
@@ -60,7 +73,7 @@ export default function DashboardPage() {
     }
     // Check backend
     api.health().then((h) => setBackendStatus(h.status === "offline" ? "offline" : "online"));
-  }, [router]);
+  }, [router, setBusiness, setBackendStatus]);
 
   // Auto-scroll output
   useEffect(() => {
@@ -69,31 +82,18 @@ export default function DashboardPage() {
     }
   }, [agentRuns, selectedAgent]);
 
-  const updateAgentRun = useCallback((agentId: string, update: Partial<AgentRun>) => {
-    setAgentRuns((prev) => ({
-      ...prev,
-      [agentId]: { ...prev[agentId], ...update } as AgentRun,
-    }));
-  }, []);
-
   // Fetch real scores from backend after agents complete
   const refreshScores = useCallback(async (cid: string) => {
     if (!cid) return;
     try {
       const s = await api.getCampaignScores(cid);
       setScores(s);
-      // Apply real grades to agent runs
-      setAgentRuns((prev) => {
-        const updated = { ...prev };
-        for (const [agentId, scoreData] of Object.entries(s)) {
-          if (updated[agentId]) {
-            updated[agentId] = { ...updated[agentId], grade: (scoreData.grade || "—") as Grade, score: scoreData.score || 0 };
-          }
-        }
-        return updated;
-      });
+      // Apply real grades to agent runs via store
+      for (const [agentId, scoreData] of Object.entries(s)) {
+        updateAgentRun(agentId, { grade: (scoreData.grade || "—") as Grade, score: scoreData.score || 0 });
+      }
     } catch { /* backend offline */ }
-  }, []);
+  }, [updateAgentRun]);
 
   // ── Run single agent ──
 
@@ -127,35 +127,20 @@ export default function DashboardPage() {
               model: evt.model,
             });
             if (evt.memory_update) {
-              setMemory((prev) => ({ ...prev, ...evt.memory_update }));
+              setMemory(evt.memory_update);
             }
-            // Fetch real scores from backend
             refreshScores(campaignId);
           } else if (evt.event === "think" && evt.content) {
-            setAgentRuns((prev) => {
-              const existing = prev[agentId] || { output: "" };
-              return {
-                ...prev,
-                [agentId]: {
-                  ...existing,
-                  agentId,
-                  status: "running" as AgentStatus,
-                  phases: [...(existing.phases || []), evt.content || ""],
-                } as AgentRun,
-              };
+            updateAgentRun(agentId, {
+              agentId,
+              status: "running" as AgentStatus,
+              phases: [...(agentRuns[agentId]?.phases || []), evt.content || ""],
             });
           } else if (evt.event === "tool_call") {
-            setAgentRuns((prev) => {
-              const existing = prev[agentId] || {};
-              return {
-                ...prev,
-                [agentId]: {
-                  ...existing,
-                  agentId,
-                  status: "running" as AgentStatus,
-                  phases: [...(existing.phases || []), `Tool: ${evt.tool_name}`],
-                } as AgentRun,
-              };
+            updateAgentRun(agentId, {
+              agentId,
+              status: "running" as AgentStatus,
+              phases: [...(agentRuns[agentId]?.phases || []), `Tool: ${evt.tool_name}`],
             });
           } else if (evt.event === "error") {
             updateAgentRun(agentId, { status: "error", output: evt.content || "Agent failed" });
@@ -169,7 +154,7 @@ export default function DashboardPage() {
       );
       controllerRef.current = controller;
     },
-    [business, memory, campaignId, running, updateAgentRun]
+    [business, memory, campaignId, running, updateAgentRun, setRunning, setSelectedAgent, setMemory, refreshScores, scores, agentRuns]
   );
 
   // ── Run full campaign ──
@@ -204,13 +189,12 @@ export default function DashboardPage() {
                 provider: evt.provider,
               });
               if (evt.memory_update) {
-                setMemory((prev) => ({ ...prev, ...evt.memory_update }));
+                setMemory(evt.memory_update);
               }
             } else if (evt.event === "think" && evt.content) {
-              setAgentRuns((prev) => ({
-                ...prev,
-                [agentId]: { ...prev[agentId], phases: [...(prev[agentId]?.phases || []), evt.content || ""] } as AgentRun,
-              }));
+              updateAgentRun(agentId, {
+                phases: [...(agentRuns[agentId]?.phases || []), evt.content || ""],
+              });
             } else if (evt.event === "error") {
               updateAgentRun(agentId, { status: "error", output: evt.content || "Failed" });
             }
@@ -220,12 +204,12 @@ export default function DashboardPage() {
         );
       });
     }
-  }, [business, memory, updateAgentRun]);
+  }, [business, memory, updateAgentRun, setCampaignId, setRunning, setSelectedAgent, setMemory, refreshScores, agentRuns]);
 
   const stopAgent = useCallback(() => {
     controllerRef.current?.abort();
     setRunning(false);
-  }, []);
+  }, [setRunning]);
 
   const filteredAgents =
     selectedDept === "all" ? AGENTS : AGENTS.filter((a) => a.department === selectedDept);
@@ -262,7 +246,7 @@ export default function DashboardPage() {
             Settings
           </button>
           <button
-            onClick={() => { localStorage.clear(); router.push("/"); }}
+            onClick={() => { localStorage.clear(); useCampaignStore.getState().reset(); router.push("/"); }}
             className="btn-ghost text-xs text-surface-400"
           >
             Logout

@@ -3,6 +3,8 @@
 import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useAuthStore } from "@/lib/store";
+import { api } from "@/lib/api";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "@/lib/constants";
 
 export default function AuthPage() {
@@ -16,6 +18,7 @@ export default function AuthPage() {
 function AuthPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const setAuth = useAuthStore((s) => s.setAuth);
   const [mode, setMode] = useState<"login" | "signup">(
     searchParams.get("mode") === "signup" ? "signup" : "login"
   );
@@ -25,6 +28,15 @@ function AuthPageInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const persistSession = (token: string, userId: string) => {
+    setAuth(token, userId);
+    api.setToken(token);
+    localStorage.setItem(
+      "sv_session",
+      JSON.stringify({ accessToken: token, userId, email, plan: "growth", agencyName: agencyName || "Demo Agency" })
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -33,16 +45,7 @@ function AuthPageInner() {
     try {
       if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
         // Demo mode — skip auth, go straight to onboarding
-        localStorage.setItem(
-          "sv_session",
-          JSON.stringify({
-            accessToken: "demo",
-            userId: "demo-user",
-            email,
-            plan: "growth",
-            agencyName: agencyName || "Demo Agency",
-          })
-        );
+        persistSession("demo", "demo-user");
         router.push("/onboarding");
         return;
       }
@@ -68,35 +71,19 @@ function AuthPageInner() {
         return;
       }
 
-      const session = {
-        accessToken: data.access_token || data.id || "",
-        userId: data.user?.id || data.id || "",
-        email,
-        plan: "",
-        agencyName: agencyName || "",
-      };
-
-      localStorage.setItem("sv_session", JSON.stringify(session));
+      const token = data.access_token || data.id || "";
+      const userId = data.user?.id || data.id || "";
+      persistSession(token, userId);
 
       if (mode === "signup") {
         router.push("/onboarding");
       } else {
-        // Check if they've onboarded
         const hasBiz = localStorage.getItem("sv_business");
         router.push(hasBiz ? "/dashboard" : "/onboarding");
       }
-    } catch (err) {
+    } catch {
       setError("Network error. Using demo mode.");
-      localStorage.setItem(
-        "sv_session",
-        JSON.stringify({
-          accessToken: "demo",
-          userId: "demo-user",
-          email: email || "demo@example.com",
-          plan: "growth",
-          agencyName: agencyName || "Demo Agency",
-        })
-      );
+      persistSession("demo", "demo-user");
       router.push("/onboarding");
     } finally {
       setLoading(false);
