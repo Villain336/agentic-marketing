@@ -19,6 +19,7 @@ from scheduler import scheduler, register_default_jobs
 from auth import AuthMiddleware
 from ws import ws_manager
 from ratelimit import RateLimitMiddleware
+from observability import MetricsMiddleware, metrics
 from genome import genome
 from store import store
 import db
@@ -74,11 +75,51 @@ app.add_middleware(
 )
 app.add_middleware(AuthMiddleware)
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(MetricsMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 
 # -- Register all route modules ------------------------------------------------
 for router in all_routers:
     app.include_router(router)
+
+# -- Session Cookie Endpoints --------------------------------------------------
+
+from fastapi.responses import Response as FastAPIResponse
+from auth import _decode_jwt
+
+@app.post("/auth/session")
+async def create_session(request: Request):
+    """Exchange a Bearer token for an httpOnly secure session cookie."""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JSONResponse(status_code=401, content={"detail": "Missing Bearer token"})
+
+    token = auth_header[7:]
+    if settings.supabase_jwt_secret:
+        payload = _decode_jwt(token)
+        if not payload:
+            return JSONResponse(status_code=401, content={"detail": "Invalid token"})
+
+    response = JSONResponse(content={"status": "ok"})
+    response.set_cookie(
+        key="sv_session",
+        value=token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 7,  # 7 days
+        path="/",
+    )
+    return response
+
+
+@app.post("/auth/logout")
+async def logout_session():
+    """Clear the session cookie."""
+    response = JSONResponse(content={"status": "ok"})
+    response.delete_cookie(key="sv_session", path="/")
+    return response
+
 
 # -- WebSocket that can't use prefix-based routers cleanly ---------------------
 @app.websocket("/ws/browser/{session_id}/stream")

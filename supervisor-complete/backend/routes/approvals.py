@@ -51,19 +51,28 @@ def _record_audit(item_id: str, action: str, actor: str, reason: str = "",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     _audit_log.append(entry)
+    # Bound audit log to prevent unbounded memory growth
+    if len(_audit_log) > 5000:
+        del _audit_log[:1000]
     logger.info(f"Approval audit: {action} on {item_id} by {actor}")
 
 
 # -- Endpoints ----------------------------------------------------------------
 
 @router.get("/approvals")
-async def list_approvals(request: Request, status: str = "pending"):
-    """List approval queue items for the authenticated user."""
+async def list_approvals(request: Request, status: str = "pending",
+                         offset: int = 0, limit: int = 50):
+    """List approval queue items for the authenticated user (paginated)."""
     user_id = get_user_id(request)
     if not user_id:
         raise HTTPException(401, "Authentication required")
-    items = store.list_approvals(user_id, status)
-    return {"items": [a.model_dump() for a in items], "count": len(items)}
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    all_items = store.list_approvals(user_id, status)
+    total = len(all_items)
+    page = all_items[offset:offset + limit]
+    return {"items": [a.model_dump() for a in page], "count": len(page),
+            "total": total, "offset": offset, "limit": limit}
 
 
 @router.post("/approvals")

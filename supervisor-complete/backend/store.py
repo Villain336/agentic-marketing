@@ -8,7 +8,7 @@ Swap the backing dicts for Redis / Supabase in production.
 from __future__ import annotations
 import logging
 from typing import Optional
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 
 from models import (
     ApprovalItem, Campaign, CampaignMemory, OnboardingProfile,
@@ -16,20 +16,43 @@ from models import (
 
 logger = logging.getLogger("supervisor.store")
 
+# Maximum items per user per collection (prevents unbounded memory growth)
+MAX_CAMPAIGNS_PER_USER = 100
+MAX_ONBOARDING_PER_USER = 20
+MAX_APPROVALS_PER_USER = 500
+MAX_TOTAL_CAMPAIGNS = 10_000
+
+
+class BoundedDict(OrderedDict):
+    """OrderedDict with a max size. Evicts oldest entries when full."""
+
+    def __init__(self, max_size: int, *args, **kwargs):
+        self._max_size = max_size
+        super().__init__(*args, **kwargs)
+
+    def __setitem__(self, key, value):
+        if key in self:
+            self.move_to_end(key)
+        super().__setitem__(key, value)
+        while len(self) > self._max_size:
+            oldest_key, _ = self.popitem(last=False)
+            logger.warning(f"Evicted oldest entry: {oldest_key}")
+
 
 class TenantStore:
     """Tenant-isolated in-memory data store.
 
     Every piece of mutable state is keyed by (user_id, resource_id).
+    Collections are bounded with LRU eviction to prevent OOM.
     """
 
     def __init__(self):
         # user_id -> {campaign_id -> Campaign}
-        self._campaigns: dict[str, dict[str, Campaign]] = defaultdict(dict)
+        self._campaigns: dict[str, BoundedDict] = defaultdict(lambda: BoundedDict(MAX_CAMPAIGNS_PER_USER))
         # user_id -> {profile_id -> OnboardingProfile}
-        self._onboarding: dict[str, dict[str, OnboardingProfile]] = defaultdict(dict)
+        self._onboarding: dict[str, BoundedDict] = defaultdict(lambda: BoundedDict(MAX_ONBOARDING_PER_USER))
         # user_id -> {item_id -> ApprovalItem}
-        self._approvals: dict[str, dict[str, ApprovalItem]] = defaultdict(dict)
+        self._approvals: dict[str, BoundedDict] = defaultdict(lambda: BoundedDict(MAX_APPROVALS_PER_USER))
         # Reverse lookup: campaign_id -> user_id (for webhooks/background tasks)
         self._campaign_owner: dict[str, str] = {}
 
@@ -37,6 +60,10 @@ class TenantStore:
 
     def put_campaign(self, user_id: str, campaign: Campaign) -> None:
         """Store a campaign scoped to a user."""
+        total = self.campaign_count()
+        if total >= MAX_TOTAL_CAMPAIGNS:
+            logger.warning(f"Global campaign limit ({MAX_TOTAL_CAMPAIGNS}) reached, rejecting new campaign")
+            raise ValueError("Maximum campaign capacity reached")
         campaign.user_id = user_id
         self._campaigns[user_id][campaign.id] = campaign
         self._campaign_owner[campaign.id] = user_id

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter
+from starlette.responses import PlainTextResponse
 
 from models import HealthResponse
 from providers import router as model_router
@@ -9,6 +10,7 @@ from agents import AGENTS
 from scheduler import scheduler
 from ws import ws_manager
 from store import store
+from observability import metrics
 
 router = APIRouter(tags=["Health"])
 
@@ -42,3 +44,15 @@ async def scheduler_status():
 async def ws_status():
     """Get WebSocket connection stats."""
     return ws_manager.get_status()
+
+
+@router.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus-compatible metrics endpoint."""
+    return PlainTextResponse(metrics.to_prometheus(), media_type="text/plain")
+
+
+@router.get("/metrics/json")
+async def json_metrics():
+    """JSON metrics for the dashboard."""
+    return metrics.to_json()

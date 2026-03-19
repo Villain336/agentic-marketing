@@ -2,16 +2,21 @@
 from __future__ import annotations
 import json
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 from computer_use import browser_pool
+from auth import get_user_id
 
 router = APIRouter(prefix="/browser", tags=["Browser"])
 
 
 @router.post("/sessions")
-async def create_browser_session(payload: dict):
+async def create_browser_session(request: Request):
     """Launch a live browser session for an agent with real-time streaming."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    payload = await request.json()
     session = await browser_pool.create_session(
         agent_id=payload.get("agent_id", ""),
         campaign_id=payload.get("campaign_id", ""),
@@ -24,14 +29,20 @@ async def create_browser_session(payload: dict):
 
 
 @router.get("/sessions")
-async def list_browser_sessions(campaign_id: str = "", agent_id: str = "", status: str = ""):
+async def list_browser_sessions(request: Request, campaign_id: str = "", agent_id: str = "", status: str = ""):
     """List browser sessions with optional filters."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
     return {"sessions": browser_pool.list_sessions(campaign_id, agent_id, status)}
 
 
 @router.get("/sessions/{session_id}")
-async def get_browser_session(session_id: str):
+async def get_browser_session(session_id: str, request: Request):
     """Get details of a specific browser session."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
     session = browser_pool.get_session(session_id)
     if not session:
         raise HTTPException(404, "Browser session not found")
@@ -39,8 +50,12 @@ async def get_browser_session(session_id: str):
 
 
 @router.post("/sessions/{session_id}/action")
-async def execute_browser_action(session_id: str, payload: dict):
+async def execute_browser_action(session_id: str, request: Request):
     """Execute a browser action (click, type, navigate, etc.) in a live session."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    payload = await request.json()
     from computer_use import BrowserAction, ActionType
     coords = None
     if payload.get("coordinates"):
@@ -59,8 +74,12 @@ async def execute_browser_action(session_id: str, payload: dict):
 
 
 @router.post("/sessions/{session_id}/vision-step")
-async def vision_navigate_step(session_id: str, payload: dict):
+async def vision_navigate_step(session_id: str, request: Request):
     """Execute one vision-guided navigation step: screenshot -> vision model -> action."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    payload = await request.json()
     result = await browser_pool.vision_step(
         session_id, payload["goal"], payload.get("screenshot_b64", "")
     )
@@ -70,8 +89,12 @@ async def vision_navigate_step(session_id: str, payload: dict):
 
 
 @router.post("/sessions/{session_id}/vision-plan")
-async def vision_plan_steps(session_id: str, payload: dict):
+async def vision_plan_steps(session_id: str, request: Request):
     """Plan a full multi-step browser interaction using vision analysis."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    payload = await request.json()
     session = browser_pool._sessions.get(session_id)
     if not session:
         raise HTTPException(404, "Browser session not found")
@@ -82,8 +105,12 @@ async def vision_plan_steps(session_id: str, payload: dict):
 
 
 @router.post("/parallel")
-async def launch_parallel_browsers(payload: dict):
+async def launch_parallel_browsers(request: Request):
     """Launch multiple browser sessions simultaneously — N agents, N browsers."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    payload = await request.json()
     result = await browser_pool.run_parallel_sessions(payload["tasks"])
     if "error" in result:
         raise HTTPException(400, result["error"])
@@ -91,8 +118,12 @@ async def launch_parallel_browsers(payload: dict):
 
 
 @router.post("/sessions/{session_id}/handoff")
-async def request_human_handoff(session_id: str, payload: dict):
+async def request_human_handoff(session_id: str, request: Request):
     """Agent yields browser control to human."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    payload = await request.json()
     result = await browser_pool.request_human_handoff(
         session_id, payload["reason"], payload.get("notify_channels")
     )
@@ -102,17 +133,23 @@ async def request_human_handoff(session_id: str, payload: dict):
 
 
 @router.post("/sessions/{session_id}/takeover")
-async def human_takeover(session_id: str, payload: dict):
+async def human_takeover(session_id: str, request: Request):
     """Human assumes direct browser control during a live session."""
-    result = await browser_pool.human_takeover(session_id, payload.get("user_id", "anonymous"))
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    result = await browser_pool.human_takeover(session_id, user_id)
     if "error" in result:
         raise HTTPException(400, result["error"])
     return result
 
 
 @router.post("/sessions/{session_id}/release")
-async def human_release(session_id: str):
+async def human_release(session_id: str, request: Request):
     """Human returns browser control to agent."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
     result = await browser_pool.human_release(session_id)
     if "error" in result:
         raise HTTPException(400, result["error"])
@@ -120,8 +157,12 @@ async def human_release(session_id: str):
 
 
 @router.post("/sessions/{session_id}/human-action")
-async def human_browser_action(session_id: str, payload: dict):
+async def human_browser_action(session_id: str, request: Request):
     """Execute a human-initiated browser action during takeover mode."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    payload = await request.json()
     result = await browser_pool.human_action(
         session_id, payload["action_type"],
         payload.get("selector", ""), payload.get("value", ""),
@@ -133,8 +174,11 @@ async def human_browser_action(session_id: str, payload: dict):
 
 
 @router.post("/sessions/{session_id}/close")
-async def close_browser_session(session_id: str):
+async def close_browser_session(session_id: str, request: Request):
     """Close a browser session and finalize its recording."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
     result = await browser_pool.close_session(session_id)
     if "error" in result:
         raise HTTPException(400, result["error"])
@@ -142,26 +186,38 @@ async def close_browser_session(session_id: str):
 
 
 @router.get("/dashboard")
-async def browser_dashboard():
+async def browser_dashboard(request: Request):
     """Multi-browser control panel — all active sessions, streams, and stats."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
     return browser_pool.get_dashboard()
 
 
 @router.get("/stats")
-async def browser_stats():
+async def browser_stats(request: Request):
     """Aggregate statistics across all browser sessions."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
     return browser_pool.get_stats()
 
 
 @router.get("/recordings")
-async def list_recordings(campaign_id: str = "", agent_id: str = ""):
+async def list_recordings(request: Request, campaign_id: str = "", agent_id: str = ""):
     """List all browser session recordings."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
     return {"recordings": browser_pool.list_recordings(campaign_id, agent_id)}
 
 
 @router.get("/recordings/{recording_id}")
-async def get_recording(recording_id: str, format: str = "json"):
+async def get_recording(recording_id: str, request: Request, format: str = "json"):
     """Get or export a browser session recording."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
     result = await browser_pool.export_recording(recording_id, format)
     if "error" in result:
         raise HTTPException(404, result["error"])
@@ -169,8 +225,12 @@ async def get_recording(recording_id: str, format: str = "json"):
 
 
 @router.post("/recordings/{recording_id}/annotate")
-async def annotate_recording(recording_id: str, payload: dict):
+async def annotate_recording(recording_id: str, request: Request):
     """Add human annotation to a specific frame in a recording."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    payload = await request.json()
     result = await browser_pool.annotate_recording(
         recording_id, payload["frame_index"], payload["annotation"], payload.get("author", "user")
     )

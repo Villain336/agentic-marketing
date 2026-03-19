@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Rocket, Target, Users, Sparkles, Check, Loader2 } from "lucide-react";
 import type { OnboardingStage, BusinessProfile } from "@/types";
 import { ONBOARDING_STAGES } from "@/lib/constants";
+import { api } from "@/lib/api";
 
 const AUTONOMY_ICONS: Record<string, React.ReactNode> = {
   Rocket: <Rocket className="w-6 h-6" />,
@@ -92,8 +93,17 @@ export default function OnboardingPage() {
     setStage("provisioning");
     localStorage.setItem("sv_business", JSON.stringify(business));
     localStorage.setItem("sv_channels", JSON.stringify(channels));
-    localStorage.setItem("sv_api_keys", JSON.stringify(apiKeys));
     localStorage.setItem("sv_autonomy", autonomy);
+
+    // Send API keys to backend securely — never store in localStorage
+    const nonEmptyKeys = Object.fromEntries(
+      Object.entries(apiKeys).filter(([, v]) => v.trim())
+    );
+    if (Object.keys(nonEmptyKeys).length > 0) {
+      api.post("/settings/secrets", { keys: nonEmptyKeys }).catch(() => {
+        // Secrets will need to be configured later via Settings
+      });
+    }
 
     // Animate provisioning
     const items = ["Agents", "Tools", "Integrations", "Genome", "Scheduler", "Dashboard"];

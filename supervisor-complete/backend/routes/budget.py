@@ -66,8 +66,11 @@ async def get_inference_costs(campaign_id: str, request: Request, agent_id: str 
 
 
 @router.get("/costs")
-async def global_costs():
+async def global_costs(request: Request):
     """Get global LLM inference cost stats."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
     return cost_tracker.get_global_stats()
 
 

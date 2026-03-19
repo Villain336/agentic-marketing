@@ -158,13 +158,17 @@ async def get_memory(campaign_id: str, request: Request):
 
 
 @router.get("/campaigns")
-async def list_campaigns_from_db(request: Request):
-    """Return all campaigns for the authenticated user from DB."""
+async def list_campaigns_from_db(request: Request, offset: int = 0, limit: int = 50):
+    """Return all campaigns for the authenticated user from DB (paginated)."""
     user_id = get_user_id(request)
     if not user_id:
         raise HTTPException(401, "Authentication required")
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
 
     rows = await db.load_user_campaigns(user_id)
+    total = len(rows)
+    rows = rows[offset:offset + limit]
     result = []
     for row in rows:
         memory_raw = row.get("memory", {})
@@ -181,7 +185,7 @@ async def list_campaigns_from_db(request: Request):
             "business_name": biz.get("name", ""),
             "agent_count": sum(1 for k, v in memory_raw.items() if k.startswith("has_") and v),
         })
-    return {"campaigns": result, "count": len(result)}
+    return {"campaigns": result, "count": len(result), "total": total, "offset": offset, "limit": limit}
 
 
 @router.get("/campaign/{campaign_id}/resume")
@@ -415,14 +419,27 @@ async def clone_campaign(campaign_id: str, req: CloneCampaignRequest,
 
 
 @router.get("/campaign/{campaign_id}/versions")
-async def get_memory_versions(campaign_id: str, agent_id: str = "", limit: int = 50):
+async def get_memory_versions(campaign_id: str, request: Request, agent_id: str = "", limit: int = 50):
     """Get memory version history for a campaign."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    if not store.get_campaign(user_id, campaign_id):
+        raise HTTPException(404, "Campaign not found")
+    limit = min(limit, 200)
     return {"versions": versioner.get_history(campaign_id, agent_id, limit)}
 
 
 @router.get("/campaign/{campaign_id}/versions/{version_id}")
-async def get_memory_version(campaign_id: str, version_id: int):
+async def get_memory_version(campaign_id: str, version_id: int, request: Request):
     """Get a specific version with full snapshot."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    if not store.get_campaign(user_id, campaign_id):
+        raise HTTPException(404, "Campaign not found")
     result = versioner.get_version(campaign_id, version_id)
     if not result:
         raise HTTPException(404, "Version not found")
@@ -430,12 +447,24 @@ async def get_memory_version(campaign_id: str, version_id: int):
 
 
 @router.get("/campaign/{campaign_id}/versions/diff/{v1}/{v2}")
-async def diff_memory_versions(campaign_id: str, v1: int, v2: int):
+async def diff_memory_versions(campaign_id: str, v1: int, v2: int, request: Request):
     """Diff two memory versions."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    if not store.get_campaign(user_id, campaign_id):
+        raise HTTPException(404, "Campaign not found")
     return versioner.diff_versions(campaign_id, v1, v2)
 
 
 @router.get("/campaign/{campaign_id}/versions/timeline/{field}")
-async def field_timeline(campaign_id: str, field: str):
+async def field_timeline(campaign_id: str, field: str, request: Request):
     """Get the change timeline for a specific memory field."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    if not store.get_campaign(user_id, campaign_id):
+        raise HTTPException(404, "Campaign not found")
     return {"field": field, "timeline": versioner.get_field_timeline(campaign_id, field)}

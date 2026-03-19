@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from whatsapp import whatsapp
+from auth import get_user_id
 
 router = APIRouter(tags=["WhatsApp"])
 
@@ -33,7 +34,10 @@ async def whatsapp_webhook(request: Request):
 
 @router.post("/whatsapp/send")
 async def whatsapp_send(request: Request):
-    """Send a WhatsApp message."""
+    """Send a WhatsApp message (requires authentication)."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
     body = await request.json()
     msg_type = body.get("type", "text")
     if msg_type == "text":
@@ -54,7 +58,10 @@ async def whatsapp_send(request: Request):
 
 @router.post("/whatsapp/briefing")
 async def whatsapp_send_briefing(request: Request):
-    """Send a daily briefing via WhatsApp."""
+    """Send a daily briefing via WhatsApp (requires authentication)."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
     body = await request.json()
     result = await whatsapp.send_daily_briefing(body["phone"], body.get("briefing", {}))
     return result
@@ -62,13 +69,20 @@ async def whatsapp_send_briefing(request: Request):
 
 @router.post("/whatsapp/approval")
 async def whatsapp_send_approval(request: Request):
-    """Send an approval request via WhatsApp."""
+    """Send an approval request via WhatsApp (requires authentication)."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
     body = await request.json()
     result = await whatsapp.send_approval_request(body["phone"], body.get("approval", {}))
     return result
 
 
 @router.get("/whatsapp/conversation/{phone}")
-async def whatsapp_conversation(phone: str, limit: int = 50):
-    """Get WhatsApp conversation history."""
+async def whatsapp_conversation(phone: str, request: Request, limit: int = 50):
+    """Get WhatsApp conversation history (requires authentication)."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    limit = min(limit, 200)  # Cap pagination
     return {"messages": whatsapp.get_conversation(phone, limit)}

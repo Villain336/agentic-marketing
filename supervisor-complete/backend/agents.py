@@ -1,6 +1,22 @@
 """
 Supervisor Backend — Agent Definitions
-All 12 agents with system prompts, goals, tool access, and memory extraction.
+44 agents organized by operational layer with system prompts, goals, tool access,
+and memory extraction.
+
+Layers:
+  - CAMPAIGN_LOOP: Core marketing pipeline (prospector → sitelaunch)
+  - OPERATIONS_LAYER: Legal, procurement, newsletters, PPC, formation
+  - BACKOFFICE_LAYER: Finance, HR, sales, delivery, analytics, tax, wealth
+  - REVENUE_LAYER: Billing, referral, portfolio
+  - DIFFERENTIATION_LAYER: Competitive intel, client portal, voice
+  - COMMUNICATIONS_LAYER: PR, partnerships
+  - CLIENT_LAYER: Client fulfillment
+  - BUILDER_LAYER: Full-stack dev, data eng, hardware mfg
+  - INDUSTRIAL_LAYER: Reindustrialization
+  - INTELLIGENCE_LAYER: Economist, governance, product mgr, security
+  - COGNITION_LAYER: Knowledge engine, world model, agent ops
+  - ONBOARDING_AGENTS: Vision interview
+  - META_AGENTS: Design, supervisor
 """
 from __future__ import annotations
 import re
