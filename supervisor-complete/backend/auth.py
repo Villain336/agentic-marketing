@@ -25,6 +25,10 @@ PUBLIC_PATHS = {
     "/docs",
     "/openapi.json",
     "/redoc",
+    "/auth/session",
+    "/auth/logout",
+    "/metrics",
+    "/metrics/json",
 }
 
 PUBLIC_PREFIXES = (
@@ -89,7 +93,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Dev mode: allow unauthenticated access only from localhost
         if not settings.supabase_jwt_secret:
             client_host = request.client.host if request.client else ""
-            if client_host in ("127.0.0.1", "::1", "localhost", "0.0.0.0"):
+            if client_host in ("127.0.0.1", "::1", "localhost"):
                 request.state.user_id = "dev-local"
                 request.state.user_role = "authenticated"
                 return await call_next(request)
@@ -99,15 +103,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 content={"detail": "Authentication not configured. Set SUPABASE_JWT_SECRET."},
             )
 
-        # Extract Bearer token
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
+        # Extract token: prefer httpOnly cookie, fall back to Bearer header
+        token = request.cookies.get("sv_session")
+        if not token:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:]
+
+        if not token:
             return JSONResponse(
                 status_code=401,
-                content={"detail": "Missing authorization header"},
+                content={"detail": "Missing authorization (cookie or Bearer header)"},
             )
 
-        token = auth_header[7:]  # Strip "Bearer "
         payload = _decode_jwt(token)
 
         if payload is None:

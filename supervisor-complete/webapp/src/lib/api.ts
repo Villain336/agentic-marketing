@@ -17,6 +17,22 @@ class ApiClient {
 
   setToken(token: string | null) {
     this.token = token;
+    // Exchange token for httpOnly session cookie
+    if (token) {
+      fetch(`${this.baseUrl}/auth/session`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        credentials: "include",
+      }).catch(() => {/* cookie fallback: will use Bearer header */});
+    }
+  }
+
+  async logout() {
+    this.token = null;
+    await fetch(`${this.baseUrl}/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    }).catch(() => {});
   }
 
   private headers(): Record<string, string> {
@@ -26,7 +42,7 @@ class ApiClient {
   }
 
   async get<T>(path: string): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers() });
+    const res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers(), credentials: "include" });
     if (!res.ok) throw new Error(`GET ${path}: ${res.status}`);
     return res.json();
   }
@@ -36,6 +52,7 @@ class ApiClient {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(body),
+      credentials: "include",
     });
     if (!res.ok) throw new Error(`POST ${path}: ${res.status}`);
     return res.json();
@@ -46,6 +63,7 @@ class ApiClient {
       method: "PUT",
       headers: this.headers(),
       body: JSON.stringify(body),
+      credentials: "include",
     });
     if (!res.ok) throw new Error(`PUT ${path}: ${res.status}`);
     return res.json();
@@ -55,6 +73,7 @@ class ApiClient {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method: "DELETE",
       headers: this.headers(),
+      credentials: "include",
     });
     if (!res.ok) throw new Error(`DELETE ${path}: ${res.status}`);
     return res.json();
@@ -178,6 +197,7 @@ class ApiClient {
         tier: "standard",
       }),
       signal: controller.signal,
+      credentials: "include",
     })
       .then(async (res) => {
         if (!res.ok || !res.body) {

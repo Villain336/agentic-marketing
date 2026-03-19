@@ -236,9 +236,9 @@ export default function DashboardPage() {
   if (!business) return null;
 
   return (
-    <div className="h-screen flex flex-col bg-surface-50">
+    <div className="h-screen flex flex-col bg-surface-50" role="application" aria-label="Supervisor Dashboard">
       {/* ── Top Bar ── */}
-      <header className="h-14 bg-white border-b border-surface-200 flex items-center px-4 gap-4 flex-shrink-0">
+      <header className="h-14 bg-white border-b border-surface-200 flex items-center px-4 gap-4 flex-shrink-0" role="banner">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg bg-brand-600 flex items-center justify-center">
             <span className="text-white text-xs font-bold">S</span>
@@ -274,7 +274,7 @@ export default function DashboardPage() {
       <div className="flex-1 flex min-h-0">
         {/* ── Left: Agent Sidebar ── */}
         {showSidebar && (
-          <aside className="w-72 border-r border-surface-200 bg-white flex flex-col flex-shrink-0">
+          <aside className="w-72 border-r border-surface-200 bg-white flex flex-col flex-shrink-0" role="navigation" aria-label="Agent list">
             {/* Department Tabs */}
             <div className="p-3 border-b border-surface-100">
               <div className="flex flex-wrap gap-1">
@@ -301,7 +301,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Agent List */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+            <div className="flex-1 overflow-y-auto p-2 space-y-0.5" role="listbox" aria-label="Agents">
               {filteredAgents.map((agent) => {
                 const run = agentRuns[agent.id];
                 const isSelected = selectedAgent === agent.id;
@@ -309,6 +309,9 @@ export default function DashboardPage() {
                   <button
                     key={agent.id}
                     onClick={() => setSelectedAgent(agent.id)}
+                    role="option"
+                    aria-selected={isSelected}
+                    aria-label={`${agent.label} — ${agent.role}${run?.status ? `, status: ${run.status}` : ""}${run?.grade && run.grade !== "—" ? `, grade: ${run.grade}` : ""}`}
                     className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center gap-3 transition-all group ${
                       isSelected
                         ? "bg-brand-50 border border-brand-200"
@@ -332,8 +335,9 @@ export default function DashboardPage() {
                     {/* Run button */}
                     <button
                       onClick={(e) => { e.stopPropagation(); runAgent(agent.id); }}
-                      className="opacity-0 group-hover:opacity-100 btn-ghost text-2xs px-2 py-1 text-brand-600"
+                      className="opacity-0 group-hover:opacity-100 focus:opacity-100 btn-ghost text-2xs px-2 py-1 text-brand-600"
                       disabled={running}
+                      aria-label={`Run ${agent.label}`}
                     >
                       Run
                     </button>
@@ -345,11 +349,11 @@ export default function DashboardPage() {
             {/* Campaign Controls */}
             <div className="p-3 border-t border-surface-100 space-y-2">
               {running ? (
-                <button onClick={stopAgent} className="btn-secondary w-full text-sm">
+                <button onClick={stopAgent} className="btn-secondary w-full text-sm" aria-label="Stop running agent">
                   Stop
                 </button>
               ) : (
-                <button onClick={runCampaign} className="btn-primary w-full text-sm">
+                <button onClick={runCampaign} className="btn-primary w-full text-sm" aria-label="Run all agents in sequence">
                   Run Full Campaign
                 </button>
               )}
@@ -358,7 +362,7 @@ export default function DashboardPage() {
         )}
 
         {/* ── Center: Agent Output ── */}
-        <main className="flex-1 flex flex-col min-w-0">
+        <main className="flex-1 flex flex-col min-w-0" role="main" aria-label="Agent output">
           {/* Agent Header */}
           <div className="h-12 bg-white border-b border-surface-200 flex items-center px-5 gap-3 flex-shrink-0">
             <button onClick={() => setShowSidebar(!showSidebar)} className="btn-ghost text-xs p-1">
@@ -469,8 +473,32 @@ function ContextBlock({ label, value }: { label: string; value?: string }) {
   );
 }
 
+/** Allowlisted HTML tags for sanitization. */
+const ALLOWED_TAGS = new Set(["h2", "h3", "strong", "li", "ul", "hr", "code", "p"]);
+
+/** Strip any HTML tag not in the allowlist (prevents XSS from agent output). */
+function sanitizeHtml(html: string): string {
+  return html.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g, (match, tag) => {
+    const lower = tag.toLowerCase();
+    if (ALLOWED_TAGS.has(lower)) {
+      // Only allow the bare tag — strip attributes
+      if (match.startsWith("</")) return `</${lower}>`;
+      if (lower === "hr") return "<hr />";
+      return `<${lower}>`;
+    }
+    return ""; // strip disallowed tags
+  });
+}
+
 function renderMarkdown(text: string): string {
-  return text
+  // First escape any raw HTML in the input
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  // Then apply markdown transforms (these produce only allowlisted tags)
+  const html = escaped
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
@@ -481,4 +509,6 @@ function renderMarkdown(text: string): string {
     .replace(/\n\n/g, '</p><p>')
     .replace(/^(?!<[hulo])/gm, (m) => m ? `<p>${m}` : '')
     .replace(/<p><\/p>/g, '');
+
+  return sanitizeHtml(html);
 }

@@ -244,3 +244,70 @@ async def list_event_types(request: Request):
     if not user_id:
         raise HTTPException(401, "Authentication required")
     return [{"value": et.value, "label": et.name} for et in EventType]
+
+
+# ── Secrets (API Keys) ──────────────────────────────────────────────────
+
+# Allowlisted secret key names that can be stored
+_ALLOWED_SECRET_KEYS = {
+    "SENDGRID_API_KEY", "HUBSPOT_API_KEY", "STRIPE_API_KEY",
+    "SERPER_API_KEY", "TWITTER_BEARER_TOKEN", "APOLLO_API_KEY",
+    "OPENAI_API_KEY", "VERCEL_TOKEN",
+}
+
+# In-memory secret store scoped by user_id (swap for vault in production)
+_user_secrets: dict[str, dict[str, str]] = {}
+
+
+@router.post("/settings/secrets")
+async def store_secrets(request: Request):
+    """Store API keys server-side. Never persisted in browser localStorage."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
+    body = await request.json()
+    keys = body.get("keys", {})
+    if not isinstance(keys, dict):
+        raise HTTPException(400, "Expected {keys: {KEY_NAME: value}}")
+
+    stored = []
+    for key_name, value in keys.items():
+        if key_name not in _ALLOWED_SECRET_KEYS:
+            continue
+        if not isinstance(value, str) or not value.strip():
+            continue
+        _user_secrets.setdefault(user_id, {})[key_name] = value.strip()
+        stored.append(key_name)
+
+    logger.info(f"User {user_id[:8]}... stored {len(stored)} secrets")
+    return {"stored": stored, "count": len(stored)}
+
+
+@router.get("/settings/secrets")
+async def list_secrets(request: Request):
+    """List which secrets are configured (names only, never values)."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
+    user_keys = _user_secrets.get(user_id, {})
+    return {
+        "configured": list(user_keys.keys()),
+        "available": list(_ALLOWED_SECRET_KEYS),
+    }
+
+
+@router.delete("/settings/secrets/{key_name}")
+async def delete_secret(key_name: str, request: Request):
+    """Remove a stored secret."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
+    if key_name not in _ALLOWED_SECRET_KEYS:
+        raise HTTPException(400, f"Unknown secret key: {key_name}")
+
+    user_keys = _user_secrets.get(user_id, {})
+    user_keys.pop(key_name, None)
+    return {"deleted": key_name}

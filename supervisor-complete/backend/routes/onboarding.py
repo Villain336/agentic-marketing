@@ -126,6 +126,48 @@ async def run_vision_interview(profile_id: str, request: Request):
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
 
 
+def _validate_url(url: str) -> str:
+    """Validate and sanitize a URL to prevent SSRF attacks."""
+    import ipaddress
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        raise HTTPException(400, "Invalid URL")
+
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(400, "Only HTTP/HTTPS URLs are allowed")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise HTTPException(400, "No hostname in URL")
+
+    # Block private/reserved IPs
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+            raise HTTPException(400, "Internal/private IP addresses are not allowed")
+    except ValueError:
+        # hostname is a domain name, resolve it
+        import socket
+        try:
+            resolved = socket.getaddrinfo(hostname, None)
+            for _, _, _, _, addr in resolved:
+                ip = ipaddress.ip_address(addr[0])
+                if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+                    raise HTTPException(400, "URL resolves to a private/internal IP address")
+        except socket.gaierror:
+            raise HTTPException(400, f"Cannot resolve hostname: {hostname}")
+
+    # Block common internal hostnames
+    blocked = {"localhost", "metadata.google.internal", "169.254.169.254"}
+    if hostname.lower() in blocked:
+        raise HTTPException(400, "Blocked hostname")
+
+    return url
+
+
 @router.post("/crawl-url")
 async def crawl_url(request: Request):
     """Crawl a URL and extract visual signals for mood board (Stage 2)."""
@@ -133,6 +175,8 @@ async def crawl_url(request: Request):
     url = body.get("url", "")
     if not url:
         raise HTTPException(400, "No URL provided")
+
+    url = _validate_url(url)
 
     from tools import registry
     scrape_result = await registry.execute("web_scrape", {"url": url, "max_chars": 5000}, "crawl")

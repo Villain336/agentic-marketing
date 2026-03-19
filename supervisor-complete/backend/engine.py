@@ -495,7 +495,13 @@ class AgentEngine:
                                 })
                                 continue
                         except ImportError:
-                            pass
+                            logger.error("autonomy module not available — blocking tool %s as a safety default", tc.name)
+                            messages.append({
+                                "role": "user",
+                                "content": [{"type": "tool_result", "tool_use_id": tc.id,
+                                             "content": "BLOCKED: Approval system unavailable. Tool execution denied as a safety default."}],
+                            })
+                            continue
 
                     # ── Wallet: check budget before executing spending tools ──
                     estimated_cost = TOOL_COST_ESTIMATES.get(tc.name, 0)

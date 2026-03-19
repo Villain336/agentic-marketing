@@ -63,6 +63,14 @@ class VersionManager:
         )
 
         self._versions[campaign_id].append(version)
+        # Bound per-campaign version history (keep most recent 200)
+        if len(self._versions[campaign_id]) > 200:
+            self._versions[campaign_id] = self._versions[campaign_id][-200:]
+        # Bound total campaigns tracked
+        if len(self._versions) > 5000:
+            oldest = next(iter(self._versions))
+            del self._versions[oldest]
+            self._last_state.pop(oldest, None)
         self._last_state[campaign_id] = copy.deepcopy(memory_dict)
 
         if changes:

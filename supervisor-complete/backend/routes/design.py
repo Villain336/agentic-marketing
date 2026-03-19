@@ -4,13 +4,22 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 from designview import design_view
+from auth import get_user_id
 
 router = APIRouter(prefix="/design", tags=["Design"])
+
+
+def _require_auth(request: Request) -> str:
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    return user_id
 
 
 @router.post("/canvas")
 async def create_design_canvas(request: Request):
     """Create a new design canvas."""
+    _require_auth(request)
     body = await request.json()
     canvas = design_view.create_canvas(
         campaign_id=body["campaign_id"],
@@ -23,8 +32,9 @@ async def create_design_canvas(request: Request):
 
 
 @router.get("/canvas/{canvas_id}")
-async def get_design_canvas(canvas_id: str):
+async def get_design_canvas(canvas_id: str, request: Request):
     """Get a design canvas."""
+    _require_auth(request)
     canvas = design_view.get_canvas(canvas_id)
     if not canvas:
         raise HTTPException(404, "Canvas not found")
@@ -32,8 +42,9 @@ async def get_design_canvas(canvas_id: str):
 
 
 @router.get("/canvases/{campaign_id}")
-async def list_design_canvases(campaign_id: str):
+async def list_design_canvases(campaign_id: str, request: Request):
     """List canvases for a campaign."""
+    _require_auth(request)
     canvases = design_view.list_canvases(campaign_id)
     return {"canvases": [c.model_dump() for c in canvases]}
 
@@ -41,6 +52,7 @@ async def list_design_canvases(campaign_id: str):
 @router.post("/canvas/{canvas_id}/component")
 async def add_design_component(canvas_id: str, request: Request):
     """Add a component from the library to a canvas."""
+    _require_auth(request)
     body = await request.json()
     element = design_view.add_component(
         canvas_id, body["component"],
@@ -55,6 +67,7 @@ async def add_design_component(canvas_id: str, request: Request):
 @router.patch("/canvas/{canvas_id}/element/{element_id}")
 async def update_design_element(canvas_id: str, element_id: str, request: Request):
     """Update a design element's properties or styles."""
+    _require_auth(request)
     body = await request.json()
     element = design_view.update_element(canvas_id, element_id, body)
     if not element:
@@ -63,8 +76,9 @@ async def update_design_element(canvas_id: str, element_id: str, request: Reques
 
 
 @router.delete("/canvas/{canvas_id}/element/{element_id}")
-async def delete_design_element(canvas_id: str, element_id: str):
+async def delete_design_element(canvas_id: str, element_id: str, request: Request):
     """Delete a design element."""
+    _require_auth(request)
     success = design_view.delete_element(canvas_id, element_id)
     if not success:
         raise HTTPException(404, "Canvas not found")
@@ -72,8 +86,9 @@ async def delete_design_element(canvas_id: str, element_id: str):
 
 
 @router.get("/canvas/{canvas_id}/export/html")
-async def export_design_html(canvas_id: str, responsive: bool = True):
+async def export_design_html(canvas_id: str, request: Request, responsive: bool = True):
     """Export canvas as production HTML."""
+    _require_auth(request)
     html = design_view.export_html(canvas_id, responsive)
     if not html:
         raise HTTPException(404, "Canvas not found")
@@ -81,8 +96,9 @@ async def export_design_html(canvas_id: str, responsive: bool = True):
 
 
 @router.get("/canvas/{canvas_id}/export/react")
-async def export_design_react(canvas_id: str):
+async def export_design_react(canvas_id: str, request: Request):
     """Export canvas as a React component."""
+    _require_auth(request)
     react = design_view.export_react(canvas_id)
     if not react:
         raise HTTPException(404, "Canvas not found")
@@ -91,18 +107,19 @@ async def export_design_react(canvas_id: str):
 
 @router.get("/templates")
 async def list_design_templates(category: str = ""):
-    """List available design templates."""
+    """List available design templates (public)."""
     templates = design_view.get_templates(category)
     return {"templates": [t.model_dump() for t in templates]}
 
 
 @router.get("/components")
 async def list_design_components():
-    """List the component library."""
+    """List the component library (public)."""
     return {"components": design_view.get_component_library()}
 
 
 @router.get("/canvas/{canvas_id}/history")
-async def get_design_history(canvas_id: str):
+async def get_design_history(canvas_id: str, request: Request):
     """Get edit history for undo/redo."""
+    _require_auth(request)
     return {"history": design_view.get_edit_history(canvas_id)}
