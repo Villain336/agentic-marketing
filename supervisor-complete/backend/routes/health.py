@@ -8,14 +8,14 @@ from providers import router as model_router
 from agents import AGENTS
 from scheduler import scheduler
 from ws import ws_manager
-from store import campaigns
+from store import store
 
 router = APIRouter(tags=["Health"])
 
 
 @router.get("/health", response_model=HealthResponse)
 async def health():
-    return HealthResponse(providers=model_router.status(), active_campaigns=len(campaigns))
+    return HealthResponse(providers=model_router.status(), active_campaigns=store.campaign_count())
 
 
 @router.get("/agents")

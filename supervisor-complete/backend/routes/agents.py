@@ -14,7 +14,8 @@ from models import (
 from providers import router as model_router
 from engine import engine
 from agents import get_agent
-from store import campaigns, serialize_memory
+from auth import get_user_id, validate_id
+from store import store, serialize_memory
 
 logger = logging.getLogger("supervisor.api.agents")
 
@@ -22,15 +23,21 @@ router = APIRouter(tags=["Agents"])
 
 
 @router.post("/agent/{agent_id}/run")
-async def run_agent(agent_id: str, req: RunAgentRequest):
+async def run_agent(agent_id: str, req: RunAgentRequest, request: Request):
     agent = get_agent(agent_id)
     if not agent:
         raise HTTPException(404, f"Agent not found: {agent_id}")
 
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
     campaign_id = req.campaign_id or str(uuid.uuid4())
-    if campaign_id not in campaigns:
-        campaigns[campaign_id] = Campaign(id=campaign_id, memory=CampaignMemory(business=req.business))
-    campaign = campaigns[campaign_id]
+    campaign = store.get_campaign(user_id, campaign_id)
+    if not campaign:
+        campaign = Campaign(id=campaign_id, user_id=user_id,
+                            memory=CampaignMemory(business=req.business))
+        store.put_campaign(user_id, campaign)
 
     for key, val in req.memory.items():
         if hasattr(campaign.memory, key):
@@ -60,7 +67,7 @@ async def validate_output(request: Request):
     output = body.get("output", "")
     icp = body.get("icp", "")
     if not output:
-        raise HTTPException(400, "No output to validate")
+        raise HTTPException(400, "Please provide the 'output' field in request body")
 
     system = f"""You are a market validation expert. Evaluate this content by simulating 3 buyer personas reacting to it.
 Target ICP: {icp}
@@ -86,15 +93,19 @@ async def gauntlet_validate(request: Request):
     icp = body.get("icp", "")
     persona_ids = body.get("persona_ids")
     if not output:
-        raise HTTPException(400, "No output to validate")
+        raise HTTPException(400, "Please provide the 'output' field in request body")
     result = await gauntlet.validate(output, icp, persona_ids=persona_ids)
     return result.to_dict()
 
 
 @router.post("/campaign/{campaign_id}/debate")
 async def run_debate(campaign_id: str, request: Request):
-    """Run agent debate protocol — agents review each other's work."""
-    campaign = campaigns.get(campaign_id)
+    """Run agent debate protocol -- agents review each other's work."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
+    campaign = store.get_campaign(user_id, campaign_id)
     if not campaign:
         raise HTTPException(404, "Campaign not found")
 

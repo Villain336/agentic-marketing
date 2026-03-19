@@ -5,33 +5,46 @@ from fastapi import APIRouter, HTTPException, Request
 
 from scoring import scorer
 from lifecycle import lifecycle
-from store import campaigns
+from auth import get_user_id, validate_campaign_id
+from store import store
 
 router = APIRouter(tags=["Scoring & Lifecycle"])
 
 
 @router.get("/campaign/{campaign_id}/scores")
-async def get_campaign_scores(campaign_id: str):
+async def get_campaign_scores(campaign_id: str, request: Request):
     """Get performance scores for all agents in a campaign."""
-    campaign = campaigns.get(campaign_id)
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    campaign = store.get_campaign(user_id, campaign_id)
     if not campaign:
         raise HTTPException(404, "Campaign not found")
     return scorer.score_all(campaign)
 
 
 @router.get("/campaign/{campaign_id}/health")
-async def campaign_health(campaign_id: str):
+async def campaign_health(campaign_id: str, request: Request):
     """Evaluate agent health across a campaign."""
-    campaign = campaigns.get(campaign_id)
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    campaign = store.get_campaign(user_id, campaign_id)
     if not campaign:
         raise HTTPException(404, "Campaign not found")
     return lifecycle.evaluate_health(campaign)
 
 
 @router.get("/campaign/{campaign_id}/lifecycle/recommendations")
-async def lifecycle_recommendations(campaign_id: str):
+async def lifecycle_recommendations(campaign_id: str, request: Request):
     """Get dissolution/A/B test recommendations for underperforming agents."""
-    campaign = campaigns.get(campaign_id)
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    campaign = store.get_campaign(user_id, campaign_id)
     if not campaign:
         raise HTTPException(404, "Campaign not found")
     return {"recommendations": lifecycle.recommend_dissolution(campaign)}

@@ -2,8 +2,15 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { Rocket, Target, Users, Sparkles, Check, Loader2 } from "lucide-react";
 import type { OnboardingStage, BusinessProfile } from "@/types";
 import { ONBOARDING_STAGES } from "@/lib/constants";
+
+const AUTONOMY_ICONS: Record<string, React.ReactNode> = {
+  Rocket: <Rocket className="w-6 h-6" />,
+  Target: <Target className="w-6 h-6" />,
+  Users: <Users className="w-6 h-6" />,
+};
 
 const ENTITY_TYPES = [
   { value: "sole_prop", label: "Sole Proprietorship", desc: "Simplest structure, personal liability" },
@@ -23,9 +30,9 @@ const CHANNELS = [
 ];
 
 const AUTONOMY_LEVELS = [
-  { value: "full", label: "Full Autonomy", desc: "Agents execute independently. You review weekly.", icon: "🚀" },
-  { value: "guided", label: "Guided Autonomy", desc: "Agents draft, you approve key decisions. Best for most.", icon: "🎯" },
-  { value: "collaborative", label: "Collaborative", desc: "Step-by-step with your input at every stage.", icon: "🤝" },
+  { value: "full", label: "Full Autonomy", desc: "Agents execute independently. You review weekly.", icon: "Rocket" },
+  { value: "guided", label: "Guided Autonomy", desc: "Agents draft, you approve key decisions. Best for most.", icon: "Target" },
+  { value: "collaborative", label: "Collaborative", desc: "Step-by-step with your input at every stage.", icon: "Users" },
 ];
 
 const API_KEY_FIELDS = [
@@ -146,7 +153,7 @@ function WelcomeStage({ onNext, name, onNameChange }: { onNext: () => void; name
   return (
     <div className="text-center">
       <div className="w-16 h-16 rounded-2xl bg-brand-50 flex items-center justify-center mx-auto mb-6">
-        <span className="text-3xl">&#10024;</span>
+        <Sparkles className="w-8 h-8 text-brand-500" />
       </div>
       <h1 className="font-display font-bold text-3xl text-surface-900 mb-3">
         Let&apos;s build your AI team
@@ -424,7 +431,7 @@ function AutonomyStage({ value, onChange, onNext, onBack }: { value: string; onC
             }`}
           >
             <div className="flex items-center gap-3">
-              <span className="text-2xl">{level.icon}</span>
+              <span className="text-brand-600">{AUTONOMY_ICONS[level.icon] || level.icon}</span>
               <div>
                 <div className="font-medium text-surface-900">{level.label}</div>
                 <div className="text-xs text-surface-500 mt-0.5">{level.desc}</div>
@@ -449,7 +456,7 @@ function ProvisioningStage({ idx, name }: { idx: number; name: string }) {
   return (
     <div className="text-center">
       <div className="w-16 h-16 rounded-2xl bg-brand-50 flex items-center justify-center mx-auto mb-6">
-        <span className="text-3xl">&#128640;</span>
+        <Rocket className="w-8 h-8 text-brand-500" />
       </div>
       <h2 className="font-display font-bold text-2xl text-surface-900 mb-2">
         Building {name}
@@ -463,7 +470,7 @@ function ProvisioningStage({ idx, name }: { idx: number; name: string }) {
             <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs transition-all ${
               i < idx ? "bg-emerald-100 text-emerald-600" : i === idx ? "bg-brand-100 text-brand-600 animate-pulse" : "bg-surface-100 text-surface-400"
             }`}>
-              {i < idx ? "&#10003;" : i === idx ? "..." : (i + 1)}
+              {i < idx ? <Check className="w-3 h-3" /> : i === idx ? <Loader2 className="w-3 h-3 animate-spin" /> : (i + 1)}
             </div>
             <span className={`text-sm ${i <= idx ? "text-surface-700 font-medium" : "text-surface-400"}`}>
               {item}

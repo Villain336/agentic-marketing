@@ -5,9 +5,11 @@ import uuid
 import asyncio
 import logging
 from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from models import (
     BusinessProfile, Campaign, CampaignMemory,
@@ -19,8 +21,8 @@ from scoring import scorer
 from genome import genome
 from versioning import versioner
 from ws import ws_manager
-from auth import get_user_id
-from store import campaigns, serialize_memory
+from auth import get_user_id, validate_campaign_id
+from store import store, serialize_memory
 import db
 
 logger = logging.getLogger("supervisor.api.campaigns")
@@ -32,22 +34,22 @@ router = APIRouter(tags=["Campaigns"])
 async def run_campaign(req: RunCampaignRequest, request: Request):
     campaign_id = str(uuid.uuid4())
     user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
     biz = req.business
     if req.brand_docs and not biz.brand_context:
         biz = BusinessProfile(**{**biz.model_dump(), "brand_context": "\n".join(req.brand_docs)})
 
     campaign = Campaign(id=campaign_id, user_id=user_id, memory=CampaignMemory(business=biz))
-    campaigns[campaign_id] = campaign
+    store.put_campaign(user_id, campaign)
 
-    # Persist campaign to DB immediately so it survives restarts
     await db.save_campaign(campaign_id, user_id, serialize_memory(campaign.memory), "active")
 
-    # Inject cross-campaign intelligence from genome engine
     recs = genome.get_recommendations(campaign)
     if recs.get("has_data"):
         intel_lines = []
         for rec in recs.get("recommendations", []):
-            intel_lines.append(f"• {rec}")
+            intel_lines.append(f"- {rec}")
         if recs.get("benchmarks"):
             benchmarks = recs["benchmarks"]
             intel_lines.append(f"Benchmarks from {recs['matches']} similar campaigns: {benchmarks}")
@@ -132,16 +134,24 @@ async def run_campaign(req: RunCampaignRequest, request: Request):
 
 
 @router.get("/campaign/{campaign_id}")
-async def get_campaign(campaign_id: str):
-    c = campaigns.get(campaign_id)
+async def get_campaign(campaign_id: str, request: Request):
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    c = store.get_campaign(user_id, campaign_id)
     if not c:
         raise HTTPException(404, "Campaign not found")
     return {"id": c.id, "status": c.status, "memory": serialize_memory(c.memory), "created_at": c.created_at.isoformat()}
 
 
 @router.get("/campaign/{campaign_id}/memory")
-async def get_memory(campaign_id: str):
-    c = campaigns.get(campaign_id)
+async def get_memory(campaign_id: str, request: Request):
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    c = store.get_campaign(user_id, campaign_id)
     if not c:
         raise HTTPException(404, "Campaign not found")
     return serialize_memory(c.memory)
@@ -178,9 +188,12 @@ async def list_campaigns_from_db(request: Request):
 async def resume_campaign(campaign_id: str, request: Request):
     """Load a campaign from DB into memory so the frontend can resume it."""
     user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
 
-    if campaign_id in campaigns:
-        c = campaigns[campaign_id]
+    c = store.get_campaign(user_id, campaign_id)
+    if c:
         return {
             "id": c.id, "status": c.status,
             "memory": serialize_memory(c.memory),
@@ -192,7 +205,7 @@ async def resume_campaign(campaign_id: str, request: Request):
     if not row:
         raise HTTPException(404, "Campaign not found in database")
 
-    if user_id and row.get("user_id") and row["user_id"] != user_id:
+    if row.get("user_id") and row["user_id"] != user_id:
         raise HTTPException(403, "Not your campaign")
 
     memory_raw = row.get("memory", {})
@@ -221,7 +234,7 @@ async def resume_campaign(campaign_id: str, request: Request):
         except Exception:
             pass
 
-    campaigns[campaign_id] = campaign
+    store.put_campaign(user_id, campaign)
 
     return {
         "id": campaign.id, "status": campaign.status,
@@ -232,47 +245,56 @@ async def resume_campaign(campaign_id: str, request: Request):
 
 
 @router.delete("/campaign/{campaign_id}")
-async def delete_campaign(campaign_id: str):
-    if campaign_id in campaigns:
-        del campaigns[campaign_id]
+async def delete_campaign(campaign_id: str, request: Request):
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    if store.delete_campaign(user_id, campaign_id):
         return {"deleted": True}
     raise HTTPException(404, "Campaign not found")
 
 
+class ParallelCampaignRequest(BaseModel):
+    clients: list[dict]
+    tier: str = "standard"
+
+
 @router.post("/campaigns/parallel")
-async def run_parallel_campaigns(request: Request):
+async def run_parallel_campaigns(req: ParallelCampaignRequest, request: Request):
     """Launch multiple campaigns in parallel for different clients."""
-    body = await request.json()
-    client_configs = body.get("clients", [])
-    if not client_configs or len(client_configs) < 2:
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    if not req.clients or len(req.clients) < 2:
         raise HTTPException(400, "Provide at least 2 client configs for parallel execution")
 
-    tier = Tier(body.get("tier", "standard"))
+    tier = Tier(req.tier)
     campaign_ids = []
 
-    for cfg in client_configs:
+    for cfg in req.clients:
         biz = BusinessProfile(**cfg["business"])
         campaign_id = str(uuid.uuid4())
         campaign = Campaign(id=campaign_id, memory=CampaignMemory(business=biz))
-        campaign.user_id = get_user_id(request)
-        campaigns[campaign_id] = campaign
+        campaign.user_id = user_id
+        store.put_campaign(user_id, campaign)
 
         recs = genome.get_recommendations(campaign)
         if recs.get("has_data"):
-            intel_lines = [f"• {r}" for r in recs.get("recommendations", [])]
+            intel_lines = [f"- {r}" for r in recs.get("recommendations", [])]
             campaign.memory.genome_intel = "\n".join(intel_lines)
 
         campaign_ids.append(campaign_id)
 
     for cid in campaign_ids:
-        campaign = campaigns[cid]
-        asyncio.create_task(_run_campaign_background(campaign, tier))
+        campaign = store.get_campaign(user_id, cid)
+        if campaign:
+            asyncio.create_task(_run_campaign_background(campaign, tier))
 
     return {
         "launched": len(campaign_ids),
         "campaign_ids": campaign_ids,
         "status": "running",
-        "genome_cross_pollination": True,
     }
 
 
@@ -305,8 +327,10 @@ async def _run_campaign_background(campaign: Campaign, tier: Tier):
 async def portfolio_overview(request: Request):
     """Get portfolio-level metrics across all campaigns."""
     user_id = get_user_id(request)
-    user_campaigns = [c for c in campaigns.values()
-                      if not user_id or user_id == "dev-mode" or c.user_id == user_id]
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
+    user_campaigns = store.list_campaigns(user_id)
 
     total_mrr = 0
     healthy = 0
@@ -337,35 +361,50 @@ async def portfolio_overview(request: Request):
     }
 
 
+class CloneCampaignRequest(BaseModel):
+    business_name: str = ""
+    service: str = ""
+    icp: str = ""
+    geography: str = ""
+    goal: str = ""
+    entity_type: str = ""
+    state: str = ""
+    industry: str = ""
+
+
 @router.post("/campaign/{campaign_id}/clone")
-async def clone_campaign(campaign_id: str, request: Request):
+async def clone_campaign(campaign_id: str, req: CloneCampaignRequest,
+                         request: Request):
     """Clone a successful campaign for a new client."""
-    source = campaigns.get(campaign_id)
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    validate_campaign_id(campaign_id)
+    source = store.get_campaign(user_id, campaign_id)
     if not source:
         raise HTTPException(404, "Source campaign not found")
 
-    body = await request.json()
     new_biz = BusinessProfile(
-        name=body.get("business_name", ""),
-        service=body.get("service", source.memory.business.service),
-        icp=body.get("icp", source.memory.business.icp),
-        geography=body.get("geography", source.memory.business.geography),
-        goal=body.get("goal", source.memory.business.goal),
-        entity_type=body.get("entity_type", source.memory.business.entity_type),
-        state_of_formation=body.get("state", source.memory.business.state_of_formation),
-        industry=body.get("industry", source.memory.business.industry),
+        name=req.business_name or "",
+        service=req.service or source.memory.business.service,
+        icp=req.icp or source.memory.business.icp,
+        geography=req.geography or source.memory.business.geography,
+        goal=req.goal or source.memory.business.goal,
+        entity_type=req.entity_type or source.memory.business.entity_type,
+        state_of_formation=req.state or source.memory.business.state_of_formation,
+        industry=req.industry or source.memory.business.industry,
     )
 
     new_id = str(uuid.uuid4())
     new_campaign = Campaign(id=new_id, memory=CampaignMemory(business=new_biz))
-    new_campaign.user_id = get_user_id(request)
+    new_campaign.user_id = user_id
 
     recs = genome.get_recommendations(new_campaign)
     if recs.get("has_data"):
-        intel_lines = [f"• {r}" for r in recs.get("recommendations", [])]
+        intel_lines = [f"- {r}" for r in recs.get("recommendations", [])]
         new_campaign.memory.genome_intel = "\n".join(intel_lines)
 
-    campaigns[new_id] = new_campaign
+    store.put_campaign(user_id, new_campaign)
 
     return {
         "new_campaign_id": new_id,

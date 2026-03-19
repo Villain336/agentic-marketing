@@ -34,6 +34,7 @@ from routes.security import router as security_router
 from routes.nvidia import router as nvidia_router
 from routes.aws import router as aws_router
 from routes.reindustrialization import router as reindustrialization_router
+from routes.integrations import router as integrations_router
 
 all_routers = [
     health_router,
@@ -64,4 +65,5 @@ all_routers = [
     nvidia_router,
     aws_router,
     reindustrialization_router,
+    integrations_router,
 ]

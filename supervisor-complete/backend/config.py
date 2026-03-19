@@ -32,7 +32,10 @@ class Settings:
     host: str = "0.0.0.0"
     port: int = 8000
     debug: bool = False
-    cors_origins: list = field(default_factory=lambda: ["*"])
+    cors_origins: list = field(default_factory=lambda: [
+        "http://localhost:3000",
+        "http://localhost:8000",
+    ])
 
     supabase_url: str = ""
     supabase_anon_key: str = ""
@@ -295,7 +298,15 @@ class Settings:
 
         providers.sort(key=lambda p: p.priority)
 
+        # CORS origins from env (comma-separated), defaults to localhost
+        cors_raw = os.getenv("CORS_ORIGINS", "")
+        cors_origins = [o.strip() for o in cors_raw.split(",") if o.strip()] if cors_raw else [
+            "http://localhost:3000",
+            "http://localhost:8000",
+        ]
+
         return cls(
+            cors_origins=cors_origins,
             debug=os.getenv("DEBUG", "").lower() in ("1", "true"),
             supabase_url=os.getenv("SUPABASE_URL", ""),
             supabase_anon_key=os.getenv("SUPABASE_ANON_KEY", ""),

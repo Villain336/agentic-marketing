@@ -1,15 +1,18 @@
-"""Approval queue CRUD endpoints."""
+"""Approval queue CRUD endpoints with tenant isolation and audit trail."""
 from __future__ import annotations
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from models import ApprovalItem
 from config import settings
 from ws import ws_manager
-from store import approval_queue
+from auth import get_user_id, require_auth, validate_id
+from store import store
 import db
 
 logger = logging.getLogger("supervisor.api.approvals")
@@ -17,31 +20,76 @@ logger = logging.getLogger("supervisor.api.approvals")
 router = APIRouter(tags=["Approvals"])
 
 
+# -- Request / response models ------------------------------------------------
+
+class CreateApprovalRequest(BaseModel):
+    campaign_id: str
+    agent_id: str
+    action_type: str
+    content: dict = {}
+
+
+class DecideApprovalRequest(BaseModel):
+    decision: str = Field(..., pattern="^(approved|rejected)$")
+    decided_by: str = "human"
+    reason: str = ""
+
+
+# -- Audit log (in-memory; persisted to DB when available) ---------------------
+
+_audit_log: list[dict] = []
+
+
+def _record_audit(item_id: str, action: str, actor: str, reason: str = "",
+                  meta: Optional[dict] = None):
+    entry = {
+        "item_id": item_id,
+        "action": action,
+        "actor": actor,
+        "reason": reason,
+        "meta": meta or {},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    _audit_log.append(entry)
+    logger.info(f"Approval audit: {action} on {item_id} by {actor}")
+
+
+# -- Endpoints ----------------------------------------------------------------
+
 @router.get("/approvals")
-async def list_approvals(status: str = "pending"):
-    """List approval queue items filtered by status."""
-    items = [a.model_dump() for a in approval_queue.values() if a.status == status]
-    return {"items": items, "count": len(items)}
+async def list_approvals(request: Request, status: str = "pending"):
+    """List approval queue items for the authenticated user."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    items = store.list_approvals(user_id, status)
+    return {"items": [a.model_dump() for a in items], "count": len(items)}
 
 
 @router.post("/approvals")
-async def create_approval(request: Request):
-    """Create a new approval request — notifies owner via Slack/Telegram/email."""
-    body = await request.json()
+async def create_approval(req: CreateApprovalRequest, request: Request):
+    """Create a new approval request -- notifies owner via Slack/Telegram/email."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
     item = ApprovalItem(
-        campaign_id=body.get("campaign_id", ""),
-        agent_id=body.get("agent_id", ""),
-        action_type=body.get("action_type", ""),
-        content=body.get("content", {}),
+        campaign_id=req.campaign_id,
+        agent_id=req.agent_id,
+        action_type=req.action_type,
+        content=req.content,
     )
-    approval_queue[item.id] = item
+    store.put_approval(user_id, item)
+
+    _record_audit(item.id, "created", user_id, meta={
+        "campaign_id": req.campaign_id, "agent_id": req.agent_id,
+        "action_type": req.action_type,
+    })
 
     asyncio.create_task(ws_manager.send_approval_needed(
         item.campaign_id, {"id": item.id, "agent_id": item.agent_id,
                            "action_type": item.action_type}))
-
     asyncio.create_task(_notify_approval_needed(item))
-
     await db.save_approval(item.model_dump())
 
     return {"id": item.id, "status": "pending"}
@@ -80,19 +128,40 @@ async def _notify_approval_needed(item: ApprovalItem):
 
 
 @router.post("/approvals/{item_id}/decide")
-async def decide_approval(item_id: str, request: Request):
+async def decide_approval(item_id: str, req: DecideApprovalRequest,
+                          request: Request):
     """Approve or reject an item in the approval queue."""
-    item = approval_queue.get(item_id)
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
+    validate_id(item_id, "item_id")
+    item = store.get_approval(user_id, item_id)
     if not item:
         raise HTTPException(404, "Approval item not found")
 
-    body = await request.json()
-    decision = body.get("decision", "")
-    if decision not in ("approved", "rejected"):
-        raise HTTPException(400, "Decision must be 'approved' or 'rejected'")
+    item.status = req.decision
+    item.decided_by = req.decided_by
+    item.decided_at = datetime.now(timezone.utc)
 
-    item.status = decision
-    item.decided_by = body.get("decided_by", "human")
-    item.decided_at = datetime.utcnow()
+    _record_audit(item.id, req.decision, user_id,
+                  reason=req.reason,
+                  meta={"decided_by": req.decided_by})
+
+    await db.save_approval(item.model_dump())
 
     return {"id": item_id, "status": item.status, "decided_by": item.decided_by}
+
+
+@router.get("/approvals/audit-log")
+async def get_audit_log(request: Request, item_id: str = "",
+                        limit: int = 100):
+    """Get approval decision audit trail."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
+    entries = _audit_log
+    if item_id:
+        entries = [e for e in entries if e["item_id"] == item_id]
+    return {"entries": entries[-limit:], "count": len(entries)}

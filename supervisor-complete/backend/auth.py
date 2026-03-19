@@ -41,13 +41,13 @@ def _decode_jwt(token: str) -> Optional[dict]:
     try:
         import jwt as pyjwt
     except ImportError:
-        logger.warning("PyJWT not installed — auth disabled. pip install PyJWT")
-        return {"sub": "dev-mode", "role": "authenticated"}
+        logger.warning("PyJWT not installed -- install with: pip install PyJWT")
+        return None
 
     secret = settings.supabase_jwt_secret
     if not secret:
-        logger.warning("SUPABASE_JWT_SECRET not set — auth disabled")
-        return {"sub": "dev-mode", "role": "authenticated"}
+        logger.warning("SUPABASE_JWT_SECRET not set -- JWT validation skipped")
+        return None
 
     try:
         payload = pyjwt.decode(
@@ -86,11 +86,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
 
-        # Skip auth entirely if JWT secret is not configured (dev mode)
+        # Dev mode: allow unauthenticated access only from localhost
         if not settings.supabase_jwt_secret:
-            request.state.user_id = "dev-mode"
-            request.state.user_role = "authenticated"
-            return await call_next(request)
+            client_host = request.client.host if request.client else ""
+            if client_host in ("127.0.0.1", "::1", "localhost", "0.0.0.0"):
+                request.state.user_id = "dev-local"
+                request.state.user_role = "authenticated"
+                return await call_next(request)
+            logger.warning("SUPABASE_JWT_SECRET not set and request from non-localhost: %s", client_host)
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Authentication not configured. Set SUPABASE_JWT_SECRET."},
+            )
 
         # Extract Bearer token
         auth_header = request.headers.get("Authorization", "")
@@ -123,6 +130,11 @@ def get_user_id(request: Request) -> str:
     return getattr(request.state, "user_id", "")
 
 
+def get_user_role(request: Request) -> str:
+    """Extract user role from authenticated request."""
+    return getattr(request.state, "user_role", "")
+
+
 def require_auth(request: Request) -> str:
     """Dependency that ensures authentication and returns user_id.
     Use as: user_id: str = Depends(require_auth)
@@ -130,6 +142,17 @@ def require_auth(request: Request) -> str:
     user_id = get_user_id(request)
     if not user_id:
         raise HTTPException(401, "Authentication required")
+    return user_id
+
+
+def require_role(request: Request, *allowed_roles: str) -> str:
+    """Dependency that ensures the user has one of the allowed roles.
+    Use as: user_id = require_role(request, "admin", "service_role")
+    """
+    user_id = require_auth(request)
+    role = get_user_role(request)
+    if role not in allowed_roles and role != "service_role":
+        raise HTTPException(403, f"Role '{role}' not authorized for this action")
     return user_id
 
 

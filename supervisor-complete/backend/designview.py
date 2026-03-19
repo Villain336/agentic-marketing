@@ -164,7 +164,7 @@ COMPONENT_LIBRARY = {
     "feature_card": {
         "type": "card",
         "default_properties": {
-            "icon": "⚡",
+            "icon": "bolt",
             "title": "Feature Name",
             "description": "Brief description of this feature and its benefits.",
         },

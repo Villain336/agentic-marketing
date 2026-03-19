@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from whitelabel import tenant_manager
 from auth import get_user_id
-from store import campaigns
+from store import store
 
 router = APIRouter(prefix="/tenants", tags=["Tenants"])
 
@@ -63,8 +63,8 @@ async def check_tenant_limits(tenant_id: str):
     if not tenant:
         raise HTTPException(404, "Tenant not found")
 
-    tenant_campaigns = sum(1 for c in campaigns.values()
-                           if c.user_id == tenant.owner_user_id)
+    # Count campaigns for this tenant's owner across the TenantStore
+    tenant_campaigns = store.campaign_count(tenant.owner_user_id)
 
     return tenant_manager.check_limits(tenant, tenant_campaigns, 0)
 

@@ -1,14 +1,17 @@
 """
-Supervisor Backend — FastAPI Application
+Supervisor Backend -- FastAPI Application
 Slim entrypoint: middleware, lifecycle events, and router registration.
 All endpoint logic lives in routes/*.py modules.
 """
 from __future__ import annotations
 import json
 import logging
+import time
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 from config import settings
 from agents import AGENTS, get_agent
@@ -17,7 +20,7 @@ from auth import AuthMiddleware
 from ws import ws_manager
 from ratelimit import RateLimitMiddleware
 from genome import genome
-from store import campaigns
+from store import store
 import db
 
 from routes import all_routers
@@ -29,11 +32,39 @@ logging.basicConfig(
 )
 logger = logging.getLogger("supervisor.api")
 
+
+# -- Request/Response Logging Middleware ---------------------------------------
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Log every request with method, path, status, and duration."""
+
+    async def dispatch(self, request: Request, call_next):
+        start = time.time()
+        response = await call_next(request)
+        duration_ms = int((time.time() - start) * 1000)
+
+        # Skip noisy paths
+        path = request.url.path
+        if path in ("/health", "/docs", "/openapi.json", "/redoc"):
+            return response
+
+        logger.info(
+            "%s %s -> %d (%dms) user=%s",
+            request.method, path, response.status_code, duration_ms,
+            getattr(request.state, "user_id", "-"),
+        )
+        return response
+
+
+# -- Application ---------------------------------------------------------------
+
 app = FastAPI(
     title="Supervisor API",
-    description="Autonomous Agency Platform — Backend Orchestration",
+    description="Autonomous Agency Platform -- Backend Orchestration",
     version="0.3.0",
 )
+
+# CORS: default to localhost in dev, restrict in production via CORS_ORIGINS env
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -43,20 +74,19 @@ app.add_middleware(
 )
 app.add_middleware(AuthMiddleware)
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
 
-# ── Register all route modules ───────────────────────────────────────────
+# -- Register all route modules ------------------------------------------------
 for router in all_routers:
     app.include_router(router)
 
-# ── WebSocket that can't use prefix-based routers cleanly ────────────────
+# -- WebSocket that can't use prefix-based routers cleanly ---------------------
 @app.websocket("/ws/browser/{session_id}/stream")
 async def _browser_stream_ws(websocket: WebSocket, session_id: str):
     await browser_stream_ws(websocket, session_id)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# EVENT BUS ACTION HANDLERS
-# ═══════════════════════════════════════════════════════════════════════════
+# -- Event Bus Action Handlers ------------------------------------------------
 
 def _register_event_bus_actions():
     """Register action handlers for event bus trigger rules."""
@@ -67,7 +97,7 @@ def _register_event_bus_actions():
         campaign_id = event.campaign_id
         if not target_agent_id or not campaign_id:
             return
-        campaign = campaigns.get(campaign_id)
+        campaign = store.get_campaign_any_tenant(campaign_id)
         if not campaign:
             return
         agent = get_agent(target_agent_id)
@@ -135,7 +165,7 @@ def _register_event_bus_actions():
         target_agent_id = event.data.get("_target_agent", "")
         campaign_id = event.campaign_id
         logger.info(f"Event trigger: pausing {target_agent_id} in campaign {campaign_id}")
-        campaign = campaigns.get(campaign_id)
+        campaign = store.get_campaign_any_tenant(campaign_id)
         if campaign and target_agent_id in campaign.agent_runs:
             campaign.agent_runs[target_agent_id].status = "paused"
 
@@ -145,9 +175,7 @@ def _register_event_bus_actions():
     logger.info("Event bus action handlers registered")
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# LIFECYCLE EVENTS
-# ═══════════════════════════════════════════════════════════════════════════
+# -- Lifecycle Events ----------------------------------------------------------
 
 @app.on_event("startup")
 async def startup_event():
@@ -163,7 +191,7 @@ async def startup_event():
             dna_count = await genome.load_from_db()
             logger.info(f"Startup: loaded {dna_count} genome DNA entries from DB")
         else:
-            logger.info("No persistent DB configured — starting with empty campaign store")
+            logger.info("No persistent DB configured -- starting with empty campaign store")
     except Exception as e:
         logger.warning(f"Failed to load persisted data on startup: {e}")
 
@@ -175,9 +203,7 @@ async def shutdown_event():
     logger.info("Background scheduler stopped")
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-
 if __name__ == "__main__":
     import uvicorn
-    logger.info(f"Starting Supervisor API — {len(AGENTS)} agents, {len(settings.active_providers)} providers")
+    logger.info(f"Starting Supervisor API -- {len(AGENTS)} agents, {len(settings.active_providers)} providers")
     uvicorn.run(app, host=settings.host, port=settings.port)

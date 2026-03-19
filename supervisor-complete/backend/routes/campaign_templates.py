@@ -15,7 +15,7 @@ from genome import genome
 from versioning import versioner
 from auth import get_user_id
 from templates import get_template, list_templates
-from store import campaigns, serialize_memory
+from store import store, serialize_memory
 import db
 
 logger = logging.getLogger("supervisor.api.templates")
@@ -40,7 +40,11 @@ async def get_template_detail(template_id: str):
 
 @router.post("/{template_id}/launch")
 async def launch_from_template(template_id: str, request: Request):
-    """Launch a campaign from a template — skip onboarding, go straight to execution."""
+    """Launch a campaign from a template -- skip onboarding, go straight to execution."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
     template = get_template(template_id)
     if not template:
         raise HTTPException(404, f"Template not found: {template_id}")
@@ -61,13 +65,12 @@ async def launch_from_template(template_id: str, request: Request):
     })
 
     campaign_id = str(uuid.uuid4())
-    campaign = Campaign(id=campaign_id, memory=CampaignMemory(business=biz))
-    campaign.user_id = get_user_id(request)
-    campaigns[campaign_id] = campaign
+    campaign = Campaign(id=campaign_id, user_id=user_id, memory=CampaignMemory(business=biz))
+    store.put_campaign(user_id, campaign)
 
     recs = genome.get_recommendations(campaign)
     if recs.get("has_data"):
-        intel_lines = [f"• {r}" for r in recs.get("recommendations", [])]
+        intel_lines = [f"- {r}" for r in recs.get("recommendations", [])]
         campaign.memory.genome_intel = "\n".join(intel_lines)
 
     if template.get("agents") == "all":

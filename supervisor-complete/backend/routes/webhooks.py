@@ -11,7 +11,7 @@ from agents import get_agent
 from sensing import sensing
 from ws import ws_manager
 from webhook_auth import verify_webhook
-from store import campaigns
+from store import store
 import db
 
 logger = logging.getLogger("supervisor.api.webhooks")
@@ -33,10 +33,9 @@ async def receive_webhook(source: str, request: Request):
 
     if not campaign_id:
         campaign_id = request.headers.get("X-Campaign-ID", "")
-    if not campaign_id and campaigns:
-        campaign_id = next(iter(campaigns))
 
-    campaign = campaigns.get(campaign_id)
+    # Webhooks use cross-tenant lookup (they come from external services)
+    campaign = store.get_campaign_any_tenant(campaign_id) if campaign_id else None
     if not campaign:
         logger.warning(f"Webhook from {source} but no matching campaign")
         return {"received": True, "processed": False, "reason": "no matching campaign"}
@@ -75,7 +74,7 @@ async def _execute_sensing_trigger(campaign: Campaign, agent_id: str, reason: st
         logger.error(f"Sensing trigger: agent {agent_id} not found")
         return
 
-    logger.info(f"Sensing trigger executing: re-running {agent_id} — {reason}")
+    logger.info(f"Sensing trigger executing: re-running {agent_id} -- {reason}")
 
     try:
         async for event in engine.run(

@@ -144,9 +144,9 @@ async def _generate_affiliate_assets(
             },
         ],
         "social_posts": [
-            f"Been using @{business_name} for {service} and genuinely impressed. Results speak for themselves 📈 [REFERRAL_LINK]",
-            f"Asked to share my secret weapon for {service}... it's @{business_name}. Not sponsored — I just earn a small commission because I believe in it. [REFERRAL_LINK]",
-            f"If you're still doing {service} manually, check out @{business_name}. Changed the game for me. Link in bio 👆",
+            f"Been using @{business_name} for {service} and genuinely impressed. Results speak for themselves. [REFERRAL_LINK]",
+            f"Asked to share my secret weapon for {service}... it's @{business_name}. Not sponsored -- I just earn a small commission because I believe in it. [REFERRAL_LINK]",
+            f"If you're still doing {service} manually, check out @{business_name}. Changed the game for me. Link in bio. [REFERRAL_LINK]",
         ],
         "landing_page_copy": {
             "headline": f"See Why {business_name} Is Trusted By [X]+ Businesses",
