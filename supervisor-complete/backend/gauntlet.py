@@ -153,20 +153,21 @@ OUTPUT as valid JSON with this structure:
                     passed=fit_score >= 40,
                 )
 
-            # Fallback: couldn't parse JSON, assume pass
+            # Fallback: couldn't parse JSON — mark as needing review
+            logger.warning("Gauntlet: could not parse LLM response — failing closed")
             return GauntletResult(
-                fit_score=50,
-                persona_reactions=[{"name": "Parse Error", "reaction": text[:500]}],
-                top_objections=["Could not parse structured feedback"],
-                recommended_changes=[],
-                passed=True,
+                fit_score=35,
+                persona_reactions=[{"name": "Parse Error", "reaction": "Could not evaluate"}],
+                top_objections=["Gauntlet could not evaluate output — manual review needed"],
+                recommended_changes=["Resubmit for evaluation"],
+                passed=False,
             )
 
         except Exception as e:
             logger.error(f"Gauntlet validation failed: {e}")
             return GauntletResult(
-                fit_score=50, persona_reactions=[], top_objections=[str(e)],
-                recommended_changes=[], passed=True,  # Don't block on gauntlet failures
+                fit_score=35, persona_reactions=[], top_objections=["Gauntlet evaluation unavailable"],
+                recommended_changes=[], passed=False,  # Fail closed — require manual review
             )
 
     async def gate_check(self, agent_id: str, output: str, campaign: Campaign) -> GauntletResult:

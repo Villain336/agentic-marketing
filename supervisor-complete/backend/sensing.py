@@ -86,7 +86,13 @@ class SensingEngine:
                 result["event_source"] = event.source
                 cid = str(getattr(campaign, "id", "unknown"))
                 self._trigger_history.setdefault(cid, []).append(result)
+                # Bound trigger history per campaign to last 100 entries
+                if len(self._trigger_history[cid]) > 100:
+                    self._trigger_history[cid] = self._trigger_history[cid][-100:]
                 self._triggers.append(result)
+                # Bound global trigger list to last 1000 entries
+                if len(self._triggers) > 1000:
+                    self._triggers = self._triggers[-1000:]
             return result
         logger.warning(f"Unknown event source: {event.source}")
         return None

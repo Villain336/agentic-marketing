@@ -280,12 +280,14 @@ class ComplianceExporter:
         }
 
     async def handle_deletion_request(self, user_id: str) -> dict:
-        """GDPR right-to-delete: remove user data and return confirmation.
+        """GDPR right-to-delete: remove ALL user data and return confirmation.
 
-        Deletes: campaigns, API keys, webhooks, OAuth apps, access log entries.
+        Deletes: campaigns, agent runs, approvals, genome data, API keys,
+        webhooks, OAuth apps, access log entries, run snapshots.
         """
         import db
 
+        has_errors = False
         results = {
             "request_type": "gdpr_deletion",
             "user_id": user_id,
@@ -294,6 +296,29 @@ class ComplianceExporter:
             "status": "completed",
         }
 
+        # Delete campaigns (the most critical GDPR data)
+        try:
+            campaigns = await db.load_user_campaigns(user_id)
+            deleted_count = 0
+            for c in campaigns:
+                cid = c.get("id", "")
+                if cid:
+                    await db.delete_campaign(cid)
+                    deleted_count += 1
+            results["deletions"]["campaigns"] = {"deleted": deleted_count}
+        except Exception as e:
+            has_errors = True
+            results["deletions"]["campaigns"] = {"error": "deletion_failed"}
+            logger.error(f"GDPR campaign deletion failed for {user_id[:8]}: {e}")
+
+        # Delete agent run snapshots
+        try:
+            await db.delete_user_snapshots(user_id)
+            results["deletions"]["run_snapshots"] = {"deleted": True}
+        except Exception as e:
+            results["deletions"]["run_snapshots"] = {"error": "deletion_failed"}
+            logger.error(f"GDPR snapshot deletion failed for {user_id[:8]}: {e}")
+
         # Delete API keys
         try:
             api_keys = await db.get_api_keys(user_id)
@@ -301,7 +326,8 @@ class ComplianceExporter:
                 await db.delete_api_key(key.get("id", ""))
             results["deletions"]["api_keys"] = {"deleted": len(api_keys)}
         except Exception as e:
-            results["deletions"]["api_keys"] = {"error": str(e)}
+            has_errors = True
+            results["deletions"]["api_keys"] = {"error": "deletion_failed"}
 
         # Delete webhooks
         try:
@@ -310,41 +336,54 @@ class ComplianceExporter:
                 await db.delete_webhook(wh.get("id", ""))
             results["deletions"]["webhooks"] = {"deleted": len(webhooks)}
         except Exception as e:
-            results["deletions"]["webhooks"] = {"error": str(e)}
+            has_errors = True
+            results["deletions"]["webhooks"] = {"error": "deletion_failed"}
 
         # Delete OAuth apps
         try:
             oauth_apps = await db.get_oauth_apps(user_id)
-            for app in oauth_apps:
-                await db.delete_oauth_app(app.get("id", ""))
+            for app_rec in oauth_apps:
+                await db.delete_oauth_app(app_rec.get("id", ""))
             results["deletions"]["oauth_apps"] = {"deleted": len(oauth_apps)}
         except Exception as e:
-            results["deletions"]["oauth_apps"] = {"error": str(e)}
+            has_errors = True
+            results["deletions"]["oauth_apps"] = {"error": "deletion_failed"}
 
         # Remove in-memory developer data
         try:
             from routes.developer import (
                 _api_keys, _key_hash_index, _webhooks, _oauth_apps, _oauth_client_index
             )
-            # Remove API keys
             keys_to_remove = [k for k, v in _api_keys.items() if v.user_id == user_id]
             for kid in keys_to_remove:
                 rec = _api_keys.pop(kid, None)
                 if rec:
                     _key_hash_index.pop(rec.key_hash, None)
 
-            # Remove webhooks
             wh_to_remove = [k for k, v in _webhooks.items() if v.user_id == user_id]
             for wid in wh_to_remove:
                 _webhooks.pop(wid, None)
 
-            # Remove OAuth apps
             apps_to_remove = [k for k, v in _oauth_apps.items() if v.user_id == user_id]
             for aid in apps_to_remove:
-                app = _oauth_apps.pop(aid, None)
-                if app:
-                    _oauth_client_index.pop(app.client_id, None)
+                app_obj = _oauth_apps.pop(aid, None)
+                if app_obj:
+                    _oauth_client_index.pop(app_obj.client_id, None)
         except ImportError:
+            pass
+
+        # Remove in-memory genome data for this user's campaigns
+        try:
+            from genome import genome
+            genome.purge_user_data(user_id)
+        except Exception:
+            pass
+
+        # Remove in-memory store campaigns
+        try:
+            from store import store
+            store.delete_all_user_campaigns(user_id)
+        except Exception:
             pass
 
         # Remove access log entries for this user
@@ -352,14 +391,19 @@ class ComplianceExporter:
         self._access_log = [e for e in self._access_log if e.get("user_id") != user_id]
         results["deletions"]["access_log_entries"] = {"deleted": before - len(self._access_log)}
 
+        # Set status based on whether any errors occurred
+        if has_errors:
+            results["status"] = "partial_failure"
+
         # Record the deletion itself
         self._deletion_log.append({
             "user_id": user_id,
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "categories_deleted": list(results["deletions"].keys()),
+            "status": results["status"],
         })
 
-        logger.info(f"GDPR deletion completed for user {user_id[:8]}...")
+        logger.info(f"GDPR deletion {'completed' if not has_errors else 'partially completed'} for user {user_id[:8]}...")
         return results
 
     def _parse_period(self, period: str) -> tuple[str, str]:

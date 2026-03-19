@@ -5,7 +5,7 @@ import uuid
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -16,7 +16,7 @@ from models import (
 from providers import router as model_router
 from engine import engine, get_checkpoint, list_checkpoints
 from agents import get_agent
-from auth import get_user_id, validate_id
+from auth import get_user_id, validate_id, require_permission
 from store import store, serialize_memory
 
 logger = logging.getLogger("supervisor.api.agents")
@@ -25,14 +25,11 @@ router = APIRouter(tags=["Agents"])
 
 
 @router.post("/agent/{agent_id}/run")
-async def run_agent(agent_id: str, req: RunAgentRequest, request: Request):
+async def run_agent(agent_id: str, req: RunAgentRequest, request: Request,
+                    user_id: str = Depends(require_permission("agent", "run"))):
     agent = get_agent(agent_id)
     if not agent:
         raise HTTPException(404, f"Agent not found: {agent_id}")
-
-    user_id = get_user_id(request)
-    if not user_id:
-        raise HTTPException(401, "Authentication required")
 
     campaign_id = req.campaign_id or str(uuid.uuid4())
     campaign = store.get_campaign(user_id, campaign_id)
@@ -83,7 +80,8 @@ End with fit score (0-100) and #1 change to improve."""
         )
         return {"validation": result["text"], "provider": result["provider"], "model": result["model"]}
     except Exception as e:
-        raise HTTPException(500, str(e))
+        logger.error(f"Validation failed: {e}")
+        raise HTTPException(500, "Validation failed — please try again")
 
 
 @router.post("/validate/gauntlet")
@@ -142,7 +140,8 @@ Return JSON: {{"approved": true/false, "issues": ["..."], "suggested_changes": [
             )
             reviews.append({"reviewer": reviewer_id, "review": result["text"]})
         except Exception as e:
-            reviews.append({"reviewer": reviewer_id, "error": str(e)})
+            logger.error(f"Debate reviewer {reviewer_id} failed: {e}")
+            reviews.append({"reviewer": reviewer_id, "error": "Review failed"})
 
     return {"agent_id": target_agent_id, "reviews": reviews, "reviewer_count": len(reviews)}
 
@@ -204,13 +203,16 @@ async def resume_agent(agent_id: str, req: ResumeRequest, request: Request):
 
 @router.get("/agent/{agent_id}/checkpoints")
 async def get_agent_checkpoints(agent_id: str, request: Request,
-                                campaign_id: str = ""):
+                                campaign_id: str = "", limit: int = 50,
+                                offset: int = 0):
     """List available checkpoints for an agent, optionally filtered by campaign."""
     user_id = get_user_id(request)
     if not user_id:
         raise HTTPException(401, "Authentication required")
 
     validate_id(agent_id, "agent_id")
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
 
     # First try in-memory store
     checkpoints = list_checkpoints(agent_id, campaign_id)
@@ -234,5 +236,8 @@ async def get_agent_checkpoints(agent_id: str, request: Request,
         except Exception as e:
             logger.debug(f"DB checkpoint load skipped: {e}")
 
+    total = len(checkpoints)
+    checkpoints = checkpoints[offset:offset + limit]
     return {"agent_id": agent_id, "campaign_id": campaign_id,
-            "checkpoints": checkpoints, "count": len(checkpoints)}
+            "checkpoints": checkpoints, "count": len(checkpoints),
+            "total": total, "offset": offset, "limit": limit}

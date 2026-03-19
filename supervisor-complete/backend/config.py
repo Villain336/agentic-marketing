@@ -483,3 +483,57 @@ class Settings:
 
 
 settings = Settings.from_env()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# API KEY ROTATION SUPPORT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import logging as _logging
+_config_logger = _logging.getLogger("omnios.config")
+
+
+def rotate_api_key(key_name: str, new_value: str) -> bool:
+    """Rotate an API key at runtime without restart.
+
+    Supports rotating provider keys, integration keys, and webhook secrets.
+    The new key takes effect immediately for all subsequent requests.
+
+    Usage:
+        from config import rotate_api_key
+        rotate_api_key("openai_api_key", "sk-new-key-value")
+    """
+    # Validate key_name is a known setting
+    if not hasattr(settings, key_name):
+        _config_logger.error(f"Key rotation failed: unknown key '{key_name}'")
+        return False
+
+    # Basic format validation for common key types
+    _KEY_VALIDATORS = {
+        "openai_api_key": lambda v: v.startswith("sk-"),
+        "anthropic_api_key": lambda v: v.startswith("sk-ant-"),
+        "stripe_secret_key": lambda v: v.startswith("sk_"),
+    }
+    validator = _KEY_VALIDATORS.get(key_name)
+    if validator and not validator(new_value):
+        _config_logger.error(f"Key rotation failed: invalid format for '{key_name}'")
+        return False
+
+    old_val = getattr(settings, key_name, "")
+    setattr(settings, key_name, new_value)
+
+    # If it's a provider key, update the provider config too
+    for provider in settings.providers:
+        if key_name == f"{provider.name}_api_key" or \
+           (provider.name == "anthropic" and key_name == "anthropic_api_key") or \
+           (provider.name == "openai" and key_name == "openai_api_key"):
+            provider.api_key = new_value
+            provider.enabled = bool(new_value)
+            break
+
+    _config_logger.info(
+        f"API key rotated: {key_name} "
+        f"(old={old_val[:4]}...{old_val[-4:] if len(old_val) > 8 else '****'} -> "
+        f"new={new_value[:4]}...{new_value[-4:] if len(new_value) > 8 else '****'})"
+    )
+    return True

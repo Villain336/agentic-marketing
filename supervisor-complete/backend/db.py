@@ -703,3 +703,54 @@ async def delete_oauth_app(app_id: str) -> bool:
     except Exception as e:
         logger.error(f"Failed to delete OAuth app {app_id}: {e}")
         return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# GDPR DELETION SUPPORT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def delete_campaign(campaign_id: str) -> bool:
+    """Delete a campaign and all related data from the database."""
+    client = _get_client()
+    if not client:
+        return False
+
+    try:
+        # Delete related agent runs first
+        try:
+            client.table("agent_runs").delete().eq("campaign_id", campaign_id).execute()
+        except Exception:
+            pass
+        # Delete spend log entries
+        try:
+            client.table("spend_log").delete().eq("campaign_id", campaign_id).execute()
+        except Exception:
+            pass
+        # Delete the campaign itself
+        client.table("campaigns").delete().eq("id", campaign_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete campaign {campaign_id}: {e}")
+        return False
+
+
+async def delete_user_snapshots(user_id: str) -> bool:
+    """Delete all agent run snapshots for a user's campaigns."""
+    client = _get_client()
+    if not client:
+        return False
+
+    try:
+        # Get user's campaign IDs first
+        campaigns = await load_user_campaigns(user_id)
+        for c in campaigns:
+            cid = c.get("id", "")
+            if cid:
+                try:
+                    client.table("run_snapshots").delete().eq("campaign_id", cid).execute()
+                except Exception:
+                    pass
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete snapshots for user {user_id}: {e}")
+        return False

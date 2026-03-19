@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -21,7 +21,8 @@ from scoring import scorer
 from genome import genome
 from versioning import versioner
 from ws import ws_manager
-from auth import get_user_id, validate_campaign_id
+from auth import get_user_id, validate_campaign_id, require_permission, require_auth
+from whitelabel import tenant_manager
 from store import store, serialize_memory
 import db
 
@@ -31,11 +32,20 @@ router = APIRouter(tags=["Campaigns"])
 
 
 @router.post("/campaign/run")
-async def run_campaign(req: RunCampaignRequest, request: Request):
+async def run_campaign(req: RunCampaignRequest, request: Request,
+                       user_id: str = Depends(require_permission("campaign", "run_agents"))):
     campaign_id = str(uuid.uuid4())
-    user_id = get_user_id(request)
-    if not user_id:
-        raise HTTPException(401, "Authentication required")
+
+    # ── Whitelabel: enforce tenant limits and feature flags ──
+    tenant = tenant_manager.get_tenant_for_user(user_id)
+    if tenant:
+        campaign_count = store.campaign_count(user_id)
+        limits = tenant_manager.check_limits(tenant, campaign_count, 0)
+        if not limits["campaigns_ok"]:
+            raise HTTPException(403, f"Campaign limit reached ({limits['campaigns_limit']}). Upgrade your plan.")
+        if not tenant_manager.is_feature_enabled(tenant, "multi_campaign") and campaign_count > 0:
+            raise HTTPException(403, "Multi-campaign feature not enabled for your plan")
+
     biz = req.business
     if req.brand_docs and not biz.brand_context:
         biz = BusinessProfile(**{**biz.model_dump(), "brand_context": "\n".join(req.brand_docs)})
@@ -249,10 +259,8 @@ async def resume_campaign(campaign_id: str, request: Request):
 
 
 @router.delete("/campaign/{campaign_id}")
-async def delete_campaign(campaign_id: str, request: Request):
-    user_id = get_user_id(request)
-    if not user_id:
-        raise HTTPException(401, "Authentication required")
+async def delete_campaign(campaign_id: str, request: Request,
+                          user_id: str = Depends(require_permission("campaign", "delete"))):
     validate_campaign_id(campaign_id)
     if store.delete_campaign(user_id, campaign_id):
         return {"deleted": True}
@@ -265,13 +273,13 @@ class ParallelCampaignRequest(BaseModel):
 
 
 @router.post("/campaigns/parallel")
-async def run_parallel_campaigns(req: ParallelCampaignRequest, request: Request):
+async def run_parallel_campaigns(req: ParallelCampaignRequest, request: Request,
+                                 user_id: str = Depends(require_permission("campaign", "run_agents"))):
     """Launch multiple campaigns in parallel for different clients."""
-    user_id = get_user_id(request)
-    if not user_id:
-        raise HTTPException(401, "Authentication required")
     if not req.clients or len(req.clients) < 2:
         raise HTTPException(400, "Provide at least 2 client configs for parallel execution")
+    if len(req.clients) > 20:
+        raise HTTPException(400, "Maximum 20 parallel campaigns at once")
 
     tier = Tier(req.tier)
     campaign_ids = []
@@ -328,27 +336,41 @@ async def _run_campaign_background(campaign: Campaign, tier: Tier):
 
 
 @router.get("/portfolio")
-async def portfolio_overview(request: Request):
-    """Get portfolio-level metrics across all campaigns."""
+async def portfolio_overview(request: Request, limit: int = 50, offset: int = 0):
+    """Get portfolio-level metrics across all campaigns (paginated)."""
     user_id = get_user_id(request)
     if not user_id:
         raise HTTPException(401, "Authentication required")
 
-    user_campaigns = store.list_campaigns(user_id)
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
 
-    total_mrr = 0
+    user_campaigns = store.list_campaigns(user_id)
+    total = len(user_campaigns)
+
+    # Pre-compute all scores in a single batch instead of N+1
+    all_scores = {}
+    for c in user_campaigns:
+        try:
+            all_scores[c.id] = scorer.score_all(c)
+        except Exception:
+            all_scores[c.id] = {}
+
     healthy = 0
     at_risk = 0
-
-    summaries = []
-    for c in user_campaigns:
-        scores = scorer.score_all(c)
-        avg_score = sum(d.get("score", 0) for d in scores.values()) / max(len(scores), 1)
-        if avg_score >= 60:
+    for cid, scores in all_scores.items():
+        avg = sum(d.get("score", 0) for d in scores.values()) / max(len(scores), 1)
+        if avg >= 60:
             healthy += 1
         else:
             at_risk += 1
 
+    # Paginate the summaries
+    page_campaigns = user_campaigns[offset:offset + limit]
+    summaries = []
+    for c in page_campaigns:
+        scores = all_scores.get(c.id, {})
+        avg_score = sum(d.get("score", 0) for d in scores.values()) / max(len(scores), 1)
         summaries.append({
             "id": c.id,
             "business": c.memory.business.name,
@@ -358,10 +380,12 @@ async def portfolio_overview(request: Request):
         })
 
     return {
-        "total_campaigns": len(user_campaigns),
+        "total_campaigns": total,
         "healthy": healthy,
         "at_risk": at_risk,
         "campaigns": summaries,
+        "offset": offset,
+        "limit": limit,
     }
 
 

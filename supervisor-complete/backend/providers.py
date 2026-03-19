@@ -46,6 +46,14 @@ class ProviderAdapter:
     CB_RESET_TIMEOUT = 60.0     # Seconds before half-open probe
     CB_SUCCESS_THRESHOLD = 2    # Successes in half-open to close
 
+    # Per-provider rate limits (requests per minute)
+    RATE_LIMITS = {
+        "anthropic": 60,
+        "openai": 60,
+        "google": 60,
+        "bedrock": 30,
+    }
+
     def __init__(self, config: ProviderConfig):
         self.config = config
         self.client = httpx.AsyncClient(timeout=config.timeout)
@@ -56,6 +64,19 @@ class ProviderAdapter:
         self._circuit_state = CircuitState.CLOSED
         self._circuit_opened_at = 0.0
         self._half_open_successes = 0
+        # Per-provider rate limiting
+        self._request_timestamps: list[float] = []
+        self._rate_limit = self.RATE_LIMITS.get(config.name, 60)
+
+    def _check_rate_limit(self) -> bool:
+        """Check if we're within rate limits. Prunes old timestamps."""
+        now = time.time()
+        cutoff = now - 60.0  # 1-minute window
+        self._request_timestamps = [t for t in self._request_timestamps if t > cutoff]
+        if len(self._request_timestamps) >= self._rate_limit:
+            return False
+        self._request_timestamps.append(now)
+        return True
 
     @property
     def is_available(self) -> bool:
@@ -68,6 +89,9 @@ class ProviderAdapter:
                 self._half_open_successes = 0
                 logger.info(f"[{self.config.name}] Circuit half-open, allowing probe")
                 return True
+            return False
+        if not self._check_rate_limit():
+            logger.warning(f"[{self.config.name}] Rate limit reached ({self._rate_limit}/min)")
             return False
         return now >= self._cooldown_until
 
