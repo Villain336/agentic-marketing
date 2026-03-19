@@ -163,6 +163,17 @@ class BusinessProfile(BaseModel):
     state_of_formation: str = ""   # e.g. "Delaware", "Wyoming"
     founder_title: str = ""        # Managing Member, CEO, Owner, Managing Partner
     industry: str = ""             # e.g. "marketing agency", "SaaS", "consulting"
+    # Business model — adapts agent strategy, metrics, and tool usage
+    business_model: str = ""       # saas, agency, ecommerce, marketplace, consulting, media, local, freelance, nonprofit, hardware
+    starting_from_scratch: bool = False
+    # Extended profile fields
+    website_url: str = ""
+    competitors: str = ""
+    biggest_challenge: str = ""
+    brand_voice: str = ""          # professional, casual, bold, technical, friendly, luxury
+    current_revenue: str = ""      # pre_revenue, 0_5k, 5k_25k, 25k_100k, 100k_500k, 500k_plus
+    team_size: str = ""            # solo, 2_5, 6_20, 21_50, 50_plus
+    pricing_model: str = ""        # subscription, one_time, usage_based, retainer, marketplace, freemium
 
 
 class CampaignMemory(BaseModel):
@@ -280,6 +291,118 @@ class CampaignMemory(BaseModel):
 
         return "\n".join(lines)
 
+    def business_model_rules(self) -> str:
+        """Return business-model-specific operational rules every agent MUST follow."""
+        bm = (self.business.business_model or "").lower()
+        if not bm:
+            return ""
+
+        rules: dict[str, list[str]] = {
+            "saas": [
+                "\n── BUSINESS MODEL RULES (SaaS) ──",
+                "METRICS: North Star = MRR. Track churn, LTV, CAC, expansion revenue, NDR.",
+                "PRICING: Always analyze free trial vs freemium vs PLG motions. Tiered pricing with usage limits.",
+                "CONTENT: Product-led growth content — tutorials, use cases, comparison pages, documentation.",
+                "OUTREACH: Target technical decision-makers and end users separately. Product demos > sales pitches.",
+                "BILLING: Recurring subscriptions. Track MRR movements: new, expansion, contraction, churn.",
+                "SALES: Self-serve for SMB, sales-assisted for mid-market, enterprise for $50K+ ACV.",
+                "FULFILLMENT: Onboarding automation, in-app guides, time-to-value optimization.",
+            ],
+            "agency": [
+                "\n── BUSINESS MODEL RULES (Service Agency) ──",
+                "METRICS: North Star = Revenue per client. Track utilization rate, client retention, profit margin.",
+                "PRICING: Retainer or project-based. Value pricing > hourly. Package services into tiers.",
+                "CONTENT: Case studies, thought leadership, process breakdowns. Show expertise, not just results.",
+                "OUTREACH: Target business owners and marketing directors. Emphasize ROI and past results.",
+                "BILLING: Retainer invoicing with project milestones. Net-30 terms. Scope change billing.",
+                "SALES: Consultative selling. Discovery calls → proposals → SOW. Relationship-driven.",
+                "FULFILLMENT: SOPs, capacity planning, QA gates. Standardize delivery across clients.",
+            ],
+            "ecommerce": [
+                "\n── BUSINESS MODEL RULES (E-commerce / DTC) ──",
+                "METRICS: North Star = Revenue per visitor. Track AOV, conversion rate, ROAS, cart abandon rate.",
+                "PRICING: Product pricing with bundles, subscriptions, and upsells. Free shipping thresholds.",
+                "CONTENT: Product pages, buying guides, UGC, influencer content. SEO for buying intent keywords.",
+                "ADS: ROAS-focused. Meta/Google Shopping/TikTok Shop. Creative testing cadence.",
+                "BILLING: One-time purchases + subscription options. Cart recovery sequences.",
+                "SALES: No sales team — conversion optimization, email flows, retargeting.",
+                "FULFILLMENT: Shipping, returns, packaging, inventory management. 3PL coordination.",
+            ],
+            "marketplace": [
+                "\n── BUSINESS MODEL RULES (Marketplace) ──",
+                "METRICS: North Star = GMV. Track take rate, liquidity, supply/demand ratio, repeat usage.",
+                "PRICING: Commission-based. Balance supply and demand economics. Launch subsidies.",
+                "CONTENT: Two-sided content — buyer guides AND seller success stories. Trust & safety messaging.",
+                "GROWTH: Solve chicken-and-egg. Single-player mode first. Subsidize the harder side.",
+                "BILLING: Transaction-based fees. Escrow or payment processing. Payout management.",
+                "SALES: Community-led growth. Referral programs for both sides. Local market launches.",
+                "FULFILLMENT: Platform matching quality, dispute resolution, review systems.",
+            ],
+            "consulting": [
+                "\n── BUSINESS MODEL RULES (Consulting / Coaching) ──",
+                "METRICS: North Star = Pipeline value. Track session rate, client retention, referral rate.",
+                "PRICING: Session-based or package pricing. Premium positioning. Outcome-based pricing.",
+                "CONTENT: Authority content — frameworks, methodologies, client transformations. Podcast/video.",
+                "OUTREACH: Warm outreach, referrals, speaking engagements. Build personal brand.",
+                "BILLING: Retainer or package billing. Upfront payment preferred. Scope boundaries.",
+                "SALES: Free consultations → paid engagements. Testimonials are currency.",
+                "FULFILLMENT: Session scheduling, progress tracking, resource delivery. Scale via groups.",
+            ],
+            "media": [
+                "\n── BUSINESS MODEL RULES (Content / Media) ──",
+                "METRICS: North Star = Subscribers. Track open rate, engagement rate, ad revenue, sponsorship value.",
+                "PRICING: Free content + premium tier (paid newsletter, community, courses). Sponsorship packages.",
+                "CONTENT: Consistent publishing cadence is everything. Quality + frequency. Build distribution first.",
+                "GROWTH: Cross-promotion, guest appearances, viral loops. SEO for evergreen content.",
+                "BILLING: Subscription (Substack/Patreon model) + sponsorship invoicing.",
+                "SALES: Audience size sells itself. Media kit for sponsors. Premium community upsell.",
+                "FULFILLMENT: Content calendar, audience management, sponsor deliverables.",
+            ],
+            "local": [
+                "\n── BUSINESS MODEL RULES (Local Business) ──",
+                "METRICS: North Star = Monthly foot traffic. Track average ticket, repeat visit rate, review score.",
+                "PRICING: Menu/service pricing. Local market competitive. Loyalty programs.",
+                "CONTENT: Local SEO, Google Business Profile, location-specific social. Community content.",
+                "ADS: Geo-targeted. Google Local, Meta radius targeting, Nextdoor. Low budget, high frequency.",
+                "BILLING: POS integration. Appointment booking. Local payment preferences.",
+                "SALES: Walk-ins, referrals, local partnerships. Events and promotions.",
+                "FULFILLMENT: In-person service delivery. Staff scheduling. Quality consistency.",
+            ],
+            "freelance": [
+                "\n── BUSINESS MODEL RULES (Freelance / Solo) ──",
+                "METRICS: North Star = Utilization rate. Track hourly rate, pipeline value, client concentration.",
+                "PRICING: Project or hourly. Value-based pricing for outcomes. Rate card with packages.",
+                "CONTENT: Portfolio, case studies, process content. Show work and thinking.",
+                "OUTREACH: Warm outreach, referrals, freelance platforms, LinkedIn presence.",
+                "BILLING: Project milestones or weekly invoicing. Net-15. Late payment follow-up.",
+                "SALES: Pipeline of 3-5 leads always. Diversify client base. Retainer > project.",
+                "FULFILLMENT: Personal delivery. Time tracking. Scope management. Communication cadence.",
+            ],
+            "nonprofit": [
+                "\n── BUSINESS MODEL RULES (Non-Profit / Community) ──",
+                "METRICS: North Star = Donor retention. Track total donations, grant revenue, volunteer engagement.",
+                "PRICING: Donation tiers, membership levels, event tickets. Transparency in fund allocation.",
+                "CONTENT: Impact stories, mission updates, beneficiary spotlights. Emotion + data.",
+                "OUTREACH: Grant applications, donor cultivation, corporate partnerships. Storytelling-first.",
+                "BILLING: Donation processing, recurring giving, pledge management. Tax receipts.",
+                "SALES: Relationship-driven fundraising. Events, galas, campaigns. Major donor cultivation.",
+                "FULFILLMENT: Program delivery, impact measurement, donor reporting. Volunteer coordination.",
+            ],
+            "hardware": [
+                "\n── BUSINESS MODEL RULES (Hardware / Physical Product) ──",
+                "METRICS: North Star = Units shipped. Track COGS, gross margin, defect rate, inventory turns.",
+                "PRICING: Product pricing with margin targets. Volume discounts. Distribution markup.",
+                "CONTENT: Product demos, technical specs, comparison content. Kickstarter/pre-order campaigns.",
+                "ADS: Product-focused creative. Video demos. Meta/Google Shopping. Influencer unboxings.",
+                "BILLING: Pre-orders, wholesale invoicing, distribution terms. Inventory financing.",
+                "SALES: Retail, DTC, wholesale, distribution channels. Trade shows. B2B for components.",
+                "FULFILLMENT: Manufacturing QC, packaging, shipping logistics. Warranty and returns.",
+            ],
+        }
+
+        return "\n".join(rules.get(bm, [f"\n── BUSINESS MODEL: {bm.upper()} ──",
+                                         f"Apply best practices for the {bm} business model."]))
+
     def to_context_string(self) -> str:
         b = self.business
         parts = [
@@ -295,10 +418,30 @@ class CampaignMemory(BaseModel):
             parts.append(f"FOUNDER TITLE: {title_label}")
         if b.industry:
             parts.append(f"INDUSTRY: {b.industry}")
+        if b.business_model:
+            parts.append(f"BUSINESS MODEL: {b.business_model}")
+        if b.current_revenue:
+            parts.append(f"CURRENT REVENUE: {b.current_revenue}")
+        if b.team_size:
+            parts.append(f"TEAM SIZE: {b.team_size}")
+        if b.competitors:
+            parts.append(f"COMPETITORS: {b.competitors}")
+        if b.biggest_challenge:
+            parts.append(f"TOP PRIORITY: {b.biggest_challenge}")
+        if b.brand_voice:
+            parts.append(f"BRAND VOICE: {b.brand_voice}")
+        if b.website_url:
+            parts.append(f"WEBSITE: {b.website_url}")
+        if b.starting_from_scratch:
+            parts.append("NOTE: This is a NEW business being built from scratch. Guide accordingly — explain fundamentals, be more prescriptive, and prioritize quick wins.")
         # Inject entity-specific rules so every agent adapts
         entity_block = self.entity_rules()
         if entity_block:
             parts.append(entity_block)
+        # Inject business-model-specific rules
+        bm_block = self.business_model_rules()
+        if bm_block:
+            parts.append(bm_block)
         if b.brand_context:
             parts.append(f"BRAND CONTEXT: {b.brand_context}")
         status_map = [

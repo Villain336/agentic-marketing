@@ -223,11 +223,27 @@ export const PRICING_TIERS: PricingTier[] = [
   },
 ];
 
+// ── Business Models ──────────────────────────────────────────────────────
+
+export const BUSINESS_MODELS = [
+  { id: "saas", label: "SaaS / Software", icon: "Code", desc: "Recurring software subscriptions", examples: "CRM, project management, analytics tools", northStar: "MRR" },
+  { id: "agency", label: "Service Agency", icon: "Briefcase", desc: "Client services with retainers or projects", examples: "Marketing agency, dev shop, design studio", northStar: "Revenue per client" },
+  { id: "ecommerce", label: "E-commerce / DTC", icon: "ShoppingCart", desc: "Selling products online directly to consumers", examples: "Shopify store, DTC brand", northStar: "Revenue per visitor" },
+  { id: "marketplace", label: "Marketplace", icon: "Store", desc: "Connecting buyers and sellers for a fee", examples: "Freelancer platform, rental marketplace", northStar: "GMV" },
+  { id: "consulting", label: "Consulting / Coaching", icon: "GraduationCap", desc: "Expert advice and coaching services", examples: "Business coach, management consultant", northStar: "Pipeline value" },
+  { id: "media", label: "Content / Media", icon: "Newspaper", desc: "Monetizing content, audience, or community", examples: "Newsletter, podcast, YouTube channel", northStar: "Subscribers" },
+  { id: "local", label: "Local Business", icon: "MapPin", desc: "Serving customers in a physical location", examples: "Restaurant, salon, gym, clinic", northStar: "Monthly foot traffic" },
+  { id: "freelance", label: "Freelance / Solo", icon: "User", desc: "Selling your skills independently", examples: "Freelance developer, designer, writer", northStar: "Utilization rate" },
+  { id: "nonprofit", label: "Non-Profit / Community", icon: "Heart", desc: "Mission-driven with donor or grant funding", examples: "Foundation, association, community org", northStar: "Donor retention" },
+  { id: "hardware", label: "Hardware / Physical Product", icon: "Cpu", desc: "Designing and selling physical products", examples: "IoT devices, consumer electronics", northStar: "Units shipped" },
+] as const;
+
 // ── Onboarding Stages ───────────────────────────────────────────────────
 
-export const ONBOARDING_STAGES = [
+export const ONBOARDING_STAGES_EXISTING = [
   { id: "welcome", label: "Welcome", icon: "Sparkles" },
   { id: "business", label: "Your Business", icon: "Building" },
+  { id: "model_selection", label: "Business Model", icon: "Layout" },
   { id: "entity", label: "Legal Entity", icon: "FileCheck" },
   { id: "revenue", label: "Revenue Goals", icon: "Target" },
   { id: "channels", label: "Channels", icon: "Plug" },
@@ -235,6 +251,21 @@ export const ONBOARDING_STAGES = [
   { id: "autonomy", label: "Control Level", icon: "Sliders" },
   { id: "provisioning", label: "Building...", icon: "Rocket" },
 ] as const;
+
+export const ONBOARDING_STAGES_SCRATCH = [
+  { id: "welcome", label: "Welcome", icon: "Sparkles" },
+  { id: "idea_discovery", label: "Your Idea", icon: "Lightbulb" },
+  { id: "market_validation", label: "Validation", icon: "Search" },
+  { id: "model_selection", label: "Business Model", icon: "Layout" },
+  { id: "entity", label: "Legal Entity", icon: "FileCheck" },
+  { id: "revenue", label: "Revenue Goals", icon: "Target" },
+  { id: "channels", label: "Channels", icon: "Plug" },
+  { id: "integrations", label: "API Keys", icon: "Key" },
+  { id: "autonomy", label: "Control Level", icon: "Sliders" },
+  { id: "provisioning", label: "Building...", icon: "Rocket" },
+] as const;
+
+export const ONBOARDING_STAGES = ONBOARDING_STAGES_EXISTING;
 
 // ── API Config ──────────────────────────────────────────────────────────
 

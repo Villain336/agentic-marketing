@@ -1,11 +1,29 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Rocket, Target, Users, Sparkles, Check, Loader2 } from "lucide-react";
+import {
+  Rocket, Target, Users, Sparkles, Check, Loader2,
+  Lightbulb, Search, Building2, Zap,
+  Code, Briefcase, ShoppingCart, Store, GraduationCap,
+  Newspaper, MapPin, User, Heart, Cpu,
+} from "lucide-react";
 import type { OnboardingStage, BusinessProfile } from "@/types";
-import { ONBOARDING_STAGES } from "@/lib/constants";
+import { ONBOARDING_STAGES_EXISTING, ONBOARDING_STAGES_SCRATCH, BUSINESS_MODELS } from "@/lib/constants";
 import { api } from "@/lib/api";
+
+const BUSINESS_MODEL_ICONS: Record<string, React.ReactNode> = {
+  Code: <Code className="w-5 h-5" />,
+  Briefcase: <Briefcase className="w-5 h-5" />,
+  ShoppingCart: <ShoppingCart className="w-5 h-5" />,
+  Store: <Store className="w-5 h-5" />,
+  GraduationCap: <GraduationCap className="w-5 h-5" />,
+  Newspaper: <Newspaper className="w-5 h-5" />,
+  MapPin: <MapPin className="w-5 h-5" />,
+  User: <User className="w-5 h-5" />,
+  Heart: <Heart className="w-5 h-5" />,
+  Cpu: <Cpu className="w-5 h-5" />,
+};
 
 const AUTONOMY_ICONS: Record<string, React.ReactNode> = {
   Rocket: <Rocket className="w-6 h-6" />,
@@ -50,6 +68,7 @@ const API_KEY_FIELDS = [
 export default function OnboardingPage() {
   const router = useRouter();
   const [stage, setStage] = useState<OnboardingStage>("welcome");
+  const [fromScratch, setFromScratch] = useState(false);
   const [business, setBusiness] = useState<Partial<BusinessProfile>>({
     name: "",
     service: "",
@@ -67,34 +86,44 @@ export default function OnboardingPage() {
     competitors: "",
     biggestChallenge: "",
     brandVoice: "",
+    businessModel: "",
+    startingFromScratch: false,
   });
   const [channels, setChannels] = useState<Record<string, boolean>>({});
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [autonomy, setAutonomy] = useState("guided");
   const [provisionIdx, setProvisionIdx] = useState(0);
 
-  const currentIdx = ONBOARDING_STAGES.findIndex((s) => s.id === stage);
-  const progress = Math.round(((currentIdx + 1) / ONBOARDING_STAGES.length) * 100);
+  const stageList = useMemo(
+    () => fromScratch ? ONBOARDING_STAGES_SCRATCH : ONBOARDING_STAGES_EXISTING,
+    [fromScratch],
+  );
+  const stageIds = useMemo(() => stageList.map((s) => s.id) as OnboardingStage[], [stageList]);
+
+  const currentIdx = stageList.findIndex((s) => s.id === stage);
+  const progress = Math.round(((currentIdx + 1) / stageList.length) * 100);
 
   const update = useCallback((field: string, value: string) => {
     setBusiness((prev) => ({ ...prev, [field]: value }));
   }, []);
 
+  const updateBool = useCallback((field: string, value: boolean) => {
+    setBusiness((prev) => ({ ...prev, [field]: value }));
+  }, []);
+
   const next = useCallback(() => {
-    const stages: OnboardingStage[] = ["welcome", "business", "entity", "revenue", "channels", "integrations", "autonomy", "provisioning"];
-    const idx = stages.indexOf(stage);
-    if (idx < stages.length - 1) {
-      setStage(stages[idx + 1]);
+    const idx = stageIds.indexOf(stage);
+    if (idx < stageIds.length - 1) {
+      setStage(stageIds[idx + 1]);
     }
-  }, [stage]);
+  }, [stage, stageIds]);
 
   const prev = useCallback(() => {
-    const stages: OnboardingStage[] = ["welcome", "business", "entity", "revenue", "channels", "integrations", "autonomy", "provisioning"];
-    const idx = stages.indexOf(stage);
+    const idx = stageIds.indexOf(stage);
     if (idx > 0) {
-      setStage(stages[idx - 1]);
+      setStage(stageIds[idx - 1]);
     }
-  }, [stage]);
+  }, [stage, stageIds]);
 
   const startProvisioning = useCallback(() => {
     setStage("provisioning");
@@ -137,7 +166,7 @@ export default function OnboardingPage() {
 
       {/* Stage indicators */}
       <div className="flex justify-center gap-2 pt-8 pb-2">
-        {ONBOARDING_STAGES.map((s, i) => (
+        {stageList.map((s, i) => (
           <div
             key={s.id}
             className={`w-2 h-2 rounded-full transition-all duration-300 ${
@@ -150,8 +179,26 @@ export default function OnboardingPage() {
       {/* Content */}
       <div className="flex-1 flex items-center justify-center px-6 py-8">
         <div className="w-full max-w-lg animate-fade-in">
-          {stage === "welcome" && <WelcomeStage onNext={next} name={business.name || ""} onNameChange={(v) => update("name", v)} />}
+          {stage === "welcome" && (
+            <WelcomeStage
+              name={business.name || ""}
+              onNameChange={(v) => update("name", v)}
+              onChoosePath={(scratch) => {
+                setFromScratch(scratch);
+                updateBool("startingFromScratch", scratch);
+                // Jump to the correct next stage based on path
+                if (scratch) {
+                  setStage("idea_discovery");
+                } else {
+                  setStage("business");
+                }
+              }}
+            />
+          )}
+          {stage === "idea_discovery" && <IdeaDiscoveryStage business={business} onChange={update} onNext={next} onBack={prev} />}
+          {stage === "market_validation" && <MarketValidationStage business={business} onChange={update} onNext={next} onBack={prev} />}
           {stage === "business" && <BusinessStage business={business} onChange={update} onNext={next} onBack={prev} />}
+          {stage === "model_selection" && <ModelSelectionStage value={business.businessModel || ""} onChange={(v) => update("businessModel", v)} onNext={next} onBack={prev} />}
           {stage === "entity" && <EntityStage value={business.entityType || "llc"} onChange={(v) => update("entityType", v)} onNext={next} onBack={prev} />}
           {stage === "revenue" && <RevenueStage business={business} onChange={update} onNext={next} onBack={prev} />}
           {stage === "channels" && <ChannelsStage channels={channels} onChange={setChannels} onNext={next} onBack={prev} />}
@@ -166,7 +213,15 @@ export default function OnboardingPage() {
 
 // ── Stage Components ────────────────────────────────────────────────────
 
-function WelcomeStage({ onNext, name, onNameChange }: { onNext: () => void; name: string; onNameChange: (v: string) => void }) {
+function WelcomeStage({
+  name,
+  onNameChange,
+  onChoosePath,
+}: {
+  name: string;
+  onNameChange: (v: string) => void;
+  onChoosePath: (fromScratch: boolean) => void;
+}) {
   return (
     <div className="text-center">
       <div className="w-16 h-16 rounded-2xl bg-brand-50 flex items-center justify-center mx-auto mb-6">
@@ -179,9 +234,9 @@ function WelcomeStage({ onNext, name, onNameChange }: { onNext: () => void; name
         In 5 minutes, you&apos;ll have 44 agents working for you.
         <br />No technical setup required.
       </p>
-      <div className="max-w-sm mx-auto mb-8">
+      <div className="max-w-sm mx-auto mb-6">
         <label className="block text-sm font-medium text-surface-700 mb-1.5 text-left">
-          What&apos;s your company called?
+          What&apos;s your company or project called?
         </label>
         <input
           type="text"
@@ -192,9 +247,210 @@ function WelcomeStage({ onNext, name, onNameChange }: { onNext: () => void; name
           autoFocus
         />
       </div>
-      <button onClick={onNext} className="btn-primary px-10 py-3" disabled={!name.trim()}>
-        Let&apos;s Go
-      </button>
+      {name.trim() && (
+        <div className="max-w-sm mx-auto space-y-3 animate-fade-in">
+          <p className="text-sm text-surface-500 mb-3">Where are you in your journey?</p>
+          <button
+            onClick={() => onChoosePath(false)}
+            className="w-full text-left p-4 rounded-xl border-2 border-surface-200 hover:border-brand-500 hover:bg-brand-50 transition-all"
+          >
+            <div className="flex items-center gap-3">
+              <Building2 className="w-5 h-5 text-brand-600 shrink-0" />
+              <div>
+                <div className="font-medium text-surface-900">I have an existing business</div>
+                <div className="text-xs text-surface-500 mt-0.5">Already selling, looking to scale with AI agents</div>
+              </div>
+            </div>
+          </button>
+          <button
+            onClick={() => onChoosePath(true)}
+            className="w-full text-left p-4 rounded-xl border-2 border-surface-200 hover:border-brand-500 hover:bg-brand-50 transition-all"
+          >
+            <div className="flex items-center gap-3">
+              <Zap className="w-5 h-5 text-amber-500 shrink-0" />
+              <div>
+                <div className="font-medium text-surface-900">I&apos;m starting from scratch</div>
+                <div className="text-xs text-surface-500 mt-0.5">Have an idea — need help validating and launching</div>
+              </div>
+            </div>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IdeaDiscoveryStage({
+  business,
+  onChange,
+  onNext,
+  onBack,
+}: {
+  business: Partial<BusinessProfile>;
+  onChange: (f: string, v: string) => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  const canProceed = business.service && business.icp;
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-2">
+        <Lightbulb className="w-6 h-6 text-amber-500" />
+        <h2 className="font-display font-bold text-2xl text-surface-900">Tell us about your idea</h2>
+      </div>
+      <p className="text-surface-500 text-sm mb-8">Don&apos;t worry about being perfect — agents will help you refine this.</p>
+      <div className="space-y-5">
+        <div>
+          <label className="block text-sm font-medium text-surface-700 mb-1.5">What will you sell or offer?</label>
+          <textarea
+            value={business.service || ""}
+            onChange={(e) => onChange("service", e.target.value)}
+            placeholder="e.g., An AI tool that writes product descriptions for Shopify stores"
+            className="input-field min-h-[80px] resize-none"
+            autoFocus
+          />
+          <p className="text-xs text-surface-400 mt-1">Describe the product, service, or value you want to deliver</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-surface-700 mb-1.5">Who would pay for this?</label>
+          <textarea
+            value={business.icp || ""}
+            onChange={(e) => onChange("icp", e.target.value)}
+            placeholder="e.g., E-commerce store owners who spend 5+ hours/week writing product descriptions"
+            className="input-field min-h-[80px] resize-none"
+          />
+          <p className="text-xs text-surface-400 mt-1">Your ideal first customer — be specific about their pain point</p>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-surface-700 mb-1.5">Industry</label>
+            <input
+              value={business.industry || ""}
+              onChange={(e) => onChange("industry", e.target.value)}
+              placeholder="e.g., E-commerce tools"
+              className="input-field"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-surface-700 mb-1.5">Geography</label>
+            <input
+              value={business.geography || ""}
+              onChange={(e) => onChange("geography", e.target.value)}
+              placeholder="e.g., Global, USA"
+              className="input-field"
+            />
+          </div>
+        </div>
+      </div>
+      <div className="flex justify-between mt-8">
+        <button onClick={onBack} className="btn-ghost">Back</button>
+        <button onClick={onNext} className="btn-primary" disabled={!canProceed}>Continue</button>
+      </div>
+    </div>
+  );
+}
+
+function MarketValidationStage({
+  business,
+  onChange,
+  onNext,
+  onBack,
+}: {
+  business: Partial<BusinessProfile>;
+  onChange: (f: string, v: string) => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-2">
+        <Search className="w-6 h-6 text-blue-500" />
+        <h2 className="font-display font-bold text-2xl text-surface-900">Quick validation</h2>
+      </div>
+      <p className="text-surface-500 text-sm mb-8">These answers help agents assess market fit and find your positioning.</p>
+      <div className="space-y-5">
+        <div>
+          <label className="block text-sm font-medium text-surface-700 mb-1.5">Who else solves this problem?</label>
+          <input
+            value={business.competitors || ""}
+            onChange={(e) => onChange("competitors", e.target.value)}
+            placeholder="e.g., Jasper, Copy.ai, or 'nobody that I know of'"
+            className="input-field"
+            autoFocus
+          />
+          <p className="text-xs text-surface-400 mt-1">Competitors, alternatives, or workarounds your customer uses today</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-surface-700 mb-1.5">What&apos;s your unfair advantage?</label>
+          <input
+            value={business.biggestChallenge || ""}
+            onChange={(e) => onChange("biggestChallenge", e.target.value)}
+            placeholder="e.g., 10 years in e-commerce, proprietary dataset, unique distribution channel"
+            className="input-field"
+          />
+          <p className="text-xs text-surface-400 mt-1">Why you specifically? Domain expertise, network, tech, or insight</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-surface-700 mb-1.5">Existing website or landing page? <span className="text-surface-400 font-normal">(optional)</span></label>
+          <input
+            value={business.websiteUrl || ""}
+            onChange={(e) => onChange("websiteUrl", e.target.value)}
+            placeholder="e.g., https://myidea.com"
+            className="input-field"
+          />
+        </div>
+      </div>
+      <div className="flex justify-between mt-8">
+        <button onClick={onBack} className="btn-ghost">Back</button>
+        <button onClick={onNext} className="btn-primary">Continue</button>
+      </div>
+    </div>
+  );
+}
+
+function ModelSelectionStage({
+  value,
+  onChange,
+  onNext,
+  onBack,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <div>
+      <h2 className="font-display font-bold text-2xl text-surface-900 mb-2">What type of business is this?</h2>
+      <p className="text-surface-500 text-sm mb-6">This tailors every agent&apos;s strategy, metrics, and playbooks to your model.</p>
+      <div className="grid grid-cols-2 gap-3 max-h-[420px] overflow-y-auto pr-1">
+        {BUSINESS_MODELS.map((model) => (
+          <button
+            key={model.id}
+            onClick={() => onChange(model.id)}
+            className={`text-left p-3.5 rounded-xl border-2 transition-all ${
+              value === model.id
+                ? "border-brand-500 bg-brand-50"
+                : "border-surface-200 hover:border-surface-300"
+            }`}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-brand-600">{BUSINESS_MODEL_ICONS[model.icon] || model.icon}</span>
+              <span className="font-medium text-surface-900 text-sm">{model.label}</span>
+            </div>
+            <div className="text-xs text-surface-500">{model.desc}</div>
+            {value === model.id && (
+              <div className="mt-2 text-2xs text-brand-600 font-medium">
+                North Star: {model.northStar}
+              </div>
+            )}
+          </button>
+        ))}
+      </div>
+      <div className="flex justify-between mt-6">
+        <button onClick={onBack} className="btn-ghost">Back</button>
+        <button onClick={onNext} className="btn-primary" disabled={!value}>Continue</button>
+      </div>
     </div>
   );
 }
