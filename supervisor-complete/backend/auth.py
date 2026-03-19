@@ -32,7 +32,9 @@ PUBLIC_PATHS = {
 }
 
 PUBLIC_PREFIXES = (
-    "/webhooks/",   # Webhook receivers use their own auth (signatures)
+    "/webhooks/",          # Webhook receivers use their own auth (signatures)
+    "/mcp/",               # MCP clients handle auth at transport level
+    "/billing/webhook",    # Stripe webhooks use signature verification
 )
 
 security = HTTPBearer(auto_error=False)

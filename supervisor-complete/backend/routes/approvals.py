@@ -35,6 +35,12 @@ class DecideApprovalRequest(BaseModel):
     reason: str = ""
 
 
+class BatchDecideRequest(BaseModel):
+    item_ids: list[str] = Field(..., min_length=1)
+    decision: str = Field(..., pattern="^(approved|rejected)$")
+    reason: str = ""
+
+
 # -- Audit log (in-memory; persisted to DB when available) ---------------------
 
 _audit_log: list[dict] = []
@@ -160,6 +166,51 @@ async def decide_approval(item_id: str, req: DecideApprovalRequest,
     await db.save_approval(item.model_dump())
 
     return {"id": item_id, "status": item.status, "decided_by": item.decided_by}
+
+
+@router.post("/approvals/batch-decide")
+async def batch_decide_approvals(req: BatchDecideRequest, request: Request):
+    """Approve or reject multiple approval items in a single request."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
+    results = []
+    succeeded = 0
+    failed = 0
+
+    for item_id in req.item_ids:
+        try:
+            validate_id(item_id, "item_id")
+            item = store.get_approval(user_id, item_id)
+            if not item:
+                results.append({"id": item_id, "status": "not_found", "success": False})
+                failed += 1
+                continue
+
+            item.status = req.decision
+            item.decided_by = "human"
+            item.decided_at = datetime.now(timezone.utc)
+
+            _record_audit(item.id, req.decision, user_id,
+                          reason=req.reason,
+                          meta={"decided_by": "human", "batch": True})
+
+            await db.save_approval(item.model_dump())
+
+            results.append({"id": item_id, "status": req.decision, "success": True})
+            succeeded += 1
+        except Exception as e:
+            logger.error(f"Batch decide failed for {item_id}: {e}")
+            results.append({"id": item_id, "status": "error", "success": False})
+            failed += 1
+
+    return {
+        "results": results,
+        "total": len(req.item_ids),
+        "succeeded": succeeded,
+        "failed": failed,
+    }
 
 
 @router.get("/approvals/audit-log")

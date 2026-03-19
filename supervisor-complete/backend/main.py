@@ -59,10 +59,48 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 # -- Application ---------------------------------------------------------------
 
+openapi_tags = [
+    {"name": "Health", "description": "Liveness and readiness probes"},
+    {"name": "WebSocket", "description": "Real-time WebSocket connections"},
+    {"name": "Agents", "description": "Agent management and execution"},
+    {"name": "Campaigns", "description": "Campaign CRUD and orchestration"},
+    {"name": "Onboarding", "description": "New-user and new-campaign onboarding flows"},
+    {"name": "Webhooks", "description": "Inbound webhook receivers"},
+    {"name": "Approvals", "description": "Human-in-the-loop approval queue"},
+    {"name": "Settings", "description": "Platform and user settings"},
+    {"name": "Scoring & Lifecycle", "description": "Lead scoring and lifecycle tracking"},
+    {"name": "Budget", "description": "Budget allocation and tracking"},
+    {"name": "Templates", "description": "Campaign templates"},
+    {"name": "Tenants", "description": "Multi-tenant management"},
+    {"name": "Revenue Share", "description": "Revenue-share and payouts"},
+    {"name": "Skills", "description": "Agent skill registry"},
+    {"name": "Marketplace", "description": "Agent and skill marketplace"},
+    {"name": "WhatsApp", "description": "WhatsApp messaging integration"},
+    {"name": "Replanner", "description": "Autonomous campaign re-planning"},
+    {"name": "Deployment", "description": "Deployment and infrastructure management"},
+    {"name": "Privacy", "description": "Privacy controls and data subject requests"},
+    {"name": "Fine-tuning", "description": "Model fine-tuning jobs"},
+    {"name": "Research", "description": "Research and competitive intelligence"},
+    {"name": "Design", "description": "Design asset generation"},
+    {"name": "Browser", "description": "Headless browser automation"},
+    {"name": "Manufacturing", "description": "Manufacturing and supply-chain tools"},
+    {"name": "Security", "description": "Security scanning and compliance"},
+    {"name": "NVIDIA", "description": "NVIDIA GPU and AI acceleration"},
+    {"name": "AWS", "description": "AWS cloud service integrations"},
+    {"name": "Reindustrialization", "description": "Reindustrialization planning tools"},
+    {"name": "Integrations", "description": "Third-party service integrations"},
+    {"name": "Developer Platform", "description": "Developer APIs and SDK support"},
+    {"name": "Agent Protocol", "description": "AI Agent Protocol (A2A) endpoints"},
+    {"name": "MCP", "description": "Model Context Protocol server interface"},
+]
+
 app = FastAPI(
     title="Omni OS API",
     description="Autonomous Agency Platform -- Backend Orchestration",
     version="0.3.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_tags=openapi_tags,
 )
 
 # CORS: default to localhost in dev, restrict in production via CORS_ORIGINS env

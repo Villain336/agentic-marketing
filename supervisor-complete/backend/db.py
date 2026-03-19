@@ -491,3 +491,215 @@ async def load_run_snapshots(
     except Exception as e:
         logger.error(f"Failed to load run snapshots: {e}")
         return []
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AGENT CHECKPOINTS (mid-execution state snapshots)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def save_checkpoint(checkpoint: dict) -> bool:
+    """Persist an agent checkpoint to the database."""
+    client = _get_client()
+    if not client:
+        return False
+
+    try:
+        client.table("agent_checkpoints").upsert({
+            "id": checkpoint.get("checkpoint_id", ""),
+            "trace_id": checkpoint.get("trace_id", ""),
+            "agent_id": checkpoint.get("agent_id", ""),
+            "campaign_id": checkpoint.get("campaign_id", ""),
+            "step_number": checkpoint.get("step_number", 0),
+            "state": json.dumps({
+                "messages_so_far": checkpoint.get("messages_so_far", []),
+                "memory_so_far": checkpoint.get("memory_so_far", {}),
+                "tool_results_so_far": checkpoint.get("tool_results_so_far", []),
+                "system_prompt": checkpoint.get("system_prompt", ""),
+                "full_text_output": checkpoint.get("full_text_output", ""),
+            }),
+            "created_at": checkpoint.get("timestamp", datetime.utcnow().isoformat()),
+        }).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save checkpoint: {e}")
+        return False
+
+
+async def load_checkpoints(agent_id: str, campaign_id: str = "",
+                           limit: int = 50) -> list[dict]:
+    """Load checkpoints for an agent, optionally filtered by campaign."""
+    client = _get_client()
+    if not client:
+        return []
+
+    try:
+        query = (client.table("agent_checkpoints")
+                 .select("*")
+                 .eq("agent_id", agent_id)
+                 .order("created_at", desc=True)
+                 .limit(limit))
+        if campaign_id:
+            query = query.eq("campaign_id", campaign_id)
+        result = query.execute()
+        rows = result.data or []
+        # Deserialize state JSON
+        for row in rows:
+            if isinstance(row.get("state"), str):
+                try:
+                    row["state"] = json.loads(row["state"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        return rows
+    except Exception as e:
+        logger.error(f"Failed to load checkpoints for {agent_id}: {e}")
+        return []
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEVELOPER PLATFORM — API KEYS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def save_api_key(record: dict) -> bool:
+    """Persist a developer API key record."""
+    client = _get_client()
+    if not client:
+        return False
+
+    try:
+        client.table("developer_api_keys").upsert(record).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save API key {record.get('id', '?')}: {e}")
+        return False
+
+
+async def get_api_keys(user_id: str) -> list[dict]:
+    """Load all API key records for a user."""
+    client = _get_client()
+    if not client:
+        return []
+
+    try:
+        result = (client.table("developer_api_keys")
+                  .select("*")
+                  .eq("user_id", user_id)
+                  .order("created_at", desc=True)
+                  .execute())
+        return result.data or []
+    except Exception as e:
+        logger.error(f"Failed to load API keys for user {user_id}: {e}")
+        return []
+
+
+async def delete_api_key(key_id: str) -> bool:
+    """Delete an API key record from the database."""
+    client = _get_client()
+    if not client:
+        return False
+
+    try:
+        client.table("developer_api_keys").delete().eq("id", key_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete API key {key_id}: {e}")
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEVELOPER PLATFORM — WEBHOOKS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def save_webhook(subscription: dict) -> bool:
+    """Persist a webhook subscription."""
+    client = _get_client()
+    if not client:
+        return False
+
+    try:
+        client.table("developer_webhooks").upsert(subscription).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save webhook {subscription.get('id', '?')}: {e}")
+        return False
+
+
+async def get_webhooks(user_id: str) -> list[dict]:
+    """Load all webhook subscriptions for a user."""
+    client = _get_client()
+    if not client:
+        return []
+
+    try:
+        result = (client.table("developer_webhooks")
+                  .select("*")
+                  .eq("user_id", user_id)
+                  .order("created_at", desc=True)
+                  .execute())
+        return result.data or []
+    except Exception as e:
+        logger.error(f"Failed to load webhooks for user {user_id}: {e}")
+        return []
+
+
+async def delete_webhook(wh_id: str) -> bool:
+    """Delete a webhook subscription from the database."""
+    client = _get_client()
+    if not client:
+        return False
+
+    try:
+        client.table("developer_webhooks").delete().eq("id", wh_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete webhook {wh_id}: {e}")
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DEVELOPER PLATFORM — OAUTH APPS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def save_oauth_app(app: dict) -> bool:
+    """Persist an OAuth application."""
+    client = _get_client()
+    if not client:
+        return False
+
+    try:
+        client.table("developer_oauth_apps").upsert(app).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save OAuth app {app.get('id', '?')}: {e}")
+        return False
+
+
+async def get_oauth_apps(user_id: str) -> list[dict]:
+    """Load all OAuth apps for a user."""
+    client = _get_client()
+    if not client:
+        return []
+
+    try:
+        result = (client.table("developer_oauth_apps")
+                  .select("*")
+                  .eq("user_id", user_id)
+                  .order("created_at", desc=True)
+                  .execute())
+        return result.data or []
+    except Exception as e:
+        logger.error(f"Failed to load OAuth apps for user {user_id}: {e}")
+        return []
+
+
+async def delete_oauth_app(app_id: str) -> bool:
+    """Delete an OAuth application from the database."""
+    client = _get_client()
+    if not client:
+        return False
+
+    try:
+        client.table("developer_oauth_apps").delete().eq("id", app_id).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to delete OAuth app {app_id}: {e}")
+        return False
