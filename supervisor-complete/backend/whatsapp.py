@@ -1,5 +1,5 @@
 """
-Supervisor Backend — WhatsApp Business Integration
+Omni OS Backend — WhatsApp Business Integration
 Full WhatsApp Cloud API integration for agent-to-user communication.
 Competes with OpenClaw & Manus WhatsApp-first interfaces.
 """

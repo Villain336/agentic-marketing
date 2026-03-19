@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Agent Memory Versioning
+Omni OS Backend — Agent Memory Versioning
 Tracks what changed between agent runs — diffs, snapshots, rollback support.
 """
 from __future__ import annotations

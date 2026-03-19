@@ -32,7 +32,7 @@ function AuthPageInner() {
     setAuth(token, userId);
     api.setToken(token);
     localStorage.setItem(
-      "sv_session",
+      "omni_session",
       JSON.stringify({ accessToken: token, userId, email, plan: "growth", agencyName: agencyName || "Demo Agency" })
     );
   };
@@ -78,7 +78,7 @@ function AuthPageInner() {
       if (mode === "signup") {
         router.push("/onboarding");
       } else {
-        const hasBiz = localStorage.getItem("sv_business");
+        const hasBiz = localStorage.getItem("omni_business");
         router.push(hasBiz ? "/dashboard" : "/onboarding");
       }
     } catch {
@@ -105,7 +105,7 @@ function AuthPageInner() {
           <p className="text-sm text-surface-500 mt-2">
             {mode === "signup"
               ? "Start automating your business in 5 minutes"
-              : "Log in to your Supervisor dashboard"}
+              : "Log in to your Omni OS dashboard"}
           </p>
         </div>
 

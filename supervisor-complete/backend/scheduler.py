@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Background Job Scheduler
+Omni OS Backend — Background Job Scheduler
 Runs periodic agent tasks: daily reports, weekly analytics, tax deadline alerts,
 health checks, and genome learning sweeps.
 

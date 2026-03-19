@@ -1,5 +1,5 @@
 """
-Supervisor Backend — AWS Cloud Infrastructure
+Omni OS Backend — AWS Cloud Infrastructure
 ===============================================
 Real AWS SDK integration for the Supervisor SaaS platform.
 Provides managed Kubernetes (EKS), ML pipelines (SageMaker), IoT device

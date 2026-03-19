@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Agent Definitions
+Omni OS Backend — Agent Definitions
 44 agents organized by operational layer with system prompts, goals, tool access,
 and memory extraction.
 
@@ -68,7 +68,7 @@ def _x_reindustrialization(o): return {"reindustrialization": o}
 AGENTS: list[AgentConfig] = [
 
     AgentConfig("prospector", "Prospector", "Lead Intelligence", "◎",
-        tool_categories=["prospecting", "web", "crm"], tier=Tier.STANDARD, max_iterations=20,
+        tool_categories=["prospecting", "web", "crm", "ai"], tier=Tier.STANDARD, max_iterations=20,
         system_prompt_builder=lambda m: f"""You are a senior B2B lead researcher with real tools.
 {m.to_context_string()}
 
@@ -87,7 +87,7 @@ FORMAT per prospect:
         memory_extractor=_x_prospects),
 
     AgentConfig("outreach", "Outreach", "Sales Automation", "◈",
-        tool_categories=["web", "email", "voice", "crm"], tier=Tier.STANDARD, max_iterations=10,
+        tool_categories=["web", "email", "voice", "crm", "ai"], tier=Tier.STANDARD, max_iterations=10,
         system_prompt_builder=lambda m: f"""You are a world-class B2B cold email strategist.
 {m.to_context_string()}
 PROSPECT INTEL: {m.prospects[:3000] if m.prospects else "No prospects yet — write templates."}
@@ -97,7 +97,7 @@ FORMAT: ## EMAIL 1-3 (Day 1/4/10) with Subject + body. ## LINKEDIN NOTE under 28
         memory_extractor=_x_outreach),
 
     AgentConfig("content", "Content", "SEO & Authority", "◇",
-        tool_categories=["web", "seo", "content"], tier=Tier.STANDARD, max_iterations=10,
+        tool_categories=["web", "seo", "content", "ai"], tier=Tier.STANDARD, max_iterations=10,
         system_prompt_builder=lambda m: f"""You are a senior SEO content strategist.
 {m.to_context_string()}
 Use web_search for keyword research and web_scrape to analyze top-ranking competitors.
@@ -106,7 +106,7 @@ FORMAT: ## PILLAR: [Title] with keyword/intent/outline/3 opening paragraphs. ## 
         memory_extractor=_x_content),
 
     AgentConfig("social", "Social", "Multi-Platform Audience Growth", "⬡",
-        tool_categories=["web", "social", "content", "community"], tier=Tier.STANDARD, max_iterations=10,
+        tool_categories=["web", "social", "content", "community", "ai"], tier=Tier.STANDARD, max_iterations=10,
         system_prompt_builder=lambda m: f"""You are a multi-platform social strategist who builds audiences across LinkedIn, X, YouTube Shorts, TikTok, Reddit, and Hacker News.
 {m.to_context_string()}
 
@@ -143,7 +143,7 @@ FORMAT:
         memory_extractor=_x_social),
 
     AgentConfig("ads", "Ads", "Paid Acquisition", "◆",
-        tool_categories=["web", "ads", "content"], tier=Tier.STANDARD, max_iterations=8,
+        tool_categories=["web", "ads", "content", "ai"], tier=Tier.STANDARD, max_iterations=8,
         system_prompt_builder=lambda m: f"""You are a B2B performance marketing expert.
 {m.to_context_string()}
 Use web_search to research competitor ads. Headlines = outcome. Primary text = pain. Google headlines ≤30 chars.
@@ -152,7 +152,7 @@ FORMAT: ## META ADS (3 variants) ## GOOGLE SEARCH ADS (2 ads) ## LANDING PAGE (h
         memory_extractor=_x_ads),
 
     AgentConfig("cs", "Client Success", "Retention, Upsell & Expansion", "◉",
-        tool_categories=["messaging", "reporting", "crm", "calendar", "upsell"], tier=Tier.STANDARD, max_iterations=8,
+        tool_categories=["messaging", "reporting", "crm", "calendar", "upsell", "ai"], tier=Tier.STANDARD, max_iterations=8,
         system_prompt_builder=lambda m: f"""You are a premium client success manager who drives retention AND expansion revenue.
 {m.to_context_string()}
 
@@ -178,7 +178,7 @@ FORMAT:
         memory_extractor=_x_cs),
 
     AgentConfig("sitelaunch", "Site Launch", "Domain · Build · Deploy", "◈",
-        tool_categories=["web", "deployment", "content", "design", "website"], tier=Tier.STANDARD, max_iterations=12,
+        tool_categories=["web", "deployment", "content", "design", "website", "ai"], tier=Tier.STANDARD, max_iterations=12,
         system_prompt_builder=lambda m: f"""You are a senior web strategist and conversion architect.
 {m.to_context_string()}
 Use web_search for domain availability and competitor analysis. Use web_scrape on competitor sites.
@@ -187,7 +187,7 @@ DELIVERABLES: 1) Domain recs (3) 2) Site architecture 3) Hero copy 4) SEO meta 5
         memory_extractor=_x_site),
 
     AgentConfig("legal", "Legal", "Business Law, Tax & Compliance", "⬗",
-        tool_categories=["web", "legal", "formation", "finance", "tax", "harvey"], tier=Tier.STANDARD, max_iterations=15,
+        tool_categories=["web", "legal", "formation", "finance", "tax", "harvey", "ai"], tier=Tier.STANDARD, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are a senior business attorney AND tax counsel specializing in agency, SaaS, and service business law.
 {m.to_context_string()}
 
@@ -240,7 +240,7 @@ FORMAT:
         memory_extractor=_x_legal),
 
     AgentConfig("marketing_expert", "Marketing Expert", "Strategy & Positioning", "◐",
-        tool_categories=["web", "research"], tier=Tier.STANDARD, max_iterations=12,
+        tool_categories=["web", "research", "ai"], tier=Tier.STANDARD, max_iterations=12,
         system_prompt_builder=lambda m: f"""You are a senior GTM strategist.
 {m.to_context_string()}
 Use web_search for competitors and trends. Use web_scrape on competitor sites.
@@ -249,7 +249,7 @@ FORMAT: ## POSITIONING STATEMENT ## COMPETITIVE LANDSCAPE (3 competitors) ## DIF
         memory_extractor=_x_gtm),
 
     AgentConfig("procurement", "Procurement", "Tool & Spend Tracking", "◑",
-        tool_categories=["web", "procurement"], tier=Tier.FAST, max_iterations=8,
+        tool_categories=["web", "procurement", "ai"], tier=Tier.FAST, max_iterations=8,
         system_prompt_builder=lambda m: f"""You are an ops expert who optimizes agency tool stacks.
 {m.to_context_string()}
 Use web_search for current pricing. Only recommend tools enabling {m.business.service}.
@@ -258,7 +258,7 @@ FORMAT: ## TOOL STACK (by category) ## MONTHLY BUDGET ## FREE ALTERNATIVES ## TO
         memory_extractor=_x_procurement),
 
     AgentConfig("newsletter", "Newsletter", "Email Campaigns", "◌",
-        tool_categories=["web", "newsletter", "email"], tier=Tier.STANDARD, max_iterations=8,
+        tool_categories=["web", "newsletter", "email", "ai"], tier=Tier.STANDARD, max_iterations=8,
         system_prompt_builder=lambda m: f"""You are an email marketing strategist for B2B agencies.
 {m.to_context_string()}
 Every email has ONE job. Welcome sequence builds trust before asking.
@@ -267,7 +267,7 @@ FORMAT: ## EMAIL STRATEGY ## LEAD MAGNET CONCEPT ## WELCOME SEQUENCE (5 emails) 
         memory_extractor=_x_newsletter),
 
     AgentConfig("ppc", "PPC Manager", "Ongoing Ad Optimization", "◍",
-        tool_categories=["web", "ads", "analytics", "seo"], tier=Tier.STANDARD, max_iterations=8,
+        tool_categories=["web", "ads", "analytics", "seo", "ai"], tier=Tier.STANDARD, max_iterations=8,
         system_prompt_builder=lambda m: f"""You are a PPC specialist for B2B agencies.
 {m.to_context_string()}
 AD PACKAGE: {"available" if m.ad_package else "pending"}
@@ -279,7 +279,7 @@ FORMAT: ## WEEKLY AUDIT FRAMEWORK ## BID STRATEGY ## NEGATIVE KEYWORDS (15) ## A
     # ── BACK-OFFICE AGENTS ────────────────────────────────────────────────────
 
     AgentConfig("finance", "Finance", "CFO & Controller", "◈",
-        tool_categories=["web", "finance", "advisor"], tier=Tier.STANDARD, max_iterations=12,
+        tool_categories=["web", "finance", "advisor", "ai"], tier=Tier.STANDARD, max_iterations=12,
         system_prompt_builder=lambda m: f"""You are a fractional CFO for small and mid-size service businesses.
 {m.to_context_string()}
 
@@ -316,7 +316,7 @@ FORMAT:
         memory_extractor=_x_finance),
 
     AgentConfig("hr", "HR", "People & Compliance", "◉",
-        tool_categories=["web", "hr", "legal"], tier=Tier.STANDARD, max_iterations=10,
+        tool_categories=["web", "hr", "legal", "ai"], tier=Tier.STANDARD, max_iterations=10,
         system_prompt_builder=lambda m: f"""You are a senior HR consultant specializing in early-stage service businesses.
 {m.to_context_string()}
 
@@ -354,7 +354,7 @@ FORMAT:
         memory_extractor=_x_hr),
 
     AgentConfig("sales", "Sales Pipeline", "Revenue Engine", "◆",
-        tool_categories=["web", "crm", "sales", "email", "voice"], tier=Tier.STANDARD, max_iterations=12,
+        tool_categories=["web", "crm", "sales", "email", "voice", "ai"], tier=Tier.STANDARD, max_iterations=12,
         system_prompt_builder=lambda m: f"""You are a VP of Sales who has built pipelines from $0 to $1M+ at service businesses.
 {m.to_context_string()}
 
@@ -395,7 +395,7 @@ FORMAT:
         memory_extractor=_x_sales),
 
     AgentConfig("delivery", "Delivery", "Fulfillment & Ops", "◑",
-        tool_categories=["web", "delivery", "crm", "messaging", "calendar"], tier=Tier.STANDARD, max_iterations=10,
+        tool_categories=["web", "delivery", "crm", "messaging", "calendar", "ai"], tier=Tier.STANDARD, max_iterations=10,
         system_prompt_builder=lambda m: f"""You are a senior operations consultant who designs service delivery systems.
 {m.to_context_string()}
 
@@ -431,7 +431,7 @@ FORMAT:
         memory_extractor=_x_delivery),
 
     AgentConfig("analytics_agent", "Analytics", "Data & Intelligence", "◍",
-        tool_categories=["web", "analytics", "bi", "reporting"], tier=Tier.STANDARD, max_iterations=10,
+        tool_categories=["web", "analytics", "bi", "reporting", "ai"], tier=Tier.STANDARD, max_iterations=10,
         system_prompt_builder=lambda m: f"""You are a senior data/analytics strategist for growth-stage businesses.
 {m.to_context_string()}
 
@@ -474,7 +474,7 @@ FORMAT:
         memory_extractor=_x_analytics),
 
     AgentConfig("tax_strategist", "Tax Strategist", "Tax Optimization & Compliance", "⬗",
-        tool_categories=["web", "tax", "finance", "advisor", "legal"], tier=Tier.STRONG, max_iterations=15,
+        tool_categories=["web", "tax", "finance", "advisor", "legal", "ai"], tier=Tier.STRONG, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are a senior tax strategist who has saved founders millions in taxes. You think like a CPA who also understands business strategy.
 {m.to_context_string()}
 
@@ -553,7 +553,7 @@ FORMAT:
         memory_extractor=_x_tax),
 
     AgentConfig("wealth_architect", "Wealth Architect", "1% Wealth & Asset Strategy", "◎",
-        tool_categories=["web", "tax", "finance", "advisor", "legal", "formation"], tier=Tier.STRONG, max_iterations=18,
+        tool_categories=["web", "tax", "finance", "advisor", "legal", "formation", "ai"], tier=Tier.STRONG, max_iterations=18,
         system_prompt_builder=lambda m: f"""You are a wealth strategist who advises 7-8 figure founders on the same structures
 billionaires and the top 1% use to build, protect, and compound wealth. You are NOT a financial advisor —
 you are a strategist who maps out the architecture. The founder executes with their CPA, attorney, and wealth manager.
@@ -667,7 +667,7 @@ FORMAT:
     # ── ONBOARDING & META AGENTS ──────────────────────────────────────────────
 
     AgentConfig("vision_interview", "Vision Interview", "Business Strategist", "◎",
-        tool_categories=["web"], tier=Tier.STANDARD, max_iterations=15,
+        tool_categories=["web", "ai"], tier=Tier.STANDARD, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are a world-class business strategist conducting a discovery interview.
 {m.to_context_string()}
 
@@ -701,7 +701,7 @@ OUTPUT FORMAT (when concluding):
         memory_extractor=lambda o: {"brand_context": o}),
 
     AgentConfig("design", "Design Director", "Brand System & Visual QA", "◈",
-        tool_categories=["web", "design", "content", "figma"], tier=Tier.STANDARD, max_iterations=10,
+        tool_categories=["web", "design", "content", "figma", "ai"], tier=Tier.STANDARD, max_iterations=10,
         system_prompt_builder=lambda m: f"""You are a senior creative director with 15 years at top agencies.
 {m.to_context_string()}
 
@@ -753,7 +753,7 @@ Output as structured sections so other agents can consume it programmatically.""
         memory_extractor=lambda o: {"brand_context": o}),
 
     AgentConfig("formation", "Business Formation", "Entity & Infrastructure", "◎",
-        tool_categories=["web", "formation"], tier=Tier.STANDARD, max_iterations=15,
+        tool_categories=["web", "formation", "ai"], tier=Tier.STANDARD, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are an expert business formation consultant who has helped 1,000+ entrepreneurs launch legally.
 {m.to_context_string()}
 
@@ -788,7 +788,7 @@ FORMAT:
         memory_extractor=lambda o: {"brand_context": o}),
 
     AgentConfig("advisor", "Business Advisor", "Strategy & Operations", "◐",
-        tool_categories=["web", "advisor", "research"], tier=Tier.STRONG, max_iterations=15,
+        tool_categories=["web", "advisor", "research", "ai"], tier=Tier.STRONG, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are a seasoned business advisor who has scaled 100+ service businesses from $0 to $1M+.
 {m.to_context_string()}
 
@@ -819,7 +819,7 @@ FORMAT:
         memory_extractor=lambda o: {"brand_context": o}),
 
     AgentConfig("supervisor", "Supervisor", "Chief Operating Officer", "◎",
-        tool_categories=["web", "memory", "prospecting", "supervisor", "messaging", "analytics"], tier=Tier.STRONG, max_iterations=25,
+        tool_categories=["web", "memory", "prospecting", "supervisor", "messaging", "analytics", "ai"], tier=Tier.STRONG, max_iterations=25,
         system_prompt_builder=lambda m: f"""You are the COO of an autonomous marketing agency. You oversee 12+ specialist agents.
 {m.to_context_string()}
 
@@ -882,7 +882,7 @@ FORMAT your briefing as:
     # ── Revenue Multiplier Agents ─────────────────────────────────────
 
     AgentConfig("billing", "Billing", "Invoicing & Collections", "◈",
-        tool_categories=["billing", "email", "crm", "messaging"], tier=Tier.STANDARD, max_iterations=12,
+        tool_categories=["billing", "email", "crm", "messaging", "ai"], tier=Tier.STANDARD, max_iterations=12,
         system_prompt_builder=lambda m: f"""You are a CFO-level billing and collections specialist who automates revenue capture.
 {m.to_context_string()}
 
@@ -929,7 +929,7 @@ FORMAT:
         memory_extractor=_x_billing),
 
     AgentConfig("referral", "Referral Engine", "Affiliate & Referral Growth", "◎",
-        tool_categories=["referral", "web", "email", "social", "content"], tier=Tier.STANDARD, max_iterations=12,
+        tool_categories=["referral", "web", "email", "social", "content", "ai"], tier=Tier.STANDARD, max_iterations=12,
         system_prompt_builder=lambda m: f"""You are a growth expert specializing in referral and affiliate programs — the cheapest customer acquisition channel.
 {m.to_context_string()}
 
@@ -971,7 +971,7 @@ FORMAT:
         memory_extractor=_x_referral),
 
     AgentConfig("competitive_intel", "Competitive Intel", "Market & Competitor Monitoring", "◍",
-        tool_categories=["web", "research", "analytics", "social"], tier=Tier.STANDARD, max_iterations=15,
+        tool_categories=["web", "research", "analytics", "social", "ai"], tier=Tier.STANDARD, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are a competitive intelligence analyst who monitors the market 24/7.
 {m.to_context_string()}
 
@@ -1017,7 +1017,7 @@ For each: pricing, positioning, strengths, weaknesses, recent moves
         memory_extractor=_x_competitive),
 
     AgentConfig("client_portal", "Client Portal", "Client-Facing Dashboards", "◌",
-        tool_categories=["web", "reporting", "analytics", "content"], tier=Tier.STANDARD, max_iterations=10,
+        tool_categories=["web", "reporting", "analytics", "content", "ai"], tier=Tier.STANDARD, max_iterations=10,
         system_prompt_builder=lambda m: f"""You are a client experience architect who builds read-only dashboards that wow clients.
 {m.to_context_string()}
 
@@ -1055,7 +1055,7 @@ FORMAT:
         memory_extractor=_x_portal),
 
     AgentConfig("voice_receptionist", "Inbound Command Center", "AI Phone, Support & Intake", "◎",
-        tool_categories=["voice", "crm", "calendar", "messaging", "web", "support"], tier=Tier.STANDARD, max_iterations=15,
+        tool_categories=["voice", "crm", "calendar", "messaging", "web", "support", "ai"], tier=Tier.STANDARD, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are the unified inbound command center — handling phone calls, support tickets, live chat, and customer intake for {m.business.name}.
 {m.to_context_string()}
 
@@ -1120,7 +1120,7 @@ FORMAT:
         memory_extractor=_x_receptionist),
 
     AgentConfig("fullstack_dev", "Full-Stack Dev", "Universal Software Builder", "◇",
-        tool_categories=["web", "development", "deployment", "content", "design", "mobile", "ai_dev"], tier=Tier.STRONG, max_iterations=25,
+        tool_categories=["web", "development", "deployment", "content", "design", "mobile", "ai_dev", "ai"], tier=Tier.STRONG, max_iterations=25,
         system_prompt_builder=lambda m: f"""You are a world-class full-stack software engineer who builds production-grade applications across EVERY platform and paradigm.
 {m.to_context_string()}
 
@@ -1250,7 +1250,7 @@ FORMAT:
         memory_extractor=_x_fullstack),
 
     AgentConfig("economist", "Economist", "Market & Economic Intelligence", "◎",
-        tool_categories=["web", "research", "analytics", "community"], tier=Tier.STRONG, max_iterations=15,
+        tool_categories=["web", "research", "analytics", "community", "ai"], tier=Tier.STRONG, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are a senior business economist who monitors global markets, economic indicators, regulatory changes, and industry trends to provide actionable intelligence for business decision-making.
 {m.to_context_string()}
 
@@ -1315,7 +1315,7 @@ FORMAT:
         memory_extractor=_x_economist),
 
     AgentConfig("pr_comms", "PR & Communications", "Media, Press & Crisis Comms", "◈",
-        tool_categories=["web", "email", "content", "social", "community", "messaging", "pr"], tier=Tier.STANDARD, max_iterations=12,
+        tool_categories=["web", "email", "content", "social", "community", "messaging", "pr", "ai"], tier=Tier.STANDARD, max_iterations=12,
         system_prompt_builder=lambda m: f"""You are a senior PR and communications strategist who manages media relations, press coverage, and crisis communications.
 {m.to_context_string()}
 
@@ -1373,7 +1373,7 @@ FORMAT:
         memory_extractor=_x_pr),
 
     AgentConfig("data_engineer", "Data Engineer", "Dashboards & Business Intelligence", "◍",
-        tool_categories=["web", "development", "analytics", "bi", "reporting"], tier=Tier.STRONG, max_iterations=15,
+        tool_categories=["web", "development", "analytics", "bi", "reporting", "ai"], tier=Tier.STRONG, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are a senior data engineer who builds dashboards, data pipelines, and business intelligence systems that give {m.business.name} complete visibility into operations.
 {m.to_context_string()}
 
@@ -1434,7 +1434,7 @@ FORMAT:
         memory_extractor=_x_data_eng),
 
     AgentConfig("governance", "Governance Body", "Legal, Compliance & Regulatory Authority", "◎",
-        tool_categories=["web", "legal", "research", "community", "harvey"], tier=Tier.STRONG, max_iterations=20,
+        tool_categories=["web", "legal", "research", "community", "harvey", "ai"], tier=Tier.STRONG, max_iterations=20,
         system_prompt_builder=lambda m: f"""You are the Chief Compliance Officer and Governance Authority for {m.business.name}. You are the single source of truth for ALL legal, regulatory, and compliance matters.
 {m.to_context_string()}
 
@@ -1507,7 +1507,7 @@ FORMAT:
         memory_extractor=_x_governance),
 
     AgentConfig("product_manager", "Product Manager", "Roadmap, Prioritization & User Stories", "◇",
-        tool_categories=["web", "research", "analytics", "community", "content", "product"], tier=Tier.STRONG, max_iterations=15,
+        tool_categories=["web", "research", "analytics", "community", "content", "product", "ai"], tier=Tier.STRONG, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are a senior product manager who turns business goals into prioritized roadmaps, user stories, and feature specs for {m.business.name}.
 {m.to_context_string()}
 
@@ -1567,7 +1567,7 @@ FORMAT:
         memory_extractor=_x_product),
 
     AgentConfig("partnerships", "Partnerships & BD", "Strategic Partnerships, UGC & Lobbying", "◐",
-        tool_categories=["web", "email", "social", "community", "crm", "messaging", "content", "partnerships"], tier=Tier.STRONG, max_iterations=15,
+        tool_categories=["web", "email", "social", "community", "crm", "messaging", "content", "partnerships", "ai"], tier=Tier.STRONG, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are a senior business development executive who builds strategic partnerships, UGC creator networks, and industry influence for {m.business.name}.
 {m.to_context_string()}
 
@@ -1645,7 +1645,7 @@ FORMAT:
     # ── Client Delivery Layer ─────────────────────────────────────
 
     AgentConfig("client_fulfillment", "Client Fulfillment", "Buyer Experience & Product Delivery", "◈",
-        tool_categories=["web", "email", "crm", "billing", "delivery", "messaging", "support", "content", "calendar"], tier=Tier.STRONG, max_iterations=20,
+        tool_categories=["web", "email", "crm", "billing", "delivery", "messaging", "support", "content", "calendar", "ai"], tier=Tier.STRONG, max_iterations=20,
         system_prompt_builder=lambda m: f"""You are the Client Fulfillment Director for {m.business.name}. You own the ENTIRE buyer journey — from the moment someone pays to the moment they have their product/service running and generating value.
 
 {m.to_context_string()}
@@ -1729,7 +1729,7 @@ FORMAT:
     # ── Knowledge & Memory Systems ─────────────────────────────────
 
     AgentConfig("knowledge_engine", "Knowledge Engine", "Institutional Memory & Learning", "◎",
-        tool_categories=["web", "research", "analytics", "bi", "community"], tier=Tier.STRONG, max_iterations=15,
+        tool_categories=["web", "research", "analytics", "bi", "community", "ai"], tier=Tier.STRONG, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are the Chief Knowledge Officer for {m.business.name}. You build the institutional brain that makes this business smarter over time and eventually self-sufficient.
 
 {m.to_context_string()}
@@ -1809,7 +1809,7 @@ FORMAT:
     # ── Agent Infrastructure Layer ─────────────────────────────────
 
     AgentConfig("agent_ops", "Agent Ops", "Agent Workspaces, Computer Use & Live Browser", "◍",
-        tool_categories=["web", "development", "deployment", "orchestration", "research", "computer_use"], tier=Tier.STRONG, max_iterations=15,
+        tool_categories=["web", "development", "deployment", "orchestration", "research", "computer_use", "ai"], tier=Tier.STRONG, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are the Agent Infrastructure Architect for {m.business.name}. You design the systems that give AI agents their own compute environments, LIVE BROWSER SESSIONS users can watch in real-time, vision-guided navigation, and persistent workspaces.
 
 {m.to_context_string()}
@@ -1914,7 +1914,7 @@ FORMAT:
         memory_extractor=_x_workspace),
 
     AgentConfig("world_model", "World Model", "Spatial, Temporal & Social Awareness", "◎",
-        tool_categories=["web", "research", "analytics", "community"], tier=Tier.STRONG, max_iterations=15,
+        tool_categories=["web", "research", "analytics", "community", "ai"], tier=Tier.STRONG, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are the World Model Architect for {m.business.name}. You build the internal representation of reality that all agents use to understand context, visualize their work, and make humanized decisions.
 
 {m.to_context_string()}
@@ -1994,7 +1994,7 @@ FORMAT:
         memory_extractor=lambda o: {{"brand_context": o}}),
 
     AgentConfig("portfolio_ops", "Portfolio Ops", "Multi-Campaign Orchestration", "◐",
-        tool_categories=["orchestration", "web", "reporting", "analytics"], tier=Tier.STRONG, max_iterations=15,
+        tool_categories=["orchestration", "web", "reporting", "analytics", "ai"], tier=Tier.STRONG, max_iterations=15,
         system_prompt_builder=lambda m: f"""You are a senior agency operations director who manages multiple client campaigns simultaneously.
 {m.to_context_string()}
 
@@ -2042,7 +2042,7 @@ FORMAT:
     # ── Hardware Manufacturing Agent ──────────────────────────────────────────
 
     AgentConfig("hardware_mfg", "Hardware Mfg", "CAD Design, Procurement, CNC/3D Print & Mass Production", "HW",
-        tool_categories=["web", "development", "research", "manufacturing", "procurement", "computer_use", "nvidia", "aws"], tier=Tier.STRONG, max_iterations=20,
+        tool_categories=["web", "development", "research", "manufacturing", "procurement", "computer_use", "nvidia", "aws", "ai"], tier=Tier.STRONG, max_iterations=20,
         system_prompt_builder=lambda m: f"""You are the Hardware Manufacturing Director for {m.business.name}. You bridge the gap between digital AI agents and PHYSICAL PRODUCTION — designing parts in CAD, ordering materials, controlling CNC machines and 3D printers, managing supply chains, and scaling to mass production.
 
 {m.to_context_string()}
@@ -2145,7 +2145,7 @@ FORMAT:
     # ── Enterprise Security Agent ─────────────────────────────────────────────
 
     AgentConfig("enterprise_security", "Enterprise Security", "Zero-Trust, Compliance, Threat Modeling & Pen Testing", "SC",
-        tool_categories=["web", "research", "security", "compliance", "reporting"], tier=Tier.STRONG, max_iterations=20,
+        tool_categories=["web", "research", "security", "compliance", "reporting", "ai"], tier=Tier.STRONG, max_iterations=20,
         system_prompt_builder=lambda m: f"""You are the Chief Information Security Officer (CISO) agent for {m.business.name}. You make this platform irresistible to enterprises by building defense-in-depth security, achieving compliance certifications, running continuous threat modeling, and maintaining a security posture that passes the most rigorous enterprise procurement reviews.
 
 {m.to_context_string()}
@@ -2256,7 +2256,7 @@ FORMAT:
     # ── REINDUSTRIALIZATION AGENT ──────────────────────────────────────────
     AgentConfig("reindustrialization", "American Industrial Revival", "Reindustrialization & Manufacturing", "RI",
         tier=Tier.STRONG,
-        tool_categories=["reindustrialization", "nvidia", "aws", "manufacturing"],
+        tool_categories=["reindustrialization", "nvidia", "aws", "manufacturing", "ai"],
         system_prompt_builder=lambda m: f"""You are the Reindustrialization Agent — an AI strategist dedicated to rebuilding American manufacturing, infrastructure, and industrial capacity. You orchestrate NVIDIA GPU infrastructure and AWS cloud services to bridge AI from bits to atoms.
 {m.to_context_string()}
 

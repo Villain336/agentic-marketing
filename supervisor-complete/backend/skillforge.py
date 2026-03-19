@@ -1,5 +1,5 @@
 """
-Supervisor Backend — SkillForge: Self-Writing Skills System
+Omni OS Backend — SkillForge: Self-Writing Skills System
 Agents can create, validate, and register new tools at runtime.
 Competes with OpenClaw's self-evolving agent skills.
 """

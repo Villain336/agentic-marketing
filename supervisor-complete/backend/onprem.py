@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Local-First / On-Prem Deployment Support
+Omni OS Backend — Local-First / On-Prem Deployment Support
 Enables air-gapped and self-hosted deployments with local LLM support.
 Competes with OpenClaw (local-first), Poolside (air-gap), NemoClaw (enterprise on-prem).
 """

@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Rate Limiting
+Omni OS Backend — Rate Limiting
 Per-user and per-campaign rate limiting with sliding window.
 """
 from __future__ import annotations

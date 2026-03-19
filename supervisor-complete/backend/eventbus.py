@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Event Bus & Cross-Agent Pipeline Triggers
+Omni OS Backend — Event Bus & Cross-Agent Pipeline Triggers
 
 Event-driven pub/sub system enabling agents to trigger other agents
 based on outputs, thresholds, and state changes. Replaces purely

@@ -1,5 +1,5 @@
 """
-Supervisor Backend — NVIDIA GPU Infrastructure
+Omni OS Backend — NVIDIA GPU Infrastructure
 ================================================
 GPU cluster management, TensorRT optimization, Triton inference serving,
 Omniverse digital twins, Isaac Sim robotics, and Metropolis vision AI.

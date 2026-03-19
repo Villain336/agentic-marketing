@@ -91,7 +91,7 @@ export default function OnboardingPage() {
 
   const startProvisioning = useCallback(() => {
     setStage("provisioning");
-    localStorage.setItem("sv_business", JSON.stringify(business));
+    localStorage.setItem("omni_business", JSON.stringify(business));
     localStorage.setItem("sv_channels", JSON.stringify(channels));
     localStorage.setItem("sv_autonomy", autonomy);
 
@@ -455,7 +455,7 @@ function AutonomyStage({ value, onChange, onNext, onBack }: { value: string; onC
       </div>
       <div className="flex justify-between mt-8">
         <button onClick={onBack} className="btn-ghost">Back</button>
-        <button onClick={onNext} className="btn-primary">Launch Supervisor</button>
+        <button onClick={onNext} className="btn-primary">Launch Omni OS</button>
       </div>
     </div>
   );

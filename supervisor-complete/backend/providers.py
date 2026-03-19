@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Multi-Provider Model Router
+Omni OS Backend — Multi-Provider Model Router
 Failover: Anthropic → OpenAI → Google. Normalizes tool calling across all three.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ import httpx
 from config import ProviderConfig, settings
 from models import ToolCall, ToolDefinition, Tier
 
-logger = logging.getLogger("supervisor.router")
+logger = logging.getLogger("omnios.router")
 
 
 class ProviderError(Exception):
@@ -624,8 +624,8 @@ class OpenRouterAdapter(OpenAIAdapter):
         return {
             "Authorization": f"Bearer {self.config.api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://supervisor.ai",
-            "X-Title": "Supervisor",
+            "HTTP-Referer": "https://omnios.ai",
+            "X-Title": "Omni OS",
         }
 
 

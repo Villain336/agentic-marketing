@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Design View / Interactive Visual Editor
+Omni OS Backend — Design View / Interactive Visual Editor
 Real-time visual editing canvas for agent-generated assets.
 Competes with Manus 1.6's Design View and OpenClaw's Live Canvas.
 """

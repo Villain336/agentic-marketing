@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Reindustrialization Agent Logic
+Omni OS Backend — Reindustrialization Agent Logic
 American Industrial Revival — factory planning, robotics, supply chain reshoring,
 digital twins, energy, workforce, defense contracting, agriculture, construction, logistics.
 """

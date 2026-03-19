@@ -1,5 +1,5 @@
 """
-Supervisor Backend -- FastAPI Application
+Omni OS Backend -- FastAPI Application
 Slim entrypoint: middleware, lifecycle events, and router registration.
 All endpoint logic lives in routes/*.py modules.
 """
@@ -31,7 +31,7 @@ logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
-logger = logging.getLogger("supervisor.api")
+logger = logging.getLogger("omnios.api")
 
 
 # -- Request/Response Logging Middleware ---------------------------------------
@@ -60,7 +60,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 # -- Application ---------------------------------------------------------------
 
 app = FastAPI(
-    title="Supervisor API",
+    title="Omni OS API",
     description="Autonomous Agency Platform -- Backend Orchestration",
     version="0.3.0",
 )
@@ -102,7 +102,7 @@ async def create_session(request: Request):
 
     response = JSONResponse(content={"status": "ok"})
     response.set_cookie(
-        key="sv_session",
+        key="omni_session",
         value=token,
         httponly=True,
         secure=True,
@@ -117,7 +117,7 @@ async def create_session(request: Request):
 async def logout_session():
     """Clear the session cookie."""
     response = JSONResponse(content={"status": "ok"})
-    response.delete_cookie(key="sv_session", path="/")
+    response.delete_cookie(key="omni_session", path="/")
     return response
 
 
@@ -246,5 +246,5 @@ async def shutdown_event():
 
 if __name__ == "__main__":
     import uvicorn
-    logger.info(f"Starting Supervisor API -- {len(AGENTS)} agents, {len(settings.active_providers)} providers")
+    logger.info(f"Starting Omni OS API -- {len(AGENTS)} agents, {len(settings.active_providers)} providers")
     uvicorn.run(app, host=settings.host, port=settings.port)

@@ -1,5 +1,5 @@
 """
-Supervisor Backend — LLM Token Cost Tracker
+Omni OS Backend — LLM Token Cost Tracker
 Tracks inference cost per agent per run. Separate from tool spend (wallet).
 """
 from __future__ import annotations

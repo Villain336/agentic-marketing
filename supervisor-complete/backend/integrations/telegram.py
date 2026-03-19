@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Telegram Bot Integration
+Omni OS Backend — Telegram Bot Integration
 The Supervisor meta-agent is accessible via Telegram.
 Commands, natural language, and push notifications.
 """

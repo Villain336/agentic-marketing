@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Data Models
+Omni OS Backend — Data Models
 """
 from __future__ import annotations
 from datetime import datetime

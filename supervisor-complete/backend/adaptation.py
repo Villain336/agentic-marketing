@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Adaptive Learning Engine
+Omni OS Backend — Adaptive Learning Engine
 Closes the loop: sensing → scoring → genome → agent prompts.
 Agents get smarter with every run based on real outcome data.
 

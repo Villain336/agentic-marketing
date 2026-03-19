@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Autonomy & Approval Enforcement
+Omni OS Backend — Autonomy & Approval Enforcement
 
 Controls what agents can do autonomously vs. what requires human approval.
 Integrates with the engine's tool execution to gate sensitive actions.
