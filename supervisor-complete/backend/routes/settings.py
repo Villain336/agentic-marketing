@@ -246,6 +246,44 @@ async def list_event_types(request: Request):
     return [{"value": et.value, "label": et.name} for et in EventType]
 
 
+# ── Business Profile ────────────────────────────────────────────────────
+
+# In-memory business profile store scoped by user_id
+_user_profiles: dict[str, dict] = {}
+
+PROFILE_WRITABLE_FIELDS = {
+    "name", "service", "icp", "geography", "goal", "entityType",
+    "industry", "founderTitle", "brandContext", "websiteUrl",
+    "pricingModel", "currentRevenue", "teamSize", "competitors",
+    "biggestChallenge", "brandVoice", "businessModel", "startingFromScratch",
+}
+
+
+@router.post("/settings/business-profile")
+async def update_business_profile(request: Request):
+    """Update the user's business profile. Persists for future campaign runs."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+
+    body = await request.json()
+    filtered = {k: v for k, v in body.items() if k in PROFILE_WRITABLE_FIELDS}
+    current = _user_profiles.get(user_id, {})
+    current.update(filtered)
+    _user_profiles[user_id] = current
+    logger.info(f"User {user_id[:8]}... updated business profile ({len(filtered)} fields)")
+    return {"updated": list(filtered.keys()), "count": len(filtered)}
+
+
+@router.get("/settings/business-profile")
+async def get_business_profile(request: Request):
+    """Get the user's stored business profile."""
+    user_id = get_user_id(request)
+    if not user_id:
+        raise HTTPException(401, "Authentication required")
+    return _user_profiles.get(user_id, {})
+
+
 # ── Secrets (API Keys) ──────────────────────────────────────────────────
 
 # Allowlisted secret key names that can be stored

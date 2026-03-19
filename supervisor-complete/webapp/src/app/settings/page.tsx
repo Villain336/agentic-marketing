@@ -3,10 +3,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { AGENTS, DEPARTMENTS } from "@/lib/constants";
+import { AGENTS, DEPARTMENTS, BUSINESS_MODELS } from "@/lib/constants";
 import { ToggleRow, EventDot } from "@/components/ui";
 import type {
-  AgentDef, Department, AutonomySettingsResponse,
+  AgentDef, Department, AutonomySettingsResponse, BusinessProfile,
   AgentAutonomySettings, TriggerRule, ApprovalItemResponse, EventEntry,
 } from "@/types";
 
@@ -19,6 +19,7 @@ const AUTONOMY_LEVELS = [
 ];
 
 const TABS = [
+  { id: "profile", label: "Business Profile" },
   { id: "global", label: "Global Settings" },
   { id: "agents", label: "Agent Preferences" },
   { id: "triggers", label: "Event Triggers" },
@@ -41,10 +42,14 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [selectedDept, setSelectedDept] = useState<Department | "all">("all");
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+  const [businessProfile, setBusinessProfile] = useState<Partial<BusinessProfile>>({});
 
   // Load data
   useEffect(() => {
     loadSettings();
+    // Load business profile from localStorage
+    const saved = localStorage.getItem("omni_business");
+    if (saved) setBusinessProfile(JSON.parse(saved));
   }, []);
 
   useEffect(() => {
@@ -123,6 +128,17 @@ export default function SettingsPage() {
     } catch { /* offline */ }
   };
 
+  const saveBusinessProfile = useCallback(async (updates: Partial<BusinessProfile>) => {
+    setSaving(true);
+    const updated = { ...businessProfile, ...updates };
+    setBusinessProfile(updated);
+    localStorage.setItem("omni_business", JSON.stringify(updated));
+    try {
+      await api.post("/settings/business-profile", updated);
+    } catch { /* backend may be offline */ }
+    setSaving(false);
+  }, [businessProfile]);
+
   if (!settings) return null;
 
   const filteredAgents = selectedDept === "all" ? AGENTS : AGENTS.filter(a => a.department === selectedDept);
@@ -165,6 +181,9 @@ export default function SettingsPage() {
         {/* Content */}
         <main className="flex-1 overflow-y-auto p-6">
           <div className="max-w-4xl mx-auto">
+            {activeTab === "profile" && (
+              <BusinessProfileTab profile={businessProfile} onSave={saveBusinessProfile} />
+            )}
             {activeTab === "global" && (
               <GlobalSettingsTab settings={settings} onSave={saveGlobalSettings} />
             )}
@@ -191,6 +210,154 @@ export default function SettingsPage() {
             )}
           </div>
         </main>
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TAB: Business Profile
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const ENTITY_TYPES = [
+  { value: "sole_prop", label: "Sole Proprietorship" },
+  { value: "llc", label: "LLC" },
+  { value: "s_corp", label: "S-Corp" },
+  { value: "c_corp", label: "C-Corp" },
+  { value: "partnership", label: "Partnership" },
+];
+
+const BRAND_VOICES = [
+  { value: "professional", label: "Professional & authoritative" },
+  { value: "casual", label: "Casual & approachable" },
+  { value: "bold", label: "Bold & disruptive" },
+  { value: "technical", label: "Technical & data-driven" },
+  { value: "friendly", label: "Warm & friendly" },
+  { value: "luxury", label: "Premium & refined" },
+];
+
+function BusinessProfileTab({ profile, onSave }: {
+  profile: Partial<BusinessProfile>;
+  onSave: (updates: Partial<BusinessProfile>) => void;
+}) {
+  const model = BUSINESS_MODELS.find(m => m.id === profile.businessModel);
+
+  return (
+    <div className="space-y-8">
+      {/* Business Model */}
+      <div>
+        <h2 className="text-lg font-semibold text-surface-900 mb-1">Business Model</h2>
+        <p className="text-sm text-surface-500 mb-4">
+          This tailors every agent&apos;s strategy, metrics, and playbooks.
+          {model && <span className="ml-1 text-brand-600 font-medium">North Star: {model.northStar}</span>}
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {BUSINESS_MODELS.map(m => (
+            <button
+              key={m.id}
+              onClick={() => onSave({ businessModel: m.id })}
+              className={`text-left p-3 rounded-xl border-2 transition-all text-sm ${
+                profile.businessModel === m.id
+                  ? "border-brand-500 bg-brand-50"
+                  : "border-surface-200 hover:border-surface-300"
+              }`}
+            >
+              <div className="font-medium text-surface-900">{m.label}</div>
+              <div className="text-xs text-surface-500 mt-0.5">{m.desc}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <hr className="border-surface-100" />
+
+      {/* Core Info */}
+      <div>
+        <h2 className="text-lg font-semibold text-surface-900 mb-4">Core Info</h2>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-surface-600 mb-1">Company Name</label>
+              <input className="input-field" value={profile.name || ""} onChange={e => onSave({ name: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-surface-600 mb-1">Industry</label>
+              <input className="input-field" value={profile.industry || ""} onChange={e => onSave({ industry: e.target.value })} />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-surface-600 mb-1">What do you sell?</label>
+            <input className="input-field" value={profile.service || ""} onChange={e => onSave({ service: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-surface-600 mb-1">Ideal Customer</label>
+            <input className="input-field" value={profile.icp || ""} onChange={e => onSave({ icp: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-surface-600 mb-1">Geography</label>
+              <input className="input-field" value={profile.geography || ""} onChange={e => onSave({ geography: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-surface-600 mb-1">Website</label>
+              <input className="input-field" value={profile.websiteUrl || ""} onChange={e => onSave({ websiteUrl: e.target.value })} />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-surface-600 mb-1">Competitors</label>
+            <input className="input-field" value={profile.competitors || ""} onChange={e => onSave({ competitors: e.target.value })} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-surface-600 mb-1">Biggest Challenge</label>
+            <input className="input-field" value={profile.biggestChallenge || ""} onChange={e => onSave({ biggestChallenge: e.target.value })} />
+          </div>
+        </div>
+      </div>
+
+      <hr className="border-surface-100" />
+
+      {/* Entity & Operations */}
+      <div>
+        <h2 className="text-lg font-semibold text-surface-900 mb-4">Entity & Operations</h2>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-surface-600 mb-1">Entity Type</label>
+              <select className="input-field" value={profile.entityType || ""} onChange={e => onSave({ entityType: e.target.value })}>
+                {ENTITY_TYPES.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-surface-600 mb-1">Your Title</label>
+              <input className="input-field" value={profile.founderTitle || ""} onChange={e => onSave({ founderTitle: e.target.value })} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-surface-600 mb-1">Team Size</label>
+              <select className="input-field" value={profile.teamSize || ""} onChange={e => onSave({ teamSize: e.target.value })}>
+                <option value="">Select</option>
+                <option value="solo">Solo founder</option>
+                <option value="2_5">2-5 people</option>
+                <option value="6_20">6-20 people</option>
+                <option value="21_50">21-50 people</option>
+                <option value="50_plus">50+ people</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-surface-600 mb-1">Brand Voice</label>
+              <select className="input-field" value={profile.brandVoice || ""} onChange={e => onSave({ brandVoice: e.target.value })}>
+                <option value="">Select</option>
+                {BRAND_VOICES.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-surface-600 mb-1">90-Day Revenue Goal</label>
+            <input className="input-field" value={profile.goal || ""} onChange={e => onSave({ goal: e.target.value })} placeholder="e.g., $100,000" />
+          </div>
+        </div>
       </div>
     </div>
   );
