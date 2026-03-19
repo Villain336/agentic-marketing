@@ -43,6 +43,7 @@ from routes.billing import router as billing_router
 from routes.memory_routes import router as memory_router
 from routes.governance import router as governance_router
 from routes.compliance import router as compliance_router
+from routes.enterprise import router as enterprise_router
 
 all_routers = [
     health_router,
@@ -82,4 +83,5 @@ all_routers = [
     memory_router,
     governance_router,
     compliance_router,
+    enterprise_router,
 ]
