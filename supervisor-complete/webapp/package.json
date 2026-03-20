@@ -8,7 +8,12 @@
     "start": "next start",
     "lint": "next lint",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "test:unit": "jest --testPathPattern='src/__tests__/(?!integration).*\\.test\\.'",
+    "test:integration": "jest --testPathPattern='src/__tests__/integration/'",
+    "test:e2e": "npx playwright test",
+    "test:e2e:headed": "npx playwright test --headed",
+    "test:all": "jest && npx playwright test"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.2.2",
@@ -27,6 +32,7 @@
   },
   "devDependencies": {
     "@jest/types": "^30.3.0",
+    "@playwright/test": "^1.58.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
