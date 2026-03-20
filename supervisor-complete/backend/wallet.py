@@ -1,9 +1,14 @@
 """
 Omni OS Backend — Agent Wallet & Budget Management
 Manages per-agent budget allocations and spend tracking.
+
+Security: asyncio.Lock per campaign prevents TOCTOU race conditions.
+All spend is persisted to Supabase for audit trail survival across restarts.
 """
 from __future__ import annotations
+import asyncio
 import logging
+from collections import defaultdict
 from datetime import datetime
 from typing import Any, Optional
 
@@ -12,60 +17,85 @@ from models import SpendEntry
 logger = logging.getLogger("supervisor.wallet")
 
 
+def _get_db():
+    """Lazy import to avoid circular dependency."""
+    import db
+    return db
+
+
 class AgentWallet:
-    """Manages per-agent budget allocations and spend tracking."""
+    """Manages per-agent budget allocations and spend tracking.
+
+    Thread safety: one asyncio.Lock per campaign_id ensures atomic
+    reserve-and-spend operations.
+    """
 
     def __init__(self):
         # campaign_id -> agent_id -> budget info
         self._budgets: dict[str, dict[str, dict]] = {}
         # campaign_id -> list of spend entries
         self._spend_log: dict[str, list[SpendEntry]] = {}
+        # Per-campaign locks for atomic budget operations (CRITICAL-01/02 fix)
+        self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     async def allocate_budget(self, campaign_id: str, agent_id: str,
                                amount: float, period: str = "monthly") -> dict:
         """Set weekly/monthly budget for an agent."""
-        if campaign_id not in self._budgets:
-            self._budgets[campaign_id] = {}
+        async with self._locks[campaign_id]:
+            if campaign_id not in self._budgets:
+                self._budgets[campaign_id] = {}
 
-        self._budgets[campaign_id][agent_id] = {
-            "allocated": amount,
-            "spent": 0.0,
-            "period": period,
-            "updated_at": datetime.utcnow().isoformat(),
-        }
+            self._budgets[campaign_id][agent_id] = {
+                "allocated": amount,
+                "spent": 0.0,
+                "period": period,
+                "updated_at": datetime.utcnow().isoformat(),
+            }
 
         logger.info(f"Budget allocated: {agent_id} = ${amount:.2f}/{period} for campaign {campaign_id[:8]}")
         return {"allocated": True, "agent_id": agent_id, "amount": amount, "period": period}
 
-    async def request_spend(self, campaign_id: str, agent_id: str,
-                             amount: float, description: str,
-                             approval_threshold: float = 100.0) -> dict:
-        """Check if spend is within budget. Returns approval status."""
-        budget = self._budgets.get(campaign_id, {}).get(agent_id)
+    async def reserve_and_spend(self, campaign_id: str, agent_id: str,
+                                 amount: float, tool: str, description: str,
+                                 approval_threshold: float = 100.0) -> dict:
+        """Atomic budget check + reservation. Prevents TOCTOU race conditions.
 
-        if not budget:
-            # No budget set — auto-approve small amounts, require approval for large
-            if amount <= approval_threshold:
-                return {"approved": True, "method": "auto", "reason": "Below threshold, no budget cap set"}
-            return {"approved": False, "method": "requires_approval",
-                    "reason": f"${amount:.2f} exceeds ${approval_threshold:.2f} threshold with no budget set"}
+        Returns {"approved": bool, "entry": SpendEntry|None, "reason": str}.
+        If approved, spend is already recorded — no separate record_spend needed.
+        """
+        async with self._locks[campaign_id]:
+            budget = self._budgets.get(campaign_id, {}).get(agent_id)
 
-        remaining = budget["allocated"] - budget["spent"]
+            if not budget:
+                if amount > approval_threshold:
+                    return {"approved": False, "entry": None,
+                            "reason": f"${amount:.2f} exceeds ${approval_threshold:.2f} threshold with no budget set"}
+                # Auto-approve small amounts with no budget — still record it
+                entry = await self._record_spend_locked(
+                    campaign_id, agent_id, amount, tool, description)
+                return {"approved": True, "entry": entry,
+                        "reason": "Below threshold, no budget cap set"}
 
-        if amount <= remaining:
-            if amount <= approval_threshold:
-                return {"approved": True, "method": "auto",
-                        "reason": f"Within budget (${remaining:.2f} remaining)"}
-            return {"approved": False, "method": "requires_approval",
-                    "reason": f"Amount ${amount:.2f} exceeds auto-approval threshold"}
+            remaining = budget["allocated"] - budget["spent"]
 
-        return {"approved": False, "method": "over_budget",
-                "reason": f"Requested ${amount:.2f} but only ${remaining:.2f} remaining"}
+            if amount > remaining:
+                return {"approved": False, "entry": None,
+                        "reason": f"Requested ${amount:.2f} but only ${remaining:.2f} remaining"}
 
-    async def record_spend(self, campaign_id: str, agent_id: str,
-                            amount: float, tool: str, description: str,
-                            approved_by: str = "auto") -> SpendEntry:
-        """Record actual spend with full attribution."""
+            if amount > approval_threshold:
+                return {"approved": False, "entry": None,
+                        "reason": f"Amount ${amount:.2f} exceeds auto-approval threshold"}
+
+            # Approved — atomically deduct and record
+            entry = await self._record_spend_locked(
+                campaign_id, agent_id, amount, tool, description)
+            return {"approved": True, "entry": entry,
+                    "reason": f"Within budget (${remaining - amount:.2f} remaining)"}
+
+    async def _record_spend_locked(self, campaign_id: str, agent_id: str,
+                                    amount: float, tool: str, description: str,
+                                    approved_by: str = "auto") -> SpendEntry:
+        """Record spend while already holding the campaign lock."""
         entry = SpendEntry(
             campaign_id=campaign_id,
             agent_id=agent_id,
@@ -83,8 +113,56 @@ class AgentWallet:
         if campaign_id in self._budgets and agent_id in self._budgets[campaign_id]:
             self._budgets[campaign_id][agent_id]["spent"] += amount
 
+        # Persist to database (CRITICAL-05 fix: survive restarts)
+        try:
+            db = _get_db()
+            await db.save_spend_entry(entry.model_dump() if hasattr(entry, 'model_dump') else {
+                "campaign_id": campaign_id, "agent_id": agent_id,
+                "amount": amount, "tool": tool, "description": description,
+                "approved_by": approved_by,
+            })
+        except Exception as e:
+            logger.warning(f"Spend persistence failed (in-memory still updated): {e}")
+
         logger.info(f"Spend recorded: {agent_id} spent ${amount:.2f} via {tool} ({description})")
         return entry
+
+    async def request_spend(self, campaign_id: str, agent_id: str,
+                             amount: float, description: str,
+                             approval_threshold: float = 100.0) -> dict:
+        """Check if spend is within budget. Returns approval status.
+
+        NOTE: For atomic check+spend, prefer reserve_and_spend() instead.
+        This method is retained for backward compatibility but uses locking.
+        """
+        async with self._locks[campaign_id]:
+            budget = self._budgets.get(campaign_id, {}).get(agent_id)
+
+            if not budget:
+                if amount <= approval_threshold:
+                    return {"approved": True, "method": "auto", "reason": "Below threshold, no budget cap set"}
+                return {"approved": False, "method": "requires_approval",
+                        "reason": f"${amount:.2f} exceeds ${approval_threshold:.2f} threshold with no budget set"}
+
+            remaining = budget["allocated"] - budget["spent"]
+
+            if amount <= remaining:
+                if amount <= approval_threshold:
+                    return {"approved": True, "method": "auto",
+                            "reason": f"Within budget (${remaining:.2f} remaining)"}
+                return {"approved": False, "method": "requires_approval",
+                        "reason": f"Amount ${amount:.2f} exceeds auto-approval threshold"}
+
+            return {"approved": False, "method": "over_budget",
+                    "reason": f"Requested ${amount:.2f} but only ${remaining:.2f} remaining"}
+
+    async def record_spend(self, campaign_id: str, agent_id: str,
+                            amount: float, tool: str, description: str,
+                            approved_by: str = "auto") -> SpendEntry:
+        """Record actual spend with full attribution."""
+        async with self._locks[campaign_id]:
+            return await self._record_spend_locked(
+                campaign_id, agent_id, amount, tool, description, approved_by)
 
     async def get_balance(self, campaign_id: str, agent_id: str) -> dict:
         """Current budget remaining, total spent, ROI if measurable."""

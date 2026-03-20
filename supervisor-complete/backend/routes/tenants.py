@@ -97,12 +97,15 @@ async def check_tenant_limits(tenant_id: str, request: Request):
 
 @router.get("/by-slug/{slug}")
 async def get_tenant_by_slug(slug: str):
-    """Look up tenant by slug (used for custom domain routing). Public — returns only branding."""
+    """Look up tenant by slug (used for custom domain routing). Public — returns only branding.
+
+    CRITICAL-06 fix: Do NOT expose tenant.id — prevents enumeration attacks.
+    """
     tenant = tenant_manager.get_tenant_by_slug(slug)
     if not tenant:
         raise HTTPException(404, "Tenant not found")
     return {
-        "id": tenant.id,
+        "slug": tenant.slug,
         "brand_name": tenant.brand_name or tenant.name,
         "brand_logo_url": tenant.brand_logo_url,
         "brand_color_primary": tenant.brand_color_primary,

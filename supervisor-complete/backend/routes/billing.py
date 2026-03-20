@@ -1,6 +1,8 @@
 """Billing portal endpoints — Stripe subscription management via httpx."""
 from __future__ import annotations
+import hashlib
 import logging
+import uuid
 from typing import Optional
 
 import httpx
@@ -31,10 +33,22 @@ def _stripe_headers() -> dict:
 
 
 async def _stripe_request(method: str, path: str, data: dict | None = None,
-                           params: dict | None = None) -> dict:
-    """Make an authenticated request to the Stripe API."""
+                           params: dict | None = None,
+                           idempotency_key: str | None = None) -> dict:
+    """Make an authenticated request to the Stripe API.
+
+    CRITICAL-03 fix: POST/PUT requests include Idempotency-Key header
+    to prevent duplicate charges on network retries.
+    """
     url = f"{STRIPE_API_BASE}{path}"
     headers = _stripe_headers()
+
+    # Add idempotency key for mutating requests (CRITICAL-03 fix)
+    if method.upper() in ("POST", "PUT"):
+        if not idempotency_key:
+            idempotency_key = str(uuid.uuid4())
+        headers["Idempotency-Key"] = idempotency_key
+
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.request(method, url, headers=headers,
                                     data=data, params=params)
@@ -151,7 +165,13 @@ async def create_checkout_session(req: CreateCheckoutSessionRequest,
     elif req.customer_email:
         data["customer_email"] = req.customer_email
 
-    result = await _stripe_request("POST", "/checkout/sessions", data=data)
+    # Deterministic idempotency key: same user + same price = same key (CRITICAL-03 fix)
+    idem_key = hashlib.sha256(
+        f"checkout:{user_id}:{req.price_id}:{req.customer_id or req.customer_email}".encode()
+    ).hexdigest()[:32]
+
+    result = await _stripe_request("POST", "/checkout/sessions", data=data,
+                                    idempotency_key=idem_key)
 
     return {
         "session_id": result.get("id"),

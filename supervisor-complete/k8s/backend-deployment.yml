@@ -25,12 +25,15 @@ spec:
         app.kubernetes.io/part-of: supervisor
         app.kubernetes.io/component: api
     spec:
-      serviceAccountName: default
+      # HIGH-08 fix: Dedicated service account (not default)
+      serviceAccountName: backend-sa
       terminationGracePeriodSeconds: 30
       containers:
         - name: backend
-          image: supervisor-backend:latest
-          imagePullPolicy: IfNotPresent
+          # HIGH-06 fix: Use immutable image tags or SHA digests, NOT :latest
+          # CI/CD pipeline should replace this with actual digest: image: <ecr-url>@sha256:<hash>
+          image: supervisor-backend:v0.3.0
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8000

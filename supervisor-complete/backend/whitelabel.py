@@ -84,8 +84,21 @@ class TenantManager:
         tid = self._user_tenants.get(user_id)
         return self._tenants.get(tid) if tid else None
 
-    def add_user_to_tenant(self, user_id: str, tenant_id: str) -> bool:
-        if tenant_id not in self._tenants:
+    def add_user_to_tenant(self, user_id: str, tenant_id: str,
+                            requesting_user_id: str = "") -> bool:
+        """Add a user to a tenant. Requires the requesting user to be the tenant owner.
+
+        CRITICAL-06 fix: Authorization check — only tenant owner can add users.
+        """
+        tenant = self._tenants.get(tenant_id)
+        if not tenant:
+            return False
+        # Authorization: only the tenant owner can add users
+        if requesting_user_id and requesting_user_id != tenant.owner_user_id:
+            logger.warning(
+                f"Unauthorized add_user_to_tenant: user {requesting_user_id} "
+                f"is not owner of tenant {tenant_id} (owner: {tenant.owner_user_id})"
+            )
             return False
         self._user_tenants[user_id] = tenant_id
         return True

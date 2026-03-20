@@ -1,8 +1,11 @@
 """
 Omni OS Backend — LLM Token Cost Tracker
 Tracks inference cost per agent per run. Separate from tool spend (wallet).
+
+Security: asyncio.Lock protects concurrent mutations (CRITICAL-02 fix).
 """
 from __future__ import annotations
+import asyncio
 import logging
 from collections import defaultdict
 from datetime import datetime
@@ -56,15 +59,30 @@ class CostEntry:
 
 
 class CostTracker:
-    """Tracks LLM inference costs per campaign and agent."""
+    """Tracks LLM inference costs per campaign and agent.
+
+    Thread safety: asyncio.Lock per campaign prevents concurrent mutation
+    of cost entry lists (CRITICAL-02 fix).
+    """
 
     def __init__(self):
         # campaign_id -> list of cost entries
         self._entries: dict[str, list[CostEntry]] = defaultdict(list)
+        # Per-campaign locks for thread-safe recording
+        self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
-    def record(self, campaign_id: str, agent_id: str, provider: str,
-               model: str, input_tokens: int, output_tokens: int) -> CostEntry:
-        """Record an LLM call cost."""
+    async def record(self, campaign_id: str, agent_id: str, provider: str,
+                     model: str, input_tokens: int, output_tokens: int) -> CostEntry:
+        """Record an LLM call cost (async, locked)."""
+        entry = CostEntry(campaign_id, agent_id, provider, model,
+                          input_tokens, output_tokens)
+        async with self._locks[campaign_id]:
+            self._entries[campaign_id].append(entry)
+        return entry
+
+    def record_sync(self, campaign_id: str, agent_id: str, provider: str,
+                    model: str, input_tokens: int, output_tokens: int) -> CostEntry:
+        """Record an LLM call cost (sync fallback for non-async contexts)."""
         entry = CostEntry(campaign_id, agent_id, provider, model,
                           input_tokens, output_tokens)
         self._entries[campaign_id].append(entry)

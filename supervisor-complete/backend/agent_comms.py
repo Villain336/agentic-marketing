@@ -10,6 +10,8 @@ No competitor does this — they all run agents in silos.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import logging
 import time
 from dataclasses import dataclass, field
@@ -55,7 +57,10 @@ class MessagePriority(str, Enum):
 
 @dataclass
 class AgentMessage:
-    """A single inter-agent message."""
+    """A single inter-agent message.
+
+    ASI-07 fix: Messages include HMAC signature for integrity verification.
+    """
     id: str = ""
     from_agent: str = ""
     to_agent: str = ""           # specific agent, or "*" for broadcast
@@ -69,6 +74,10 @@ class AgentMessage:
     timestamp: float = 0.0
     read: bool = False
     ttl_seconds: int = 300       # messages expire after 5 minutes by default
+    signature: str = ""          # HMAC signature for integrity (ASI-07)
+
+    # Shared signing key (in production, load from env/secrets)
+    _SIGNING_KEY: str = "omnios-agent-comms-v1"
 
     def __post_init__(self):
         if not self.id:
@@ -76,6 +85,20 @@ class AgentMessage:
             self.id = f"msg_{uuid.uuid4().hex[:12]}"
         if not self.timestamp:
             self.timestamp = time.time()
+        if not self.signature:
+            self.signature = self._compute_signature()
+
+    def _compute_signature(self) -> str:
+        """Compute HMAC-SHA256 signature over message content."""
+        payload = f"{self.id}:{self.from_agent}:{self.to_agent}:{self.campaign_id}:{self.subject}:{self.body}"
+        return hmac.new(
+            self._SIGNING_KEY.encode(), payload.encode(), hashlib.sha256
+        ).hexdigest()[:32]
+
+    def verify_signature(self) -> bool:
+        """Verify message integrity via HMAC."""
+        expected = self._compute_signature()
+        return hmac.compare_digest(self.signature, expected)
 
     @property
     def is_expired(self) -> bool:
@@ -136,10 +159,28 @@ class AgentCommsBus:
     # ── Sending ──────────────────────────────────────────────────────────
 
     def send(self, message: AgentMessage) -> str:
-        """Send a message to another agent (or broadcast to all)."""
+        """Send a message to another agent (or broadcast to all).
+
+        ASI-07 fix: Validates sender is registered, verifies message signature.
+        """
         campaign_id = message.campaign_id
         if campaign_id not in self._inboxes:
             self._inboxes[campaign_id] = {}
+
+        # ASI-07: Verify sender is registered for this campaign
+        if message.from_agent not in self._inboxes.get(campaign_id, {}):
+            logger.warning(
+                f"Rejected message from unregistered agent {message.from_agent} "
+                f"in campaign {campaign_id}"
+            )
+            return ""
+
+        # ASI-07: Verify message integrity
+        if not message.verify_signature():
+            logger.warning(
+                f"Rejected message with invalid signature from {message.from_agent}"
+            )
+            return ""
 
         if message.is_broadcast:
             # Deliver to all agents in this campaign except sender

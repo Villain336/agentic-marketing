@@ -402,11 +402,12 @@ class CloneCampaignRequest(BaseModel):
 
 @router.post("/campaign/{campaign_id}/clone")
 async def clone_campaign(campaign_id: str, req: CloneCampaignRequest,
-                         request: Request):
-    """Clone a successful campaign for a new client."""
-    user_id = get_user_id(request)
-    if not user_id:
-        raise HTTPException(401, "Authentication required")
+                         request: Request,
+                         user_id: str = Depends(require_permission("campaign", "create"))):
+    """Clone a successful campaign for a new client.
+
+    HIGH-02 fix: Added require_permission RBAC check (was missing).
+    """
     validate_campaign_id(campaign_id)
     source = store.get_campaign(user_id, campaign_id)
     if not source:

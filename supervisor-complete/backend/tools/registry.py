@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
+from collections import defaultdict
 from typing import Any, Callable, Awaitable
 
 import httpx
@@ -19,6 +21,19 @@ _http_long = httpx.AsyncClient(timeout=120)
 
 # Default timeout (seconds) for tool execution
 DEFAULT_TOOL_TIMEOUT = 60
+
+# Per-tool rate limiting (MEDIUM — ASI-02 fix)
+DEFAULT_TOOL_RATE_LIMIT = 30      # max calls per window
+TOOL_RATE_WINDOW_SECONDS = 60     # 1-minute sliding window
+# Per-tool overrides (outbound tools get tighter limits)
+TOOL_RATE_LIMITS: dict[str, int] = {
+    "send_email": 10,
+    "send_slack_message": 20,
+    "deploy_to_vercel": 3,
+    "deploy_to_cloudflare": 3,
+    "create_crm_contact": 20,
+    "update_deal_stage": 20,
+}
 
 # Per-category timeout overrides (seconds)
 CATEGORY_TIMEOUTS: dict[str, float] = {
@@ -70,6 +85,8 @@ class ToolRegistry:
         self._tools: dict[str, ToolDefinition] = {}
         self._handlers: dict[str, Callable[..., Awaitable[str]]] = {}
         self._timeouts: dict[str, float] = {}  # per-tool timeout overrides
+        # Per-tool rate limiting: tool_name -> list of timestamps (ASI-02 fix)
+        self._call_timestamps: defaultdict[str, list[float]] = defaultdict(list)
 
     def register(self, name: str, description: str, parameters: list[ToolParameter],
                  handler: Callable[..., Awaitable[str]], category: str = "general",
@@ -96,10 +113,34 @@ class ToolRegistry:
             tools = [t for t in tools if t.category in categories]
         return tools
 
+    def _check_rate_limit(self, name: str) -> bool:
+        """Check if tool is within its rate limit. Returns True if allowed."""
+        now = time.time()
+        limit = TOOL_RATE_LIMITS.get(name, DEFAULT_TOOL_RATE_LIMIT)
+        # Clean old timestamps
+        cutoff = now - TOOL_RATE_WINDOW_SECONDS
+        self._call_timestamps[name] = [
+            t for t in self._call_timestamps[name] if t > cutoff
+        ]
+        if len(self._call_timestamps[name]) >= limit:
+            return False
+        self._call_timestamps[name].append(now)
+        return True
+
     async def execute(self, name: str, inputs: dict[str, Any], call_id: str = "") -> ToolResult:
         handler = self._handlers.get(name)
         if not handler:
             return ToolResult(tool_call_id=call_id, name=name, error=f"Unknown tool: {name}", success=False)
+
+        # Per-tool rate limiting (ASI-02 fix)
+        if not self._check_rate_limit(name):
+            limit = TOOL_RATE_LIMITS.get(name, DEFAULT_TOOL_RATE_LIMIT)
+            logger.warning(f"Tool {name} rate limited ({limit} calls/{TOOL_RATE_WINDOW_SECONDS}s)")
+            return ToolResult(
+                tool_call_id=call_id, name=name,
+                error=f"Rate limited: {name} exceeded {limit} calls per minute. Wait before retrying.",
+                success=False)
+
         timeout = self._get_timeout(name)
         try:
             output = await asyncio.wait_for(handler(**inputs), timeout=timeout)

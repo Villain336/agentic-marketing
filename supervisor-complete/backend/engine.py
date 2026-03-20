@@ -27,6 +27,150 @@ from tracing import trace_store, compute_prompt_hash, SpanStatus as TraceSpanSta
 
 logger = logging.getLogger("omnios.engine")
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROMPT INJECTION DETECTION (ASI-01 — MEDIUM-01 fix)
+# Scans tool outputs for injection patterns before feeding back into ReAct loop.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_INJECTION_PATTERNS = [
+    r"(?i)ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|context)",
+    r"(?i)disregard\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?)",
+    r"(?i)you\s+are\s+now\s+(a|an|in)\s+",
+    r"(?i)new\s+instructions?\s*:",
+    r"(?i)system\s*prompt\s*:",
+    r"(?i)override\s+(system|safety|security)",
+    r"(?i)\[system\]\s*:",
+    r"(?i)act\s+as\s+(if\s+you\s+are|a\s+different)",
+    r"(?i)forget\s+(everything|all|your)\s+(you|instructions?|rules?)",
+    r"(?i)do\s+not\s+follow\s+(the|your)\s+(previous|original)",
+    r"(?i)jailbreak",
+    r"(?i)<\s*/?system\s*>",
+]
+_COMPILED_INJECTION_PATTERNS = None
+
+def _get_injection_patterns():
+    global _COMPILED_INJECTION_PATTERNS
+    if _COMPILED_INJECTION_PATTERNS is None:
+        import re
+        _COMPILED_INJECTION_PATTERNS = [re.compile(p) for p in _INJECTION_PATTERNS]
+    return _COMPILED_INJECTION_PATTERNS
+
+def _detect_prompt_injection(text: str) -> str | None:
+    """Scan text for prompt injection patterns. Returns matched pattern or None."""
+    if not text:
+        return None
+    for pattern in _get_injection_patterns():
+        match = pattern.search(text)
+        if match:
+            return match.group(0)
+    return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AGENT ANOMALY DETECTION + KILL SWITCH (ASI-10 — MEDIUM-02 fix)
+# Tracks per-agent behavior metrics and provides emergency halt.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Global kill switch: set of (campaign_id, agent_id) tuples to halt
+_killed_agents: set[tuple[str, str]] = set()
+# Global campaign-level kill: set of campaign_ids
+_killed_campaigns: set[str] = set()
+
+# Per-agent anomaly counters for the current run
+_ANOMALY_TOOL_FAIL_THRESHOLD = 5       # consecutive tool failures before flagging
+_ANOMALY_LOOP_DETECT_WINDOW = 6        # look at last N tool calls
+_ANOMALY_LOOP_REPEAT_THRESHOLD = 4     # if same tool called N times in window
+
+
+def kill_agent(campaign_id: str, agent_id: str) -> bool:
+    """Emergency kill switch: halt a specific agent in a campaign."""
+    _killed_agents.add((campaign_id, agent_id))
+    logger.critical(f"KILL SWITCH: Agent {agent_id} in campaign {campaign_id} halted")
+    return True
+
+
+def kill_campaign(campaign_id: str) -> bool:
+    """Emergency kill switch: halt all agents in a campaign."""
+    _killed_campaigns.add(campaign_id)
+    logger.critical(f"KILL SWITCH: All agents in campaign {campaign_id} halted")
+    return True
+
+
+def revive_agent(campaign_id: str, agent_id: str) -> bool:
+    """Remove kill switch for a specific agent."""
+    _killed_agents.discard((campaign_id, agent_id))
+    return True
+
+
+def revive_campaign(campaign_id: str) -> bool:
+    """Remove campaign-level kill switch."""
+    _killed_campaigns.discard(campaign_id)
+    return True
+
+
+def is_killed(campaign_id: str, agent_id: str) -> bool:
+    """Check if an agent or its campaign has been killed."""
+    return campaign_id in _killed_campaigns or (campaign_id, agent_id) in _killed_agents
+
+
+def list_killed() -> dict:
+    """List all active kill switches."""
+    return {
+        "agents": [{"campaign_id": c, "agent_id": a} for c, a in _killed_agents],
+        "campaigns": list(_killed_campaigns),
+    }
+
+
+def _detect_tool_loop(recent_tools: list[str]) -> str | None:
+    """Detect if agent is stuck in a tool call loop."""
+    if len(recent_tools) < _ANOMALY_LOOP_DETECT_WINDOW:
+        return None
+    window = recent_tools[-_ANOMALY_LOOP_DETECT_WINDOW:]
+    from collections import Counter
+    counts = Counter(window)
+    for tool, count in counts.items():
+        if count >= _ANOMALY_LOOP_REPEAT_THRESHOLD:
+            return tool
+    return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TENANT CONCURRENCY LIMITS (ASI-08 — MEDIUM-05 fix)
+# Limits concurrent agent runs per tenant to prevent resource exhaustion.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_active_runs: dict[str, set[str]] = {}  # user_id -> set of campaign_ids currently running
+_active_runs_lock = asyncio.Lock()
+MAX_CONCURRENT_CAMPAIGNS_PER_TENANT = 5
+
+
+async def _acquire_tenant_slot(user_id: str, campaign_id: str) -> bool:
+    """Try to acquire a concurrency slot for a tenant. Returns False if at limit."""
+    async with _active_runs_lock:
+        running = _active_runs.get(user_id, set())
+        if campaign_id in running:
+            return True  # Already running (re-entrant)
+        if len(running) >= MAX_CONCURRENT_CAMPAIGNS_PER_TENANT:
+            logger.warning(
+                f"Tenant {user_id} at concurrency limit ({MAX_CONCURRENT_CAMPAIGNS_PER_TENANT})"
+            )
+            return False
+        if user_id not in _active_runs:
+            _active_runs[user_id] = set()
+        _active_runs[user_id].add(campaign_id)
+        return True
+
+
+async def _release_tenant_slot(user_id: str, campaign_id: str):
+    """Release a concurrency slot for a tenant."""
+    async with _active_runs_lock:
+        if user_id in _active_runs:
+            _active_runs[user_id].discard(campaign_id)
+            if not _active_runs[user_id]:
+                del _active_runs[user_id]
+
+
 # ── Lazy imports to avoid circular deps ─────────────────────────────────────
 
 _adaptation_engine = None
@@ -458,9 +602,25 @@ class AgentEngine:
         )
         _prompt_hash = compute_prompt_hash(messages, system)
 
+        # Per-run anomaly tracking (ASI-10)
+        _consecutive_failures = 0
+        _recent_tool_names: list[str] = []
+
         while iteration < max_iter:
             iteration += 1
             elapsed = time.time() - start_time
+
+            # ── Kill switch check (ASI-10) ──
+            if is_killed(campaign_id, agent.id):
+                logger.warning(f"Agent {agent.id} halted by kill switch")
+                trace.finalize(status=TraceSpanStatus.ERROR)
+                trace_store.finish_trace(trace)
+                yield AgentStreamEvent(
+                    event=StepType.ERROR, agent_id=agent.id, step=iteration,
+                    content="Agent halted by emergency kill switch",
+                    status=AgentStatus.ERROR,
+                )
+                return
 
             # ── Graceful timeout: ask LLM to summarize before hard stop ──
             if elapsed > settings.max_agent_runtime - 30:  # 30s warning
@@ -583,7 +743,7 @@ class AgentEngine:
                         real_output = len(text_buffer) // 4
                     _real_input = _real_input or real_input
                     _real_output = _real_output or real_output
-                    cost_tracker.record(
+                    await cost_tracker.record(
                         campaign_id=campaign_id, agent_id=agent.id,
                         provider=provider_used, model=model_used,
                         input_tokens=real_input,
@@ -682,25 +842,33 @@ class AgentEngine:
                             })
                             continue
 
-                    # ── Wallet: check budget before executing spending tools ──
+                    # ── Wallet: atomic reserve-and-spend for spending tools ──
                     estimated_cost = TOOL_COST_ESTIMATES.get(tc.name, 0)
                     if estimated_cost > 0 and campaign_id:
                         try:
                             w = _get_wallet()
-                            spend_check = await w.request_spend(
+                            spend_result = await w.reserve_and_spend(
                                 campaign_id, agent.id, estimated_cost,
+                                tool=tc.name,
                                 description=f"{tc.name}({', '.join(f'{k}={v}' for k, v in list(tc.input.items())[:3])})",
                             )
-                            if not spend_check.get("approved"):
+                            if not spend_result.get("approved"):
                                 messages.append({
                                     "role": "user",
                                     "content": [{"type": "tool_result", "tool_use_id": tc.id,
-                                                 "content": f"BUDGET BLOCKED: {spend_check.get('reason', 'over budget')}. "
+                                                 "content": f"BUDGET BLOCKED: {spend_result.get('reason', 'over budget')}. "
                                                             f"Try a free alternative or request budget increase."}],
                                 })
                                 continue
-                        except Exception:
-                            pass  # wallet not available, allow execution
+                        except Exception as wallet_err:
+                            # Fail closed: deny tool if wallet unavailable (CRITICAL-04 fix)
+                            logger.error("Wallet unavailable — blocking tool %s: %s", tc.name, wallet_err)
+                            messages.append({
+                                "role": "user",
+                                "content": [{"type": "tool_result", "tool_use_id": tc.id,
+                                             "content": "BUDGET BLOCKED: Budget system unavailable. Tool execution denied as safety default."}],
+                            })
+                            continue
 
                     yield AgentStreamEvent(
                         event=StepType.TOOL_CALL, agent_id=agent.id, step=iteration,
@@ -724,17 +892,56 @@ class AgentEngine:
 
                     if not result.success:
                         tool_failure_count += 1
+                        _consecutive_failures += 1
+                    else:
+                        _consecutive_failures = 0
 
-                    # ── Wallet: record actual spend after successful execution ──
-                    if result.success and estimated_cost > 0 and campaign_id:
-                        try:
-                            w = _get_wallet()
-                            await w.record_spend(
-                                campaign_id, agent.id, estimated_cost,
-                                tool=tc.name, description=result.output[:100] if result.output else "",
+                    _recent_tool_names.append(tc.name)
+
+                    # ── Prompt injection detection on tool output (ASI-01 / MEDIUM-01) ──
+                    if result.success and result.output:
+                        injection_match = _detect_prompt_injection(result.output)
+                        if injection_match:
+                            logger.warning(
+                                f"Prompt injection detected in {tc.name} output: '{injection_match}'"
                             )
-                        except Exception:
-                            pass
+                            # Neutralize: replace output with sanitized version
+                            result = type(result)(
+                                tool_call_id=result.tool_call_id,
+                                name=result.name,
+                                output=f"[FILTERED: Tool output contained suspicious content "
+                                       f"and was blocked for safety. The tool executed successfully "
+                                       f"but its output cannot be used. Try an alternative approach.]",
+                                error=None,
+                                success=True,
+                            )
+
+                    # ── Agent anomaly detection (ASI-10 / MEDIUM-02) ──
+                    if _consecutive_failures >= _ANOMALY_TOOL_FAIL_THRESHOLD:
+                        logger.warning(
+                            f"Anomaly: {agent.id} has {_consecutive_failures} consecutive tool failures"
+                        )
+                        yield AgentStreamEvent(
+                            event=StepType.STATUS, agent_id=agent.id, step=iteration,
+                            content=f"Warning: {_consecutive_failures} consecutive tool failures detected",
+                            status=AgentStatus.EXECUTING,
+                        )
+                    loop_tool = _detect_tool_loop(_recent_tool_names)
+                    if loop_tool:
+                        logger.warning(f"Anomaly: {agent.id} stuck in loop calling {loop_tool}")
+                        # Inject circuit-breaker message
+                        messages.append({
+                            "role": "user",
+                            "content": f"[SYSTEM WARNING: You have called '{loop_tool}' "
+                                       f"{_ANOMALY_LOOP_REPEAT_THRESHOLD} times in the last "
+                                       f"{_ANOMALY_LOOP_DETECT_WINDOW} calls. This looks like a loop. "
+                                       f"Stop calling this tool and try a different approach or "
+                                       f"produce your final output NOW.]",
+                        })
+
+                    # Note: spend already recorded atomically by reserve_and_spend above.
+                    # If tool failed, the spend was pre-committed — acceptable since
+                    # the cost was for the API call attempt, not the result.
 
                     yield AgentStreamEvent(
                         event=StepType.TOOL_RESULT, agent_id=agent.id, step=iteration,
@@ -1248,30 +1455,63 @@ async def run_agents_parallel(
     """
     Run agents respecting dependency graph. Independent agents run concurrently.
     Returns dict of {agent_id: "complete" | "error" | "skipped"}.
+
+    HIGH-01 fix: Each agent gets a deep copy of memory. Updates are merged
+    back after completion using a lock to prevent data corruption.
+    MEDIUM-05 fix: Tenant concurrency limits enforced.
     """
+    import copy
+
+    # ── Tenant concurrency limit check (ASI-08 / MEDIUM-05) ──
+    if campaign:
+        user_id = getattr(campaign, "user_id", "")
+        if user_id:
+            slot_acquired = await _acquire_tenant_slot(user_id, campaign_id)
+            if not slot_acquired:
+                logger.warning(
+                    f"Tenant {user_id} at concurrency limit — rejecting campaign {campaign_id}"
+                )
+                return {a.id: "skipped" for a in agents}
+
     eng = engine
     results: dict[str, str] = {}
     completed: set[str] = set()
     agent_map = {a.id: a for a in agents}
     pending = set(agent_map.keys())
+    # Lock for merging memory updates back to shared memory (HIGH-01 fix)
+    _memory_lock = asyncio.Lock()
+    # Collect per-agent memory updates for safe merging
+    _agent_memory_updates: dict[str, dict] = {}
 
     async def _run_single(agent: AgentConfig):
-        """Run one agent, collect events, update shared memory."""
+        """Run one agent with isolated memory copy, merge updates after."""
+        # Deep copy memory so concurrent agents don't corrupt each other (HIGH-01)
+        agent_memory = copy.deepcopy(memory)
+        agent_updates: dict[str, Any] = {}
         try:
             async for event in eng.run(
-                agent=agent, memory=memory, campaign_id=campaign_id,
+                agent=agent, memory=agent_memory, campaign_id=campaign_id,
                 tier=tier, campaign=campaign,
             ):
                 if event.memory_update:
                     for k, v in event.memory_update.items():
-                        if hasattr(memory, k):
-                            setattr(memory, k, v)
+                        if hasattr(agent_memory, k):
+                            setattr(agent_memory, k, v)
+                            agent_updates[k] = v
                 if event_queue:
                     await event_queue.put(event)
             results[agent.id] = "complete"
         except Exception as e:
             logger.error(f"Parallel agent {agent.id} failed: {e}", exc_info=True)
             results[agent.id] = "error"
+
+        # Merge updates back to shared memory under lock
+        async with _memory_lock:
+            for k, v in agent_updates.items():
+                if hasattr(memory, k):
+                    setattr(memory, k, v)
+            _agent_memory_updates[agent.id] = agent_updates
+
         completed.add(agent.id)
 
     while pending:
@@ -1298,6 +1538,12 @@ async def run_agents_parallel(
 
         # Wait for this batch to complete
         await asyncio.gather(*tasks)
+
+    # ── Release tenant concurrency slot (MEDIUM-05) ──
+    if campaign:
+        user_id = getattr(campaign, "user_id", "")
+        if user_id:
+            await _release_tenant_slot(user_id, campaign_id)
 
     return results
 
