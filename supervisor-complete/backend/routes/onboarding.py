@@ -238,69 +238,6 @@ async def generate_visual_dna(request: Request):
         raise HTTPException(500, str(e))
 
 
-@router.post("/generate-ideas")
-async def generate_ideas(request: Request):
-    """Generate 3 business ideas based on skills, passion, and industry for 'start from scratch' users."""
-    body = await request.json()
-    skills = body.get("skills", "")
-    passion = body.get("passion", "")
-    industry = body.get("industry", "")
-    target_audience = body.get("target_audience", "")
-
-    if not skills and not passion:
-        raise HTTPException(400, "Provide at least skills or passion")
-
-    prompt_parts = []
-    if skills:
-        prompt_parts.append(f"Skills/expertise: {skills}")
-    if passion:
-        prompt_parts.append(f"Passionate about: {passion}")
-    if industry:
-        prompt_parts.append(f"Interested in: {industry}")
-    if target_audience:
-        prompt_parts.append(f"Wants to help: {target_audience}")
-
-    try:
-        result = await model_router.complete(
-            messages=[{"role": "user", "content": "\n".join(prompt_parts)}],
-            system="""You are a startup advisor. Based on the founder's skills, passion, and interests, generate exactly 3 viable business ideas.
-
-For EACH idea, return:
-- name: A catchy business name
-- one_liner: One sentence describing the business
-- service: What the business sells (product or service description)
-- icp: Ideal customer profile (who pays and why)
-- business_model: One of: saas, agency, ecommerce, marketplace, consulting, media, local, freelance, nonprofit, hardware
-- revenue_model: How it makes money
-- why_it_works: One sentence on why this fits the founder
-
-Return as JSON array: [{"name":"","one_liner":"","service":"","icp":"","business_model":"","revenue_model":"","why_it_works":""}]""",
-            tier=Tier.FAST, max_tokens=1500,
-        )
-
-        text = result.get("text", "")
-        # Try to parse JSON from response
-        parsed = None
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            import re
-            match = re.search(r'\[.*\]', text, re.DOTALL)
-            if match:
-                try:
-                    parsed = json.loads(match.group(0))
-                except json.JSONDecodeError:
-                    pass
-
-        if parsed and isinstance(parsed, list):
-            return {"ideas": parsed[:3]}
-
-        return {"ideas": [], "raw": text}
-    except Exception as e:
-        logger.error(f"Idea generation failed: {e}")
-        raise HTTPException(500, "Failed to generate business ideas")
-
-
 @router.post("/{profile_id}/market-research")
 async def run_market_research(profile_id: str, request: Request):
     """Run market research agents during onboarding (Stage 6) -- SSE stream."""
