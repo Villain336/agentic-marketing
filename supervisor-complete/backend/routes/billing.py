@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import uuid
+from datetime import datetime
 from typing import Optional
 
 import httpx
@@ -14,6 +15,37 @@ from auth import get_user_id
 from webhook_auth import verify_stripe_signature
 
 logger = logging.getLogger("supervisor.api.billing")
+
+# ── Tier mapping from Stripe price/product IDs ─────────────────────────────
+# Map Stripe product IDs or price IDs to internal tier names.
+# Configure via environment or update this mapping when Stripe products change.
+STRIPE_TIER_MAP: dict[str, str] = {
+    # Override via settings if available; these are fallback defaults.
+    # product_id or price_id → tier name
+    "starter": "starter",
+    "pro": "pro",
+    "enterprise": "enterprise",
+}
+
+
+def _resolve_tier(subscription_data: dict) -> str:
+    """Resolve internal tier name from Stripe subscription object."""
+    items = subscription_data.get("items", {}).get("data", [])
+    if not items:
+        return "free"
+    price = items[0].get("price", {})
+    product_id = price.get("product", "")
+    price_id = price.get("id", "")
+    # Check product ID first, then price ID
+    for key in (product_id, price_id):
+        if key in STRIPE_TIER_MAP:
+            return STRIPE_TIER_MAP[key]
+    # Fallback: infer from price nickname or metadata
+    nickname = (price.get("nickname") or "").lower()
+    for tier in ("enterprise", "pro", "starter"):
+        if tier in nickname:
+            return tier
+    return "pro"  # default paid tier
 
 router = APIRouter(tags=["Billing"])
 
@@ -57,6 +89,51 @@ async def _stripe_request(method: str, path: str, data: dict | None = None,
         logger.error(f"Stripe API error {resp.status_code}: {detail}")
         raise HTTPException(resp.status_code, f"Stripe error: {detail}")
     return resp.json()
+
+
+async def _update_user_tier(stripe_customer_id: str, tier: str,
+                            subscription_id: str) -> bool:
+    """Update a user's subscription tier based on Stripe customer ID.
+
+    Looks up the user by stripe_customer_id in the profiles table,
+    then updates their tier and subscription metadata.
+    Falls back to in-memory store if DB unavailable.
+    """
+    import db
+
+    client = db._get_client()
+    if not client:
+        # In-memory fallback: store in module-level dict
+        _tier_cache[stripe_customer_id] = {
+            "tier": tier,
+            "subscription_id": subscription_id,
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        logger.info(f"Tier updated (in-memory): customer={stripe_customer_id} → {tier}")
+        return True
+
+    try:
+        # Look up user by stripe_customer_id
+        result = (client.table("user_subscriptions")
+                  .upsert({
+                      "stripe_customer_id": stripe_customer_id,
+                      "tier": tier,
+                      "subscription_id": subscription_id,
+                      "status": "active" if tier != "free" else "cancelled",
+                      "updated_at": datetime.utcnow().isoformat(),
+                  }, on_conflict="stripe_customer_id")
+                  .execute())
+        logger.info(f"Tier updated (DB): customer={stripe_customer_id} → {tier}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to update tier for {stripe_customer_id}: {e}")
+        # Fallback to in-memory
+        _tier_cache[stripe_customer_id] = {"tier": tier}
+        return False
+
+
+# In-memory tier cache (fallback when DB unavailable)
+_tier_cache: dict[str, dict] = {}
 
 
 # ── Request Models ───────────────────────────────────────────────────────────
@@ -239,43 +316,97 @@ async def stripe_webhook(request: Request):
 
     event_type = event.get("type", "")
     event_data = event.get("data", {}).get("object", {})
+    customer_id = event_data.get("customer", "")
 
-    logger.info(f"Stripe webhook received: {event_type}")
+    logger.info(f"Stripe webhook received: {event_type} customer={customer_id}")
 
     # Handle subscription lifecycle events
     if event_type == "customer.subscription.created":
+        tier = _resolve_tier(event_data)
         logger.info(
             f"Subscription created: {event_data.get('id')} "
-            f"for customer {event_data.get('customer')}"
+            f"for customer {customer_id}, tier={tier}"
         )
+        await _update_user_tier(customer_id, tier, event_data.get("id", ""))
+
     elif event_type == "customer.subscription.updated":
+        status = event_data.get("status", "")
+        tier = _resolve_tier(event_data)
+        cancel_at_period_end = event_data.get("cancel_at_period_end", False)
         logger.info(
             f"Subscription updated: {event_data.get('id')} "
-            f"status={event_data.get('status')}"
+            f"status={status}, tier={tier}, cancel_at_period_end={cancel_at_period_end}"
         )
+        if status == "active":
+            # Upgrade/downgrade — update tier immediately
+            await _update_user_tier(customer_id, tier, event_data.get("id", ""))
+        elif status in ("past_due", "unpaid"):
+            # Payment issues — restrict to starter tier
+            logger.warning(f"Subscription {status} for customer {customer_id}, restricting to starter")
+            await _update_user_tier(customer_id, "starter", event_data.get("id", ""))
+
     elif event_type == "customer.subscription.deleted":
         logger.info(
             f"Subscription cancelled: {event_data.get('id')} "
-            f"for customer {event_data.get('customer')}"
+            f"for customer {customer_id}"
         )
+        # Downgrade to free tier on cancellation
+        await _update_user_tier(customer_id, "free", "")
+
     elif event_type == "invoice.payment_succeeded":
         logger.info(
             f"Invoice paid: {event_data.get('id')} "
             f"amount={event_data.get('amount_paid')} "
-            f"customer={event_data.get('customer')}"
+            f"customer={customer_id}"
         )
+
     elif event_type == "invoice.payment_failed":
+        attempt_count = event_data.get("attempt_count", 0)
+        next_attempt = event_data.get("next_payment_attempt")
         logger.warning(
             f"Invoice payment failed: {event_data.get('id')} "
-            f"customer={event_data.get('customer')}"
+            f"customer={customer_id}, attempt={attempt_count}, "
+            f"next_attempt={'scheduled' if next_attempt else 'FINAL'}"
         )
+        # After final retry (no next attempt), restrict access
+        if not next_attempt:
+            logger.warning(f"Final payment attempt failed for {customer_id}, restricting to starter")
+            await _update_user_tier(customer_id, "starter", "")
+
     elif event_type == "checkout.session.completed":
+        subscription_id = event_data.get("subscription", "")
         logger.info(
             f"Checkout completed: session={event_data.get('id')} "
-            f"customer={event_data.get('customer')}"
+            f"customer={customer_id}, subscription={subscription_id}"
         )
+        # Tier update will be handled by subscription.created/updated event
+
     else:
         logger.debug(f"Unhandled Stripe event: {event_type}")
+
+    # Persist subscription state change for audit
+    if event_type in (
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+        "invoice.payment_failed",
+    ):
+        try:
+            import db
+            await db.save_event({
+                "id": f"billing-{event.get('id', '')}",
+                "type": f"stripe.tier_change",
+                "source_agent": "billing",
+                "campaign_id": "",
+                "data": {
+                    "stripe_event_type": event_type,
+                    "customer": customer_id,
+                    "subscription_id": event_data.get("id", ""),
+                    "status": event_data.get("status", ""),
+                },
+            })
+        except Exception as e:
+            logger.debug(f"Tier change event persistence skipped: {e}")
 
     # Persist event for audit
     try:

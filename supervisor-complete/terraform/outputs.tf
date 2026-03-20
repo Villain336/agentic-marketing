@@ -52,3 +52,20 @@ output "rds_endpoint" {
   description = "RDS instance endpoint (if enabled)"
   value       = var.enable_rds ? aws_db_instance.main[0].endpoint : null
 }
+
+# ---------- Disaster Recovery Outputs ----------
+
+output "dr_health_check_id" {
+  description = "Route 53 health check ID for primary region"
+  value       = var.enable_dr && var.route53_zone_id != "" ? aws_route53_health_check.primary[0].id : null
+}
+
+output "rds_replica_endpoint" {
+  description = "RDS read replica endpoint (if enabled)"
+  value       = var.enable_rds && var.enable_rds_read_replica ? aws_db_instance.replica[0].endpoint : null
+}
+
+output "dr_state_bucket" {
+  description = "S3 bucket for DR state backup"
+  value       = var.enable_dr ? aws_s3_bucket.dr_state_backup[0].id : null
+}

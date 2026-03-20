@@ -117,3 +117,29 @@ variable "db_password" {
     error_message = "Database password must be at least 16 characters for production security."
   }
 }
+
+# ---------- Disaster Recovery ----------
+
+variable "enable_dr" {
+  description = "Enable multi-region disaster recovery (Route 53 health checks + failover)"
+  type        = bool
+  default     = false
+}
+
+variable "dr_region" {
+  description = "AWS region for disaster recovery deployment"
+  type        = string
+  default     = "us-west-2"
+}
+
+variable "route53_zone_id" {
+  description = "Route 53 hosted zone ID for the domain"
+  type        = string
+  default     = ""
+}
+
+variable "enable_rds_read_replica" {
+  description = "Enable cross-region RDS read replica for DR"
+  type        = bool
+  default     = false
+}
