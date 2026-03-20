@@ -1,0 +1,91 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: omnios-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-omnios_redis_secret}@redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    volumes:
+      - backend-data:/app/data
+    networks:
+      - omnios-net
+
+  webapp:
+    build:
+      context: ./webapp
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://backend:8000
+    container_name: omnios-webapp
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./webapp/.env
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000
+      - HOSTNAME=0.0.0.0
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - omnios-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: omnios-redis
+    restart: unless-stopped
+    # CRITICAL-07 fix: Redis NOT exposed to host — only accessible via Docker network
+    # Removed: ports: - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-omnios_redis_secret}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - redis-data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:-omnios_redis_secret}
+      --rename-command FLUSHALL ""
+      --rename-command FLUSHDB ""
+      --rename-command DEBUG ""
+    networks:
+      - omnios-net
+
+volumes:
+  backend-data:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  omnios-net:
+    driver: bridge

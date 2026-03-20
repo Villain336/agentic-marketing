@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: supervisor
+  labels:
+    app.kubernetes.io/part-of: supervisor
+    app.kubernetes.io/managed-by: kubectl
+    # HIGH-08 fix: Pod Security Admission — enforce restricted profile
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+# LOW-02 fix: Resource quotas to prevent namespace exhaustion
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: supervisor-quota
+  namespace: supervisor
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 8Gi
+    limits.cpu: "16"
+    limits.memory: 16Gi
+    pods: "50"
+    services: "10"
+---
+# HIGH-08 fix: Dedicated service account for backend (not default)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend-sa
+  namespace: supervisor
+  labels:
+    app.kubernetes.io/name: backend
+    app.kubernetes.io/part-of: supervisor
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: webapp-sa
+  namespace: supervisor
+  labels:
+    app.kubernetes.io/name: webapp
+    app.kubernetes.io/part-of: supervisor
+automountServiceAccountToken: false

@@ -1,0 +1,18 @@
+{
+  "name": "@omnios/sdk",
+  "version": "0.1.0",
+  "description": "Official SDK for the Omni OS Developer Platform — build agents, integrate via API, and publish to the marketplace.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": ["omnios", "agents", "ai", "marketing", "automation", "sdk"],
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

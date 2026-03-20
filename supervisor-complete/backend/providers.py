@@ -1,5 +1,5 @@
 """
-Supervisor Backend — Multi-Provider Model Router
+Omni OS Backend — Multi-Provider Model Router
 Failover: Anthropic → OpenAI → Google. Normalizes tool calling across all three.
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ import httpx
 from config import ProviderConfig, settings
 from models import ToolCall, ToolDefinition, Tier
 
-logger = logging.getLogger("supervisor.router")
+logger = logging.getLogger("omnios.router")
 
 
 class ProviderError(Exception):
@@ -34,37 +34,113 @@ class AllProvidersFailedError(Exception):
 # BASE ADAPTER
 # ═══════════════════════════════════════════════════════════════════════════════
 
+class CircuitState:
+    CLOSED = "closed"      # Normal operation
+    OPEN = "open"          # Tripped -- reject all requests
+    HALF_OPEN = "half_open"  # Allow one probe request
+
+
 class ProviderAdapter:
+    # Circuit breaker thresholds
+    CB_FAILURE_THRESHOLD = 5    # Errors before circuit opens
+    CB_RESET_TIMEOUT = 60.0     # Seconds before half-open probe
+    CB_SUCCESS_THRESHOLD = 2    # Successes in half-open to close
+
+    # Per-provider rate limits (requests per minute)
+    RATE_LIMITS = {
+        "anthropic": 60,
+        "openai": 60,
+        "google": 60,
+        "bedrock": 30,
+    }
+
     def __init__(self, config: ProviderConfig):
         self.config = config
         self.client = httpx.AsyncClient(timeout=config.timeout)
         self._error_count = 0
         self._last_error: Optional[str] = None
         self._cooldown_until = 0.0
+        # Circuit breaker state
+        self._circuit_state = CircuitState.CLOSED
+        self._circuit_opened_at = 0.0
+        self._half_open_successes = 0
+        # Per-provider rate limiting
+        self._request_timestamps: list[float] = []
+        self._rate_limit = self.RATE_LIMITS.get(config.name, 60)
+
+    def _check_rate_limit(self) -> bool:
+        """Check if we're within rate limits. Prunes old timestamps."""
+        now = time.time()
+        cutoff = now - 60.0  # 1-minute window
+        self._request_timestamps = [t for t in self._request_timestamps if t > cutoff]
+        if len(self._request_timestamps) >= self._rate_limit:
+            return False
+        self._request_timestamps.append(now)
+        return True
 
     @property
     def is_available(self) -> bool:
-        return self.config.enabled and time.time() >= self._cooldown_until
+        if not self.config.enabled:
+            return False
+        now = time.time()
+        if self._circuit_state == CircuitState.OPEN:
+            if now - self._circuit_opened_at >= self.CB_RESET_TIMEOUT:
+                self._circuit_state = CircuitState.HALF_OPEN
+                self._half_open_successes = 0
+                logger.info(f"[{self.config.name}] Circuit half-open, allowing probe")
+                return True
+            return False
+        if not self._check_rate_limit():
+            logger.warning(f"[{self.config.name}] Rate limit reached ({self._rate_limit}/min)")
+            return False
+        return now >= self._cooldown_until
 
     def _mark_error(self, error: str):
         self._error_count += 1
         self._last_error = error
         cooldown = min(5 * (3 ** (self._error_count - 1)), 120)
         self._cooldown_until = time.time() + cooldown
-        logger.warning(f"[{self.config.name}] Error #{self._error_count}: {error}. Cooldown {cooldown}s")
+
+        if self._circuit_state == CircuitState.HALF_OPEN:
+            self._circuit_state = CircuitState.OPEN
+            self._circuit_opened_at = time.time()
+            logger.warning(f"[{self.config.name}] Half-open probe failed, circuit re-opened")
+        elif self._error_count >= self.CB_FAILURE_THRESHOLD:
+            self._circuit_state = CircuitState.OPEN
+            self._circuit_opened_at = time.time()
+            logger.warning(f"[{self.config.name}] Circuit OPEN after {self._error_count} errors")
+        else:
+            logger.warning(f"[{self.config.name}] Error #{self._error_count}: {error}. Cooldown {cooldown}s")
 
     def _mark_success(self):
+        if self._circuit_state == CircuitState.HALF_OPEN:
+            self._half_open_successes += 1
+            if self._half_open_successes >= self.CB_SUCCESS_THRESHOLD:
+                self._circuit_state = CircuitState.CLOSED
+                self._error_count = 0
+                self._last_error = None
+                self._cooldown_until = 0.0
+                logger.info(f"[{self.config.name}] Circuit CLOSED after successful probes")
+                return
         self._error_count = 0
         self._last_error = None
         self._cooldown_until = 0.0
+        if self._circuit_state != CircuitState.HALF_OPEN:
+            self._circuit_state = CircuitState.CLOSED
 
-    def get_model(self, tier: Tier) -> str:
-        return self.config.fast_model if tier == Tier.FAST else self.config.default_model
+    def get_model(self, tier: Tier, model_override: str = None) -> str:
+        if model_override:
+            return model_override
+        if tier == Tier.FAST:
+            return self.config.fast_model
+        if tier == Tier.STRONG and self.config.strong_model:
+            return self.config.strong_model
+        return self.config.default_model
 
-    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096) -> dict:
+    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None) -> dict:
         raise NotImplementedError
 
-    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096) -> AsyncGenerator[dict, None]:
+    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None) -> AsyncGenerator[dict, None]:
         raise NotImplementedError
         yield  # pragma: no cover
 
@@ -74,6 +150,7 @@ class ProviderAdapter:
             "available": self.is_available, "model": self.config.default_model,
             "fast_model": self.config.fast_model, "error_count": self._error_count,
             "last_error": self._last_error,
+            "circuit_state": self._circuit_state,
         }
 
 
@@ -83,8 +160,8 @@ class ProviderAdapter:
 
 class AnthropicAdapter(ProviderAdapter):
 
-    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096):
-        model = self.get_model(tier)
+    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        model = self.get_model(tier, model_override)
         body: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "messages": messages}
         if system:
             body["system"] = system
@@ -113,8 +190,8 @@ class AnthropicAdapter(ProviderAdapter):
             self._mark_error(str(e))
             raise ProviderError(str(e), self.config.name)
 
-    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096):
-        model = self.get_model(tier)
+    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        model = self.get_model(tier, model_override)
         body: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "messages": messages, "stream": True}
         if system:
             body["system"] = system
@@ -135,6 +212,7 @@ class AnthropicAdapter(ProviderAdapter):
 
                 current_tc = None
                 tc_json = ""
+                _stream_usage: dict[str, int] = {}
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue
@@ -163,8 +241,15 @@ class AnthropicAdapter(ProviderAdapter):
                             yield {"type": "tool_call", "tool_call": ToolCall(id=current_tc["id"], name=current_tc["name"], input=inp), "provider": self.config.name, "model": model}
                             current_tc = None
                             tc_json = ""
+                    elif et == "message_delta":
+                        usage = ev.get("usage", {})
+                        if usage:
+                            _stream_usage["output_tokens"] = usage.get("output_tokens", 0)
+                    elif et == "message_start":
+                        msg = ev.get("message", {})
+                        _stream_usage.update(msg.get("usage", {}))
                     elif et == "message_stop":
-                        yield {"type": "done", "provider": self.config.name, "model": model}
+                        yield {"type": "done", "provider": self.config.name, "model": model, "usage": _stream_usage}
                 self._mark_success()
         except httpx.TimeoutException:
             self._mark_error("timeout")
@@ -185,6 +270,12 @@ class AnthropicAdapter(ProviderAdapter):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class OpenAIAdapter(ProviderAdapter):
+
+    def _get_headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self.config.api_key}",
+            "Content-Type": "application/json",
+        }
 
     def _convert_msgs(self, messages: list[dict], system: str) -> list[dict]:
         out = []
@@ -219,8 +310,8 @@ class OpenAIAdapter(ProviderAdapter):
                 out.append({"role": role, "content": content})
         return out
 
-    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096):
-        model = self.get_model(tier)
+    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        model = self.get_model(tier, model_override)
         converted = self._convert_msgs(messages, system)
         body: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "messages": converted}
         if tools:
@@ -228,7 +319,7 @@ class OpenAIAdapter(ProviderAdapter):
         try:
             resp = await self.client.post(
                 f"{self.config.base_url}/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"},
+                headers=self._get_headers(),
                 json=body,
             )
             if resp.status_code == 429:
@@ -255,16 +346,17 @@ class OpenAIAdapter(ProviderAdapter):
             self._mark_error("timeout")
             raise ProviderError("timeout", self.config.name)
 
-    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096):
-        model = self.get_model(tier)
+    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        model = self.get_model(tier, model_override)
         converted = self._convert_msgs(messages, system)
-        body: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "messages": converted, "stream": True}
+        body: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "messages": converted, "stream": True,
+                                "stream_options": {"include_usage": True}}
         if tools:
             body["tools"] = [t.to_openai_schema() for t in tools]
         try:
             async with self.client.stream(
                 "POST", f"{self.config.base_url}/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.config.api_key}", "Content-Type": "application/json"},
+                headers=self._get_headers(),
                 json=body,
             ) as resp:
                 if resp.status_code == 429:
@@ -275,6 +367,7 @@ class OpenAIAdapter(ProviderAdapter):
                     raise ProviderError(f"server_{resp.status_code}", self.config.name)
 
                 tc_buf: dict[int, dict] = {}
+                _stream_usage: dict[str, int] = {}
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue
@@ -287,12 +380,16 @@ class OpenAIAdapter(ProviderAdapter):
                             except json.JSONDecodeError:
                                 parsed = {}
                             yield {"type": "tool_call", "tool_call": ToolCall(id=tc["id"], name=tc["name"], input=parsed), "provider": self.config.name, "model": model}
-                        yield {"type": "done", "provider": self.config.name, "model": model}
+                        yield {"type": "done", "provider": self.config.name, "model": model, "usage": _stream_usage}
                         break
                     try:
                         ev = json.loads(raw)
                     except json.JSONDecodeError:
                         continue
+                    # OpenAI includes usage in the final chunk when stream_options.include_usage is set
+                    if ev.get("usage"):
+                        u = ev["usage"]
+                        _stream_usage = {"input_tokens": u.get("prompt_tokens", 0), "output_tokens": u.get("completion_tokens", 0)}
                     choices = ev.get("choices", [])
                     if not choices:
                         continue
@@ -349,8 +446,8 @@ class GoogleAdapter(ProviderAdapter):
                     contents.append({"role": role, "parts": parts})
         return contents, sys_inst
 
-    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096):
-        model = self.get_model(tier)
+    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        model = self.get_model(tier, model_override)
         contents, sys_inst = self._convert_msgs(messages, system)
         body: dict[str, Any] = {"contents": contents, "generationConfig": {"maxOutputTokens": max_tokens}}
         if sys_inst:
@@ -387,8 +484,8 @@ class GoogleAdapter(ProviderAdapter):
             self._mark_error("timeout")
             raise ProviderError("timeout", self.config.name)
 
-    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096):
-        model = self.get_model(tier)
+    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        model = self.get_model(tier, model_override)
         contents, sys_inst = self._convert_msgs(messages, system)
         body: dict[str, Any] = {"contents": contents, "generationConfig": {"maxOutputTokens": max_tokens}}
         if sys_inst:
@@ -403,6 +500,7 @@ class GoogleAdapter(ProviderAdapter):
                 if resp.status_code == 429:
                     self._mark_error("rate_limited")
                     raise ProviderError("rate_limited", self.config.name)
+                _stream_usage: dict[str, int] = {}
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
                         continue
@@ -410,6 +508,10 @@ class GoogleAdapter(ProviderAdapter):
                         ev = json.loads(line[6:])
                     except json.JSONDecodeError:
                         continue
+                    # Google returns usageMetadata in the final chunk
+                    um = ev.get("usageMetadata")
+                    if um:
+                        _stream_usage = {"input_tokens": um.get("promptTokenCount", 0), "output_tokens": um.get("candidatesTokenCount", 0)}
                     cands = ev.get("candidates", [])
                     if not cands:
                         continue
@@ -419,7 +521,7 @@ class GoogleAdapter(ProviderAdapter):
                         elif "functionCall" in p:
                             fc = p["functionCall"]
                             yield {"type": "tool_call", "tool_call": ToolCall(name=fc["name"], input=fc.get("args", {})), "provider": self.config.name, "model": model}
-                yield {"type": "done", "provider": self.config.name, "model": model}
+                yield {"type": "done", "provider": self.config.name, "model": model, "usage": _stream_usage}
                 self._mark_success()
         except httpx.TimeoutException:
             self._mark_error("timeout")
@@ -427,15 +529,146 @@ class GoogleAdapter(ProviderAdapter):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# AWS BEDROCK ADAPTER
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class BedrockAdapter(ProviderAdapter):
+    """AWS Bedrock — Claude, Llama, Mistral via AWS managed endpoints."""
+
+    BEDROCK_MODELS = {
+        "claude-sonnet": "anthropic.claude-sonnet-4-20250514-v1:0",
+        "claude-haiku": "anthropic.claude-haiku-4-5-20251001-v1:0",
+        "llama3-70b": "meta.llama3-70b-instruct-v1:0",
+        "mistral-large": "mistral.mistral-large-2407-v1:0",
+    }
+
+    def __init__(self, config: ProviderConfig):
+        super().__init__(config)
+        self._boto_client = None
+
+    def _get_boto_client(self):
+        if self._boto_client:
+            return self._boto_client
+        try:
+            import boto3
+            import os
+            region = os.getenv("AWS_BEDROCK_REGION", "us-east-1")
+            self._boto_client = boto3.client("bedrock-runtime", region_name=region)
+            return self._boto_client
+        except ImportError:
+            logger.warning("boto3 not installed — Bedrock unavailable")
+            return None
+        except Exception as e:
+            logger.error(f"Bedrock client init failed: {e}")
+            return None
+
+    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        client = self._get_boto_client()
+        if not client:
+            raise ProviderError("boto3_unavailable", self.config.name)
+
+        model = self.get_model(tier, model_override)
+        model_id = self.BEDROCK_MODELS.get(model, model)
+
+        try:
+            if "anthropic" in model_id:
+                body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": max_tokens, "messages": messages}
+                if system:
+                    body["system"] = system
+                if tools:
+                    body["tools"] = [t.to_anthropic_schema() for t in tools]
+
+                resp = client.invoke_model(modelId=model_id, body=json.dumps(body), contentType="application/json")
+                data = json.loads(resp["body"].read())
+                self._mark_success()
+
+                text_parts, tool_calls = [], []
+                for blk in data.get("content", []):
+                    if blk["type"] == "text":
+                        text_parts.append(blk["text"])
+                    elif blk["type"] == "tool_use":
+                        tool_calls.append(ToolCall(id=blk["id"], name=blk["name"], input=blk.get("input", {})))
+
+                return {"text": "".join(text_parts), "tool_calls": tool_calls, "stop_reason": data.get("stop_reason", ""), "provider": self.config.name, "model": model_id, "usage": data.get("usage", {})}
+            else:
+                body = {"inputText": messages[-1].get("content", "") if messages else ""}
+                resp = client.invoke_model(modelId=model_id, body=json.dumps(body), contentType="application/json")
+                data = json.loads(resp["body"].read())
+                self._mark_success()
+                return {"text": str(data), "tool_calls": [], "stop_reason": "end_turn", "provider": self.config.name, "model": model_id, "usage": {}}
+
+        except Exception as e:
+            self._mark_error(str(e))
+            raise ProviderError(str(e), self.config.name)
+
+    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None):
+        client = self._get_boto_client()
+        if not client:
+            raise ProviderError("boto3_unavailable", self.config.name)
+
+        model = self.get_model(tier, model_override)
+        model_id = self.BEDROCK_MODELS.get(model, model)
+
+        try:
+            if "anthropic" in model_id:
+                body = {"anthropic_version": "bedrock-2023-05-31", "max_tokens": max_tokens, "messages": messages}
+                if system:
+                    body["system"] = system
+                if tools:
+                    body["tools"] = [t.to_anthropic_schema() for t in tools]
+
+                resp = client.invoke_model_with_response_stream(modelId=model_id, body=json.dumps(body), contentType="application/json")
+                _stream_usage: dict[str, int] = {}
+                for event in resp.get("body", []):
+                    chunk = json.loads(event.get("chunk", {}).get("bytes", b"{}"))
+                    if chunk.get("type") == "content_block_delta":
+                        delta = chunk.get("delta", {})
+                        if delta.get("type") == "text_delta":
+                            yield {"type": "text", "text": delta["text"], "provider": self.config.name, "model": model_id}
+                    elif chunk.get("type") == "message_delta":
+                        _stream_usage["output_tokens"] = chunk.get("usage", {}).get("output_tokens", 0)
+                    elif chunk.get("type") == "message_start":
+                        _stream_usage.update(chunk.get("message", {}).get("usage", {}))
+                    elif chunk.get("type") == "message_stop":
+                        yield {"type": "done", "provider": self.config.name, "model": model_id, "usage": _stream_usage}
+                self._mark_success()
+        except Exception as e:
+            self._mark_error(str(e))
+            raise ProviderError(str(e), self.config.name)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# OPENROUTER ADAPTER (unified gateway — all models via OpenAI-compatible API)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class OpenRouterAdapter(OpenAIAdapter):
+    """OpenRouter — one API key for all LLM providers (Anthropic, OpenAI, Google, etc.)."""
+
+    def _get_headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self.config.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://omnios.ai",
+            "X-Title": "Omni OS",
+        }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MODEL ROUTER
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class ModelRouter:
-    """Routes LLM requests with automatic failover: Anthropic → OpenAI → Google."""
+    """Routes LLM requests with automatic failover. OpenRouter → Anthropic → OpenAI → Google."""
 
     def __init__(self):
         self.adapters: list[ProviderAdapter] = []
-        adapter_map = {"anthropic": AnthropicAdapter, "openai": OpenAIAdapter, "google": GoogleAdapter}
+        adapter_map = {
+            "openrouter": OpenRouterAdapter,
+            "anthropic": AnthropicAdapter,
+            "bedrock": BedrockAdapter,
+            "openai": OpenAIAdapter,
+            "google": GoogleAdapter,
+        }
         for pc in settings.providers:
             cls = adapter_map.get(pc.name)
             if cls and pc.enabled:
@@ -444,14 +677,14 @@ class ModelRouter:
         if not self.adapters:
             logger.warning("No LLM providers configured!")
 
-    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096) -> dict:
+    async def complete(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None) -> dict:
         available = [a for a in self.adapters if a.is_available]
         if not available:
             raise AllProvidersFailedError([ProviderError("all_in_cooldown", a.config.name) for a in self.adapters])
         errors = []
         for adapter in available:
             try:
-                result = await adapter.complete(messages, system, tools, tier, max_tokens)
+                result = await adapter.complete(messages, system, tools, tier, max_tokens, model_override)
                 logger.info(f"Completed via {adapter.config.name} ({result.get('model')})")
                 return result
             except ProviderError as e:
@@ -459,14 +692,14 @@ class ModelRouter:
                 logger.warning(f"Failover: {adapter.config.name} → next")
         raise AllProvidersFailedError(errors)
 
-    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096) -> AsyncGenerator[dict, None]:
+    async def complete_stream(self, messages, system="", tools=None, tier=Tier.STANDARD, max_tokens=4096, model_override=None) -> AsyncGenerator[dict, None]:
         available = [a for a in self.adapters if a.is_available]
         if not available:
             raise AllProvidersFailedError([ProviderError("all_in_cooldown", a.config.name) for a in self.adapters])
         errors = []
         for adapter in available:
             try:
-                async for chunk in adapter.complete_stream(messages, system, tools, tier, max_tokens):
+                async for chunk in adapter.complete_stream(messages, system, tools, tier, max_tokens, model_override):
                     yield chunk
                 return
             except ProviderError as e:
