@@ -7,10 +7,233 @@ from __future__ import annotations
 import json
 
 
-async def _build_metrics_hierarchy(service: str = "", business_model: str = "retainer") -> str:
-    """Build North Star → L1 → L2 → Leading indicators hierarchy."""
-    return json.dumps({
-        "north_star": "Monthly Recurring Revenue (MRR)" if business_model == "retainer" else "Monthly Revenue",
+async def _build_metrics_hierarchy(service: str = "", business_model: str = "") -> str:
+    """Build North Star → L1 → L2 → Leading indicators hierarchy, adapted to business model."""
+    bm = (business_model or "").lower()
+
+    MODEL_METRICS = {
+        "saas": {
+            "north_star": "Monthly Recurring Revenue (MRR)",
+            "l1_metrics": [
+                {"metric": "MRR Growth Rate", "target": ">10% MoM", "source": "Billing"},
+                {"metric": "Monthly Churn Rate", "target": "<5%", "source": "Billing"},
+                {"metric": "Average Revenue Per Account", "target": "Varies", "source": "Billing"},
+                {"metric": "Gross Margin", "target": ">70%", "source": "Accounting"},
+            ],
+            "l2_metrics": [
+                {"metric": "Customer Acquisition Cost", "target": "<12mo LTV", "source": "Marketing + Sales"},
+                {"metric": "Lifetime Value", "target": ">3x CAC", "source": "Billing"},
+                {"metric": "Net Dollar Retention", "target": ">100%", "source": "Billing"},
+                {"metric": "Trial-to-Paid Conversion", "target": ">15%", "source": "Product"},
+                {"metric": "Time to Value", "target": "<24 hours", "source": "Product"},
+            ],
+            "leading_indicators": [
+                {"metric": "Signups/Week", "source": "Product"},
+                {"metric": "Activation Rate", "source": "Product"},
+                {"metric": "Feature Adoption", "source": "Analytics"},
+                {"metric": "Support Tickets", "source": "Helpdesk"},
+                {"metric": "NPS Score", "source": "Survey"},
+            ],
+        },
+        "agency": {
+            "north_star": "Revenue Per Client",
+            "l1_metrics": [
+                {"metric": "New Clients/Month", "target": "3-5", "source": "CRM"},
+                {"metric": "Client Retention Rate", "target": ">90%", "source": "CRM"},
+                {"metric": "Average Revenue Per Client", "target": "Varies", "source": "Billing"},
+                {"metric": "Utilization Rate", "target": ">75%", "source": "Time Tracking"},
+            ],
+            "l2_metrics": [
+                {"metric": "Lead-to-Client Conversion Rate", "target": "15-25%", "source": "CRM"},
+                {"metric": "Sales Cycle Length (days)", "target": "<30", "source": "CRM"},
+                {"metric": "Gross Margin Per Client", "target": ">50%", "source": "Accounting"},
+                {"metric": "Lifetime Value", "target": ">3x CAC", "source": "Billing + CRM"},
+                {"metric": "Net Promoter Score", "target": ">50", "source": "Survey"},
+            ],
+            "leading_indicators": [
+                {"metric": "Qualified Leads/Week", "source": "Marketing"},
+                {"metric": "Discovery Calls/Week", "source": "Calendar"},
+                {"metric": "Proposals Sent/Week", "source": "CRM"},
+                {"metric": "Content Published/Week", "source": "CMS"},
+                {"metric": "Referrals Received/Month", "source": "CRM"},
+            ],
+        },
+        "ecommerce": {
+            "north_star": "Revenue Per Visitor",
+            "l1_metrics": [
+                {"metric": "Average Order Value", "target": "Varies", "source": "Shopify/Stripe"},
+                {"metric": "Conversion Rate", "target": ">2.5%", "source": "Analytics"},
+                {"metric": "Return on Ad Spend (ROAS)", "target": ">3x", "source": "Ads"},
+                {"metric": "Gross Margin", "target": ">40%", "source": "Accounting"},
+            ],
+            "l2_metrics": [
+                {"metric": "Cart Abandonment Rate", "target": "<65%", "source": "Analytics"},
+                {"metric": "Customer Acquisition Cost", "target": "<30% of AOV", "source": "Marketing"},
+                {"metric": "Repeat Purchase Rate", "target": ">25%", "source": "CRM"},
+                {"metric": "Inventory Turnover", "target": ">6x/year", "source": "Inventory"},
+                {"metric": "Refund Rate", "target": "<5%", "source": "Support"},
+            ],
+            "leading_indicators": [
+                {"metric": "Traffic/Day", "source": "Analytics"},
+                {"metric": "Add-to-Cart Rate", "source": "Analytics"},
+                {"metric": "Email List Growth", "source": "ESP"},
+                {"metric": "Social Engagement", "source": "Social tools"},
+                {"metric": "Product Page Views", "source": "Analytics"},
+            ],
+        },
+        "marketplace": {
+            "north_star": "Gross Merchandise Volume (GMV)",
+            "l1_metrics": [
+                {"metric": "Take Rate", "target": "10-25%", "source": "Billing"},
+                {"metric": "Supply/Demand Ratio", "target": "Balanced", "source": "Platform"},
+                {"metric": "Repeat Usage Rate", "target": ">40%", "source": "Product"},
+                {"metric": "Liquidity Score", "target": ">70%", "source": "Product"},
+            ],
+            "l2_metrics": [
+                {"metric": "Time to First Transaction", "target": "<7 days", "source": "Product"},
+                {"metric": "Buyer CAC", "target": "Varies", "source": "Marketing"},
+                {"metric": "Seller CAC", "target": "Varies", "source": "Marketing"},
+                {"metric": "Dispute Rate", "target": "<2%", "source": "Support"},
+                {"metric": "Average Transaction Value", "target": "Varies", "source": "Billing"},
+            ],
+            "leading_indicators": [
+                {"metric": "New Listings/Week", "source": "Platform"},
+                {"metric": "New Buyers/Week", "source": "Platform"},
+                {"metric": "Search-to-Purchase Rate", "source": "Analytics"},
+                {"metric": "Review Submission Rate", "source": "Platform"},
+            ],
+        },
+        "consulting": {
+            "north_star": "Pipeline Value",
+            "l1_metrics": [
+                {"metric": "Average Engagement Size", "target": "Varies", "source": "CRM"},
+                {"metric": "Client Retention Rate", "target": ">85%", "source": "CRM"},
+                {"metric": "Referral Rate", "target": ">30%", "source": "CRM"},
+                {"metric": "Effective Hourly Rate", "target": "Varies", "source": "Time Tracking"},
+            ],
+            "l2_metrics": [
+                {"metric": "Proposal Win Rate", "target": ">40%", "source": "CRM"},
+                {"metric": "Session Completion Rate", "target": ">90%", "source": "Calendar"},
+                {"metric": "Client Satisfaction Score", "target": ">4.5/5", "source": "Survey"},
+                {"metric": "Revenue Per Hour", "target": "Varies", "source": "Billing + Time"},
+            ],
+            "leading_indicators": [
+                {"metric": "Discovery Calls/Week", "source": "Calendar"},
+                {"metric": "Content Published/Week", "source": "CMS"},
+                {"metric": "Speaking Engagements/Quarter", "source": "Calendar"},
+                {"metric": "LinkedIn Engagement", "source": "Social"},
+            ],
+        },
+        "media": {
+            "north_star": "Total Subscribers",
+            "l1_metrics": [
+                {"metric": "Subscriber Growth Rate", "target": ">5% MoM", "source": "ESP/Platform"},
+                {"metric": "Open Rate", "target": ">40%", "source": "ESP"},
+                {"metric": "Engagement Rate", "target": ">5%", "source": "Analytics"},
+                {"metric": "Revenue Per Subscriber", "target": "Varies", "source": "Billing"},
+            ],
+            "l2_metrics": [
+                {"metric": "Free-to-Paid Conversion", "target": ">5%", "source": "Billing"},
+                {"metric": "Sponsorship Revenue/Issue", "target": "Varies", "source": "Billing"},
+                {"metric": "Unsubscribe Rate", "target": "<1%", "source": "ESP"},
+                {"metric": "Content Shares/Post", "target": "Varies", "source": "Analytics"},
+            ],
+            "leading_indicators": [
+                {"metric": "New Subscribers/Week", "source": "ESP"},
+                {"metric": "Content Cadence", "source": "CMS"},
+                {"metric": "Social Followers Growth", "source": "Social"},
+                {"metric": "Cross-Promotion Partnerships", "source": "CRM"},
+            ],
+        },
+        "local": {
+            "north_star": "Monthly Foot Traffic",
+            "l1_metrics": [
+                {"metric": "Average Ticket Size", "target": "Varies", "source": "POS"},
+                {"metric": "Repeat Visit Rate", "target": ">40%", "source": "POS/CRM"},
+                {"metric": "Google Review Score", "target": ">4.5", "source": "Google Business"},
+                {"metric": "Monthly Revenue", "target": "Varies", "source": "POS"},
+            ],
+            "l2_metrics": [
+                {"metric": "New Customers/Month", "target": "Varies", "source": "POS"},
+                {"metric": "Walk-in Conversion Rate", "target": ">60%", "source": "POS"},
+                {"metric": "Local Search Impressions", "target": "Growing", "source": "Google Business"},
+                {"metric": "Review Volume/Month", "target": ">10", "source": "Google Business"},
+            ],
+            "leading_indicators": [
+                {"metric": "Google Business Views", "source": "Google Business"},
+                {"metric": "Local Ad Click-Through", "source": "Ads"},
+                {"metric": "Appointment Bookings", "source": "Calendar"},
+                {"metric": "Social Post Reach", "source": "Social"},
+            ],
+        },
+        "freelance": {
+            "north_star": "Utilization Rate",
+            "l1_metrics": [
+                {"metric": "Effective Hourly Rate", "target": "Varies", "source": "Time Tracking"},
+                {"metric": "Pipeline Value", "target": ">3 months", "source": "CRM"},
+                {"metric": "Client Concentration", "target": "No client >40%", "source": "Billing"},
+                {"metric": "Monthly Revenue", "target": "Varies", "source": "Billing"},
+            ],
+            "l2_metrics": [
+                {"metric": "Proposal Win Rate", "target": ">30%", "source": "CRM"},
+                {"metric": "Average Project Size", "target": "Growing", "source": "Billing"},
+                {"metric": "Repeat Client Rate", "target": ">50%", "source": "CRM"},
+                {"metric": "Days Sales Outstanding", "target": "<15", "source": "Billing"},
+            ],
+            "leading_indicators": [
+                {"metric": "Inbound Inquiries/Week", "source": "Email/CRM"},
+                {"metric": "Portfolio Views", "source": "Analytics"},
+                {"metric": "Referrals Received", "source": "CRM"},
+                {"metric": "LinkedIn Profile Views", "source": "LinkedIn"},
+            ],
+        },
+        "nonprofit": {
+            "north_star": "Donor Retention Rate",
+            "l1_metrics": [
+                {"metric": "Total Donations/Month", "target": "Varies", "source": "Donation Platform"},
+                {"metric": "Grant Revenue/Quarter", "target": "Varies", "source": "Accounting"},
+                {"metric": "Volunteer Engagement", "target": "Growing", "source": "CRM"},
+                {"metric": "Program Impact Score", "target": "Varies", "source": "Impact Reports"},
+            ],
+            "l2_metrics": [
+                {"metric": "Average Gift Size", "target": "Growing", "source": "Donation Platform"},
+                {"metric": "Donor Acquisition Cost", "target": "<1st gift", "source": "Marketing"},
+                {"metric": "Grant Win Rate", "target": ">25%", "source": "CRM"},
+                {"metric": "Recurring Donor %", "target": ">30%", "source": "Donation Platform"},
+            ],
+            "leading_indicators": [
+                {"metric": "Email List Growth", "source": "ESP"},
+                {"metric": "Event RSVPs", "source": "Events"},
+                {"metric": "Social Shares/Post", "source": "Social"},
+                {"metric": "Volunteer Sign-ups", "source": "CRM"},
+            ],
+        },
+        "hardware": {
+            "north_star": "Units Shipped",
+            "l1_metrics": [
+                {"metric": "Gross Margin Per Unit", "target": ">40%", "source": "Accounting"},
+                {"metric": "COGS", "target": "Decreasing", "source": "Manufacturing"},
+                {"metric": "Defect Rate", "target": "<2%", "source": "QC"},
+                {"metric": "Inventory Turns/Year", "target": ">4", "source": "Inventory"},
+            ],
+            "l2_metrics": [
+                {"metric": "Pre-order Conversion", "target": ">10%", "source": "E-commerce"},
+                {"metric": "Return Rate", "target": "<5%", "source": "Support"},
+                {"metric": "Manufacturing Lead Time", "target": "Decreasing", "source": "Supply Chain"},
+                {"metric": "Customer Acquisition Cost", "target": "<margin", "source": "Marketing"},
+            ],
+            "leading_indicators": [
+                {"metric": "Pre-orders/Week", "source": "E-commerce"},
+                {"metric": "Review Score", "source": "Amazon/Shopify"},
+                {"metric": "Production Capacity Utilization", "source": "Manufacturing"},
+                {"metric": "Supplier Quote Trend", "source": "Procurement"},
+            ],
+        },
+    }
+
+    # Fallback for retainer/unrecognized models
+    default_metrics = {
+        "north_star": "Monthly Revenue",
         "l1_metrics": [
             {"metric": "New Clients/Month", "target": "3-5", "source": "CRM"},
             {"metric": "Client Retention Rate", "target": ">90%", "source": "CRM"},
@@ -33,7 +256,13 @@ async def _build_metrics_hierarchy(service: str = "", business_model: str = "ret
             {"metric": "Social Engagement Rate", "source": "Social tools"},
             {"metric": "Content Published/Week", "source": "CMS"},
         ],
-    })
+    }
+
+    # Map retainer to agency for backwards compat
+    if bm == "retainer":
+        bm = "agency"
+
+    return json.dumps(MODEL_METRICS.get(bm, default_metrics))
 
 
 
