@@ -4,7 +4,9 @@ Outcome-based pricing: users pay a % of revenue attributed to agent actions.
 Competes with Polsia's 20% rev-share model.
 """
 from __future__ import annotations
+import asyncio
 import logging
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from pydantic import BaseModel, Field
@@ -113,28 +115,31 @@ class AttributionEngine:
         self._attributions: dict[str, list[RevenueAttribution]] = {}  # campaign_id -> attributions
         self._agent_actions: dict[str, list[dict]] = {}  # campaign_id -> action log
         self._model = "last_touch"
+        # Per-campaign locks for thread-safe attribution (CRITICAL-02 fix)
+        self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     def set_model(self, model: str):
         if model in self.ATTRIBUTION_MODELS:
             self._model = model
 
-    def log_agent_action(self, campaign_id: str, agent_id: str, action_type: str,
-                         run_id: str = "", metadata: dict = None):
+    async def log_agent_action(self, campaign_id: str, agent_id: str, action_type: str,
+                               run_id: str = "", metadata: dict = None):
         """Record an agent action that could later be attributed to revenue."""
-        if campaign_id not in self._agent_actions:
-            self._agent_actions[campaign_id] = []
-        self._agent_actions[campaign_id].append({
-            "agent_id": agent_id,
-            "action_type": action_type,
-            "run_id": run_id,
-            "timestamp": datetime.utcnow(),
-            "metadata": metadata or {},
-        })
+        async with self._locks[campaign_id]:
+            if campaign_id not in self._agent_actions:
+                self._agent_actions[campaign_id] = []
+            self._agent_actions[campaign_id].append({
+                "agent_id": agent_id,
+                "action_type": action_type,
+                "run_id": run_id,
+                "timestamp": datetime.utcnow(),
+                "metadata": metadata or {},
+            })
         logger.debug(f"Logged action: {agent_id}/{action_type} for campaign {campaign_id}")
 
-    def attribute_revenue(self, campaign_id: str, revenue_event_id: str,
-                          amount: float, currency: str = "USD",
-                          window_days: int = 30) -> list[RevenueAttribution]:
+    async def attribute_revenue(self, campaign_id: str, revenue_event_id: str,
+                                amount: float, currency: str = "USD",
+                                window_days: int = 30) -> list[RevenueAttribution]:
         """
         Attribute a revenue event to agent action(s) within the attribution window.
         Returns list of attributions (multiple for linear/time-decay models).
@@ -148,6 +153,14 @@ class AttributionEngine:
         if not actions:
             return []
 
+        async with self._locks[campaign_id]:
+            return self._compute_attributions(
+                campaign_id, revenue_event_id, amount, currency, actions)
+
+    def _compute_attributions(self, campaign_id: str, revenue_event_id: str,
+                               amount: float, currency: str,
+                               actions: list[dict]) -> list[RevenueAttribution]:
+        """Compute and store attributions (must be called under lock)."""
         attributions = []
         if self._model == "last_touch":
             action = actions[-1]

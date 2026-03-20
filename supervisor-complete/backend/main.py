@@ -6,9 +6,10 @@ All endpoint logic lives in routes/*.py modules.
 from __future__ import annotations
 import json
 import logging
+import os
 import time
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
@@ -175,6 +176,59 @@ async def create_session(request: Request):
     return response
 
 
+# -- Emergency Kill Switch API (ASI-10 / MEDIUM-02 fix) -----------------------
+
+from engine import kill_agent, kill_campaign, revive_agent, revive_campaign, list_killed
+from auth import require_permission
+
+@app.post("/admin/kill-agent", tags=["Security"])
+async def api_kill_agent(
+    campaign_id: str, agent_id: str,
+    _user=Depends(require_permission("admin", "write")),
+):
+    """Emergency halt a specific agent in a campaign."""
+    kill_agent(campaign_id, agent_id)
+    return {"status": "killed", "campaign_id": campaign_id, "agent_id": agent_id}
+
+
+@app.post("/admin/kill-campaign", tags=["Security"])
+async def api_kill_campaign(
+    campaign_id: str,
+    _user=Depends(require_permission("admin", "write")),
+):
+    """Emergency halt all agents in a campaign."""
+    kill_campaign(campaign_id)
+    return {"status": "killed", "campaign_id": campaign_id}
+
+
+@app.post("/admin/revive-agent", tags=["Security"])
+async def api_revive_agent(
+    campaign_id: str, agent_id: str,
+    _user=Depends(require_permission("admin", "write")),
+):
+    """Remove kill switch for a specific agent."""
+    revive_agent(campaign_id, agent_id)
+    return {"status": "revived", "campaign_id": campaign_id, "agent_id": agent_id}
+
+
+@app.post("/admin/revive-campaign", tags=["Security"])
+async def api_revive_campaign(
+    campaign_id: str,
+    _user=Depends(require_permission("admin", "write")),
+):
+    """Remove campaign-level kill switch."""
+    revive_campaign(campaign_id)
+    return {"status": "revived", "campaign_id": campaign_id}
+
+
+@app.get("/admin/kill-switches", tags=["Security"])
+async def api_list_kills(
+    _user=Depends(require_permission("admin", "read")),
+):
+    """List all active kill switches."""
+    return list_killed()
+
+
 @app.post("/auth/logout")
 async def logout_session():
     """Clear the session cookie."""
@@ -316,6 +370,18 @@ async def startup_event():
 
     for warning in _startup_warnings:
         logger.warning(f"Startup check: {warning}")
+
+    # HIGH-03 fix: In production, require JWT secret — refuse to start without it
+    app_env = os.environ.get("APP_ENV", "development").lower()
+    if app_env in ("production", "staging") and not settings.supabase_jwt_secret:
+        logger.critical(
+            "FATAL: SUPABASE_JWT_SECRET not set in %s environment. "
+            "Auth middleware will bypass authentication. Refusing to start.", app_env
+        )
+        raise RuntimeError(
+            f"SUPABASE_JWT_SECRET is required in {app_env}. "
+            "Set this environment variable or use APP_ENV=development for local testing."
+        )
 
     # ── Register event bus BEFORE starting scheduler to prevent race ──
     _register_event_bus_actions()

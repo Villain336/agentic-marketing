@@ -706,6 +706,61 @@ async def delete_oauth_app(app_id: str) -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# GOVERNANCE VIOLATIONS (ASI-10 / MEDIUM-04 fix)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def save_governance_violation(violation: dict) -> bool:
+    """Persist a governance policy violation for audit trail."""
+    client = _get_client()
+    if not client:
+        return False
+
+    try:
+        client.table("governance_violations").insert({
+            "id": violation.get("id", ""),
+            "policy_id": violation.get("policy_id", ""),
+            "policy_name": violation.get("policy_name", ""),
+            "action": violation.get("action", ""),
+            "message": violation.get("message", ""),
+            "context_summary": json.dumps(violation.get("context_summary", {})),
+            "created_at": violation.get("timestamp", datetime.utcnow().isoformat()),
+        }).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save governance violation: {e}")
+        return False
+
+
+async def load_governance_violations(
+    policy_id: str = "", limit: int = 100,
+) -> list[dict]:
+    """Load recent governance violations."""
+    client = _get_client()
+    if not client:
+        return []
+
+    try:
+        query = (client.table("governance_violations")
+                 .select("*")
+                 .order("created_at", desc=True)
+                 .limit(limit))
+        if policy_id:
+            query = query.eq("policy_id", policy_id)
+        result = query.execute()
+        rows = result.data or []
+        for row in rows:
+            if isinstance(row.get("context_summary"), str):
+                try:
+                    row["context_summary"] = json.loads(row["context_summary"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        return rows
+    except Exception as e:
+        logger.error(f"Failed to load governance violations: {e}")
+        return []
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # GDPR DELETION SUPPORT
 # ═══════════════════════════════════════════════════════════════════════════════
 

@@ -107,8 +107,13 @@ variable "db_username" {
 }
 
 variable "db_password" {
-  description = "Master password for the RDS instance"
+  description = "Master password for the RDS instance. CRITICAL-09: Use AWS Secrets Manager or terraform.tfvars (git-ignored) — never commit this value."
   type        = string
   default     = ""
   sensitive   = true
+
+  validation {
+    condition     = var.db_password == "" || length(var.db_password) >= 16
+    error_message = "Database password must be at least 16 characters for production security."
+  }
 }

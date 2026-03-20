@@ -25,11 +25,14 @@ spec:
         app.kubernetes.io/part-of: supervisor
         app.kubernetes.io/component: frontend
     spec:
+      # HIGH-08 fix: Dedicated service account
+      serviceAccountName: webapp-sa
       terminationGracePeriodSeconds: 30
       containers:
         - name: webapp
-          image: supervisor-webapp:latest
-          imagePullPolicy: IfNotPresent
+          # HIGH-06 fix: Use immutable tags, NOT :latest
+          image: supervisor-webapp:v0.3.0
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 3000

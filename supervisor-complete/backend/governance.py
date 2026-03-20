@@ -366,11 +366,22 @@ class PolicyEngine:
     # -- Violations log --------------------------------------------------------
 
     def _record_violation(self, violation: PolicyViolation):
-        """Record a violation for audit purposes."""
+        """Record a violation for audit purposes (in-memory + DB persistence)."""
         self._violations.append(violation)
         if len(self._violations) > self._max_violations:
             self._violations = self._violations[-self._max_violations:]
         logger.warning(f"Policy violation: {violation.policy_name} [{violation.action}]")
+        # Persist to database asynchronously (MEDIUM-04 fix)
+        try:
+            import asyncio
+            loop = asyncio.get_running_loop()
+            import db
+            loop.create_task(db.save_governance_violation(violation.model_dump()))
+        except RuntimeError:
+            # No running event loop (e.g., in sync context) — skip DB persistence
+            pass
+        except Exception as e:
+            logger.debug(f"Governance violation DB persistence skipped: {e}")
 
     def list_violations(self, limit: int = 100, policy_id: str = "") -> list[PolicyViolation]:
         """List recent violations, optionally filtered by policy."""

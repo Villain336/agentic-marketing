@@ -18,8 +18,9 @@ def verify_stripe_signature(payload: bytes, signature: str) -> bool:
     """Verify Stripe webhook signature (v1 scheme)."""
     secret = settings.stripe_webhook_secret
     if not secret:
-        logger.debug("Stripe webhook secret not configured — skipping verification")
-        return True  # Allow in dev mode
+        # HIGH-05 fix: fail closed — reject webhooks when secret not configured
+        logger.warning("Stripe webhook secret not configured — rejecting webhook (fail closed)")
+        return False
 
     try:
         # Parse Stripe signature header: t=timestamp,v1=signature
@@ -55,9 +56,8 @@ def verify_sendgrid_signature(payload: bytes, signature: str,
     """Verify SendGrid Event Webhook signature using HMAC-SHA256."""
     verification_key = getattr(settings, 'sendgrid_webhook_verification_key', '') or ''
     if not verification_key:
-        if not settings.sendgrid_api_key:
-            return True  # Allow in dev mode when no keys configured
-        logger.warning("SendGrid webhook verification key not configured — rejecting")
+        # HIGH-05 fix: fail closed for all providers
+        logger.warning("SendGrid webhook verification key not configured — rejecting (fail closed)")
         return False
 
     if not signature or not timestamp:
@@ -82,9 +82,8 @@ def verify_hubspot_signature(payload: bytes, signature: str,
     """Verify HubSpot webhook signature (v3) using HMAC-SHA256."""
     client_secret = secret or getattr(settings, 'hubspot_client_secret', '') or ''
     if not client_secret:
-        if not settings.hubspot_api_key:
-            return True  # Allow in dev mode
-        logger.warning("HubSpot client secret not configured — rejecting")
+        # HIGH-05 fix: fail closed for all providers
+        logger.warning("HubSpot client secret not configured — rejecting (fail closed)")
         return False
 
     if not signature:
